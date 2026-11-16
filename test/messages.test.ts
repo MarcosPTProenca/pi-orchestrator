@@ -55,33 +55,6 @@ test("nome do orquestrador no Herdr: orquestrador-<pasta>, no padrão aceito", a
   assert.equal(orchestratorAgentName("/x/---"), "orquestrador-sessao");
 });
 
-test("sem prazo pedido, o watcher nunca marca timeout (mesmo após horas)", async () => {
-  const { makeHarness, writeReport } = await import("./fakes.ts");
-  const h = makeHarness();
-  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
-  assert.equal(t.deadline_at, null);
-  h.clock.ms += 10 * 3600_000;
-  let calls = 0;
-  h.herdr.waitImpl = async () => {
-    calls++;
-    if (calls === 3) writeReport(t.task_dir, t.task_id, { status: "done", result: "ok" });
-    return { timeout: true };
-  };
-  const ev = await h.orch.watch(t.task_id, new AbortController().signal);
-  assert.equal(ev?.status, "done");
-});
-
-test("prazo explícito continua valendo quando o usuário o pede", async () => {
-  const { makeHarness } = await import("./fakes.ts");
-  const h = makeHarness();
-  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report", timeout_minutes: 5 });
-  h.clock.ms += 6 * 60_000;
-  h.herdr.waitImpl = async () => ({ timeout: true });
-  const ev = await h.orch.watch(t.task_id, new AbortController().signal);
-  assert.equal(ev?.status, "timeout");
-  assert.match(ev?.error ?? "", /prazo definido por você/);
-});
-
 test("horário exibido é o de Brasília (America/Sao_Paulo)", async () => {
   const { formatBrasilia } = await import("../src/index.ts");
   assert.match(formatBrasilia("2026-11-16T19:44:15Z") ?? "", /16\/11\/2026.*16:44/);
@@ -94,4 +67,24 @@ test("nome do worker no Herdr: worker-<projeto>-<id>, no padrão aceito", async 
   assert.equal(n, "worker-adaptative-lea-a1b2c3");
   assert.match(n, /^[a-z][a-z0-9_-]{0,31}$/);
   assert.match(workerAgentName("/x/" + "z".repeat(60), "9f"), /^[a-z][a-z0-9_-]{0,31}$/);
+});
+
+test("sem prazo pedido, refresh nunca marca timeout, mesmo após horas", async () => {
+  const { makeHarness } = await import("./fakes.ts");
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  assert.equal(t.deadline_at, null);
+  h.clock.ms += 10 * 3600_000;
+  assert.equal(await h.orch.refresh(t.task_id), null);
+  assert.equal(h.orch.get(t.task_id).status, "running");
+});
+
+test("prazo explícito: refresh marca timeout quando o usuário pediu", async () => {
+  const { makeHarness } = await import("./fakes.ts");
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report", timeout_minutes: 5 });
+  h.clock.ms += 6 * 60_000;
+  const ev = await h.orch.refresh(t.task_id);
+  assert.equal(ev?.status, "timeout");
+  assert.match(ev?.error ?? "", /prazo definido por você/);
 });

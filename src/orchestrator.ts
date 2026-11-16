@@ -27,6 +27,11 @@ export interface OrchDeps {
   availableModels: () => string[];
   /** true: valida, monta o brief e registra o plano, sem tocar no Herdr. Usado pelos testes de comportamento. */
   dryRun: boolean;
+  /** Webhook do orquestrador: o worker faz POST nele ao terminar. Definido quando o servidor sobe. */
+  hookUrl?: string;
+  hookToken?: string;
+  /** Chamado quando uma tarefa passa a terminal (a fila de PRs usa isso para avançar). */
+  onTerminal?: (taskId: string) => void;
 }
 
 export { MODES, type Mode } from "./intake.ts";
@@ -60,14 +65,8 @@ export interface WatchEvent {
   error: string | null;
 }
 
-const WAIT_CHUNK_MS = 60_000;
-/** Mensagem inicial curta, sem caracteres que o shell do Herdr precise codificar. */
 const LAUNCH_MESSAGE = "Execute a tarefa do brief que voce recebeu no contexto. Ao terminar, chame orch_report.";
 /** Teto para o worker começar a trabalhar após o prompt. Evita ler `idle` anterior ao início. */
-const START_WAIT_MS = 20_000;
-const RETRY_MS = 5_000;
-const MAX_PROMPT_ATTEMPTS = 2;
-const DIAG_LINES = 30;
 
 function isDirectory(path: string): boolean {
   try {
@@ -193,7 +192,12 @@ export class Orchestrator {
         workspaceId: ws.workspace_id,
         cwd: input.project_path,
         label: `${input.role}-${taskId.slice(-6)}`,
-        env: { PI_ORCH_ROLE: "worker", PI_ORCH_TASK_ID: taskId, PI_ORCH_TASK_DIR: taskDir },
+        env: {
+          PI_ORCH_ROLE: "worker",
+          PI_ORCH_TASK_ID: taskId,
+          PI_ORCH_TASK_DIR: taskDir,
+          ...(this.d.hookUrl && this.d.hookToken ? { PI_ORCH_HOOK_URL: this.d.hookUrl, PI_ORCH_HOOK_TOKEN: this.d.hookToken } : {}),
+        },
       });
       tabId = tab.tab_id;
       this.update(taskId, (t) => {
@@ -244,6 +248,7 @@ export class Orchestrator {
         x.notified = false;
         x.error = null;
       });
+      if (report.status !== "blocked") this.d.onTerminal?.(taskId);
     } catch (err) {
       this.update(taskId, (x) => {
         x.status = "failed";
@@ -268,22 +273,44 @@ export class Orchestrator {
   }
 
   private setTerminal(taskId: string, status: TaskStatus, error: string | null): WatchEvent {
-    return this.toEvent(
-      this.update(taskId, (x) => {
-        x.status = status;
-        x.error = error;
-        x.notified = false;
-      }),
-    );
+    const t = this.update(taskId, (x) => {
+      x.status = status;
+      x.error = error;
+      x.notified = false;
+    });
+    this.d.onTerminal?.(taskId);
+    return this.toEvent(t);
   }
 
   /**
-   * Espera o término da execução (ou um bloqueio) sem consumir LLM.
-   * Usa `herdr agent wait` em blocos e devolve um evento quando o estado muda.
-   * Devolve null se o sinal de cancelamento do watcher disparar.
+   * Atualiza uma tarefa a partir do disco (relatório) e do Herdr (pane). Não espera nada.
+   * O worker avisa o orquestrador ao terminar; esta leitura só confirma o estado e detecta perda ou prazo.
    */
-  async watch(taskId: string, signal: AbortSignal): Promise<WatchEvent | null> {
-    return this.watchLoop(taskId, signal);
+  async refresh(taskId: string): Promise<WatchEvent | null> {
+    const t = this.get(taskId);
+    if (!isActive(t.status) || t.status === "blocked") return null;
+    if (this.collect(taskId)) return this.toEvent(this.get(taskId));
+    if (t.deadline_at !== null && this.d.now() >= Date.parse(t.deadline_at)) {
+      return this.setTerminal(taskId, "timeout", `prazo definido por você (${t.deadline_at}) foi atingido; o worker segue rodando`);
+    }
+    const owner = await this.ownership(t);
+    if (owner !== "owned") {
+      return this.setTerminal(taskId, "lost", `pane ${owner === "missing" ? "não existe mais" : "trocou de agente"}`);
+    }
+    return null;
+  }
+
+  /** Registra o endereço do webhook para os workers lançados daqui em diante. */
+  setHook(url: string, token: string): void {
+    this.d.hookUrl = url;
+    this.d.hookToken = token;
+  }
+
+  /** Atualiza todas as tarefas ativas. Chamado por inbox, status e ao iniciar. */
+  async refreshAll(): Promise<void> {
+    for (const t of this.list()) {
+      if (isActive(t.status)) await this.refresh(t.task_id).catch(() => null);
+    }
   }
 
   /**
@@ -303,88 +330,6 @@ export class Orchestrator {
   }
 
   /** Lembrete enviado ao worker que ficou ocioso: uma linha, sem quebras. */
-  private startPrompt(_briefPath: string): string {
-    return LAUNCH_MESSAGE;
-  }
-
-  private async watchLoop(taskId: string, signal: AbortSignal): Promise<WatchEvent | null> {
-    let awaitingStart = true;
-    for (;;) {
-      if (signal.aborted) return null;
-      const t = this.get(taskId);
-      if (t.status !== "running" && t.status !== "starting") return this.toEvent(t);
-
-      if (this.collect(taskId)) return this.toEvent(this.get(taskId));
-
-      const remaining = t.deadline_at === null ? Number.POSITIVE_INFINITY : Date.parse(t.deadline_at) - this.d.now();
-      if (remaining <= 0) {
-        return this.setTerminal(taskId, "timeout", `prazo definido por você (${t.deadline_at}) foi atingido; o worker segue rodando`);
-      }
-
-      let outcome: { reached: string } | { timeout: true };
-      try {
-        if (awaitingStart) {
-          awaitingStart = false;
-          const started = await this.d.herdr.waitAgent(t.worker_id, ["working"], Math.min(START_WAIT_MS, remaining), signal);
-          if ("reached" in started) {
-            this.update(taskId, (x) => {
-              x.worker_started = true;
-            });
-          }
-          if (signal.aborted) return null;
-          if (this.collect(taskId)) return this.toEvent(this.get(taskId));
-        }
-        outcome = await this.d.herdr.waitAgent(
-          t.worker_id,
-          ["idle", "done", "blocked"],
-          Math.min(WAIT_CHUNK_MS, remaining),
-          signal,
-        );
-      } catch (err) {
-        if (signal.aborted) return null;
-        if (this.collect(taskId)) return this.toEvent(this.get(taskId));
-        const owner = await this.ownership(t);
-        if (owner !== "owned") {
-          return this.setTerminal(taskId, "lost", `pane ${owner === "missing" ? "sumiu" : "trocou de agente"}: ${errorMessage(err)}`);
-        }
-        await sleep(RETRY_MS, signal);
-        continue;
-      }
-
-      if (signal.aborted) return null;
-      if (this.collect(taskId)) return this.toEvent(this.get(taskId));
-      if (!("reached" in outcome)) continue;
-
-      if (outcome.reached === "blocked") {
-        return this.toEvent(
-          this.update(taskId, (x) => {
-            x.status = "blocked";
-            x.question = "O agente parou em um prompt de aprovação ou pergunta sem relatório. Verifique o pane.";
-            x.notified = false;
-          }),
-        );
-      }
-      const current = this.get(taskId);
-      if (current.prompt_attempts < MAX_PROMPT_ATTEMPTS) {
-        // Ocioso sem relatório: o brief pode não ter sido consumido ou o worker parou no meio. Reenvia com lembrete.
-        const reminder = "Voce ainda nao chamou orch_report. Execute a tarefa do brief agora e encerre com orch_report.";
-        await this.d.herdr.prompt(current.worker_id, reminder);
-        this.update(taskId, (x) => {
-          x.prompt_attempts += 1;
-        });
-        awaitingStart = true;
-        continue;
-      }
-      const tail = await this.d.herdr.readRecent(current.worker_id, DIAG_LINES).catch(() => "");
-      const lastLines = tail.split("\n").map((l) => l.trim()).filter((l) => l !== "").slice(-4).join(" | ");
-      return this.setTerminal(
-        taskId,
-        "failed",
-        `worker ficou ocioso sem chamar orch_report após ${current.prompt_attempts} envios.${lastLines ? ` Última saída do worker: ${lastLines}` : ""}`,
-      );
-    }
-  }
-
   /** Devolve o aviso pendente e o marca como entregue. Evita repetir o mesmo evento. */
   takeNotice(taskId: string): boolean {
     const t = this.get(taskId);
@@ -395,8 +340,9 @@ export class Orchestrator {
     return true;
   }
 
-  /** Decisões abertas (blocked) e terminais ainda não avisados. Marca os terminais como avisados. */
-  inbox(): WatchEvent[] {
+  /** Decisões abertas (blocked) e terminais ainda não entregues. Atualiza antes; marca os terminais como entregues. */
+  async inbox(): Promise<WatchEvent[]> {
+    await this.refreshAll();
     const items: WatchEvent[] = [];
     for (const t of this.list()) {
       if (t.status === "blocked") items.push(this.toEvent(t));
@@ -441,25 +387,8 @@ export class Orchestrator {
     });
   }
 
-  /** Ao iniciar: reconcilia tarefas ativas com os panes vivos e os relatórios em disco. */
+  /** Ao iniciar: atualiza as tarefas ativas a partir do disco e do Herdr. */
   async reconcile(): Promise<void> {
-    for (const t of this.list()) {
-      if (!isActive(t.status)) continue;
-      if (this.collect(t.task_id)) continue;
-      const owner = await this.ownership(t);
-      if (owner !== "owned") {
-        this.setTerminal(t.task_id, "lost", `pane ${owner === "missing" ? "não existe mais" : "trocou de agente"} ao reconciliar`);
-      }
-    }
+    await this.refreshAll();
   }
-}
-
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => {
-      clearTimeout(timer);
-      resolve();
-    }, { once: true });
-  });
 }

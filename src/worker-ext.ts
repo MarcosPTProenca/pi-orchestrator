@@ -32,6 +32,29 @@ export default function workerExtension(pi: ExtensionAPI): void {
   const taskDir = process.env.PI_ORCH_TASK_DIR;
   if (!taskId || !taskDir) return;
 
+  // Webhook: ao terminar o turno, o worker garante o relatório e avisa o orquestrador por POST.
+  // Sem relatório escrito, grava um de falha. Se o POST falhar, o relatório em disco segue valendo.
+  pi.on("agent_end", async () => {
+    const file = join(taskDir, "report.json");
+    if (!existsSync(file)) {
+      writeFileSync(`${file}.tmp`, JSON.stringify({ task_id: taskId, status: "failed", result: "Encerrou o turno sem chamar orch_report.", question: null, artifacts: [], reported_at: new Date().toISOString() }, null, 2));
+      renameSync(`${file}.tmp`, file);
+    }
+    const url = process.env.PI_ORCH_HOOK_URL;
+    const token = process.env.PI_ORCH_HOOK_TOKEN;
+    if (!url || !token) return;
+    try {
+      await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ task_id: taskId }),
+        signal: AbortSignal.timeout(5_000),
+      });
+    } catch {
+      // Orquestrador fora do ar: o relatório fica em disco e a reconciliação o pega ao iniciar.
+    }
+  });
+
   pi.registerTool({
     name: "orch_report",
     label: "orch report",

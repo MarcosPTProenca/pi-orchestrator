@@ -4,6 +4,8 @@
  * quando há decisão, bloqueio ou conclusão.
  */
 import { execFileSync } from "node:child_process";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { randomBytes } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -119,56 +121,71 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     newHex: () => randomBytes(4).toString("hex"),
     availableModels,
     dryRun,
+    onTerminal: (taskId: string) => {
+      void fixQueue?.settle(taskId);
+    },
   });
 
-  const watchers = new Map<string, AbortController>();
   /** Fila de correções de PR: no máximo N workers em paralelo, avançando quando um termina. */
   let fixQueue: FixQueue<DelegateInput> | undefined;
+  const hookToken = randomBytes(24).toString("hex");
+  let hookServer: Server | undefined;
 
-  const startWatch = (taskId: string): void => {
-    if (dryRun || watchers.has(taskId)) return;
-    const ac = new AbortController();
-    watchers.set(taskId, ac);
-    orch
-      .watch(taskId, ac.signal)
-      .then((event) => {
-        watchers.delete(taskId);
-        if (event && TERMINAL.has(event.status)) void fixQueue?.settle(taskId);
-        if (event && orch.takeNotice(taskId)) {
-          // Conclusão, decisão e falha viram um turno do orquestrador, que resume ao usuário.
-          // O conteúdo bruto não aparece no terminal (display: false).
-          pi.sendMessage(
-            { customType: "orch-event", content: modelMessageFor(event), display: false, details: event },
-            { triggerTurn: true },
-          );
+  /**
+   * Webhook: o worker faz POST aqui ao terminar. A ligação é local (127.0.0.1) e exige o token.
+   * O POST só diz qual tarefa terminou; o estado vem do relatório em disco.
+   */
+  const startHook = (): Promise<void> => {
+    if (dryRun || hookServer) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      hookServer = createServer((req, res) => {
+        if (req.method !== "POST" || req.url !== "/hook" || req.headers.authorization !== `Bearer ${hookToken}`) {
+          res.writeHead(401).end();
+          return;
         }
-      })
-      .catch((err: unknown) => {
-        watchers.delete(taskId);
-        pi.sendMessage(
-          { customType: "orch-event", content: `[orquestrador] watcher de ${taskId} falhou: ${String(err)}`, display: true },
-          { triggerTurn: false },
-        );
+        let body = "";
+        req.on("data", (chunk) => (body += chunk));
+        req.on("end", () => {
+          void (async () => {
+            try {
+              const { task_id } = JSON.parse(body) as { task_id: string };
+              const event = await orch.refresh(task_id);
+              res.writeHead(200).end("ok");
+              if (event && orch.takeNotice(task_id)) {
+                pi.sendMessage(
+                  { customType: "orch-event", content: modelMessageFor(event), display: false, details: event },
+                  { triggerTurn: true },
+                );
+              }
+            } catch {
+              res.writeHead(400).end();
+            }
+          })();
+        });
       });
+      hookServer.once("error", reject);
+      hookServer.listen(Number(process.env.PI_ORCH_HOOK_PORT ?? 0), "127.0.0.1", () => {
+        const { port } = hookServer!.address() as AddressInfo;
+        orch.setHook(`http://127.0.0.1:${port}/hook`, hookToken);
+        resolve();
+      });
+    });
   };
 
   const startTask = async (input: DelegateInput): Promise<string> => {
     const task = await orch.delegate(input);
-    startWatch(task.task_id);
     return task.task_id;
   };
 
   pi.on("session_start", async (_event, ctx) => {
     if (dryRun) return;
+    await startHook();
     // Nome visível no painel do Herdr: mostra que é o orquestrador e em qual pasta. Falha é ignorada.
     const pane = process.env.HERDR_PANE_ID;
     if (pane) {
       execFile("herdr", ["agent", "rename", pane, orchestratorAgentName(ctx.cwd)], { timeout: 15_000 }, () => undefined);
     }
     await orch.reconcile();
-    for (const t of orch.list()) {
-      if (t.status === "running" || t.status === "starting") startWatch(t.task_id);
-    }
   });
 
   pi.on("before_agent_start", (event) => {
@@ -177,8 +194,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("session_shutdown", () => {
-    for (const ac of watchers.values()) ac.abort();
-    watchers.clear();
+    hookServer?.close();
+    hookServer = undefined;
   });
 
   pi.registerTool({
@@ -201,7 +218,6 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       // Sequencial de propósito: a criação do workspace do projeto não pode correr em paralelo.
       for (const input of inputs) {
         const task = await orch.delegate(input);
-        startWatch(task.task_id);
         started.push({
           task_id: task.task_id,
           role: task.role,
@@ -274,6 +290,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     description: "Lista as tarefas e seus estados a partir do estado local. Não consome LLM nem consulta workers.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
     async execute() {
+      await orch.refreshAll();
       return asText(
         orch.list().map((t) => ({
           task_id: t.task_id,
@@ -295,7 +312,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     description: "Mostra decisões abertas (bloqueadas) e tarefas concluídas, falhas ou expiradas ainda não avisadas. Cada aviso terminal aparece uma vez.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
     async execute() {
-      return asText(orch.inbox());
+      return asText(await orch.inbox());
     },
   });
 
@@ -311,7 +328,6 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     },
     async execute(_id: string, params: { task_id: string; answer: string }) {
       const task = await orch.answer(params.task_id, params.answer);
-      startWatch(task.task_id);
       return asText({ task_id: task.task_id, status: task.status });
     },
   });
@@ -344,7 +360,6 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     },
     async execute(_id: string, params: { task_id: string }) {
       const task = await orch.cancel(params.task_id);
-      watchers.get(params.task_id)?.abort();
       void fixQueue?.settle(params.task_id);
       return asText({ task_id: task.task_id, status: task.status });
     },

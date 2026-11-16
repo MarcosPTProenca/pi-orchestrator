@@ -71,26 +71,6 @@ test("a tab seed fica como âncora do projeto: nenhuma tab é fechada ao criar t
   assert.ok(h.herdr.panesList.some((p) => p.pane_id.startsWith(`${t.workspace_id}:`)));
 });
 
-test("tarefas do mesmo projeto reutilizam o workspace; projetos diferentes ganham outro", async () => {
-  const h = makeHarness();
-  const a = await h.orch.delegate({ project_path: h.project, role: "a", request: "1", objective: "1", mode: "report" });
-  h.herdr.waitImpl = async () => ({ timeout: true });
-  h.clock.ms += 1;
-  writeReport(a.task_dir, a.task_id, { status: "done", result: "ok" });
-  await h.orch.watch(a.task_id, new AbortController().signal);
-  const b = await h.orch.delegate({ project_path: h.project, role: "b", request: "2", objective: "2", mode: "report" });
-  assert.equal(b.workspace_id, a.workspace_id);
-  assert.equal(h.herdr.opsOf("createWorkspace").length, 1);
-
-  const other = mkdtempSync(join(tmpdir(), "orch-other-"));
-  mkdirSync(join(other, ".git"));
-  writeReport(b.task_dir, b.task_id, { status: "done", result: "ok" }, "x2");
-  await h.orch.watch(b.task_id, new AbortController().signal);
-  const c = await h.orch.delegate({ project_path: other, role: "c", request: "3", objective: "3", mode: "report" });
-  assert.notEqual(c.workspace_id, a.workspace_id);
-  assert.equal(h.herdr.opsOf("createWorkspace").length, 2);
-});
-
 test("se o workspace do projeto sumiu, cria outro (estado não aponta para workspace fantasma)", async () => {
   const h = makeHarness();
   const a = await h.orch.delegate({ project_path: h.project, role: "a", request: "1", objective: "1", mode: "report" });
@@ -128,22 +108,6 @@ test("falha ao iniciar o worker fecha só a tab da tarefa e marca failed", async
   assert.equal(failed.status, "failed");
 });
 
-test("done NÃO fecha a tab: quem fecha é o orquestrador via close, depois de validar", async () => {
-  const h = makeHarness();
-  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report" });
-  h.herdr.waitImpl = async () => {
-    writeReport(t.task_dir, t.task_id, { status: "done", result: "ok" });
-    return { reached: "idle" };
-  };
-  await h.orch.watch(t.task_id, new AbortController().signal);
-  assert.equal(h.herdr.opsOf("closeTab").length, 0, "conclusão não fecha tab");
-  assert.ok(h.herdr.panesList.some((p) => p.pane_id === t.pane_id), "pane da tarefa segue aberto");
-  await h.orch.close(t.task_id);
-  assert.equal(h.herdr.opsOf("closeTab").at(-1)?.args, t.tab_id);
-  assert.equal(h.herdr.panesList.some((p) => p.pane_id === t.pane_id), false);
-  assert.match(readFileSync(join(t.task_dir, "report.json"), "utf8"), /"status":"done"/);
-});
-
 test("close recusa tab trocada (terminal_id diferente)", async () => {
   const h = makeHarness();
   const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report" });
@@ -153,107 +117,10 @@ test("close recusa tab trocada (terminal_id diferente)", async () => {
   assert.equal(h.herdr.opsOf("closeTab").length, before);
 });
 
-test("failed e blocked não fecham a tab (para inspeção)", async () => {
-  const h = makeHarness();
-  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report" });
-  h.herdr.waitImpl = async () => ({ reached: "idle" });
-  const before = h.herdr.opsOf("closeTab").length;
-  await h.orch.watch(t.task_id, new AbortController().signal);
-  assert.equal(h.orch.get(t.task_id).status, "failed");
-  assert.equal(h.herdr.opsOf("closeTab").length, before);
-});
-
-test("watch devolve done com resultado e dedupe impede aviso repetido", async () => {
-  const h = makeHarness();
-  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report" });
-  h.herdr.waitImpl = async () => {
-    writeReport(t.task_dir, t.task_id, { status: "done", result: "achei 3 falhas", artifacts: ["/r.md"] });
-    return { reached: "idle" };
-  };
-  const ev = await h.orch.watch(t.task_id, new AbortController().signal);
-  assert.equal(ev?.status, "done");
-  assert.equal(ev?.result, "achei 3 falhas");
-  assert.equal(h.orch.takeNotice(t.task_id), true);
-  assert.equal(h.orch.takeNotice(t.task_id), false);
-  assert.equal(h.orch.inbox().length, 0, "terminal já avisado não reaparece no inbox");
-  assert.equal(h.orch.collect(t.task_id), false, "mesmo relatório não é reprocessado");
-});
-
-test("watch espera 'working' antes de aceitar 'idle' (evita ler o idle anterior ao início)", async () => {
-  const h = makeHarness();
-  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report" });
-  const seen: string[][] = [];
-  h.herdr.waitImpl = async (_target, until) => {
-    seen.push(until);
-    if (until.includes("working")) return { reached: "working" };
-    writeReport(t.task_dir, t.task_id, { status: "done", result: "ok" });
-    return { reached: "idle" };
-  };
-  const ev = await h.orch.watch(t.task_id, new AbortController().signal);
-  assert.equal(ev?.status, "done");
-  assert.deepEqual(seen[0], ["working"]);
-  assert.ok(seen[1].includes("idle"));
-});
-
-test("bloqueio: pergunta aparece no inbox, resposta reabre o worker e novo relatório conclui", async () => {
-  const h = makeHarness();
-  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report" });
-  h.herdr.waitImpl = async () => {
-    writeReport(t.task_dir, t.task_id, { status: "blocked", question: "Usar A ou B?" }, "1");
-    return { reached: "blocked" };
-  };
-  const ev = await h.orch.watch(t.task_id, new AbortController().signal);
-  assert.equal(ev?.status, "blocked");
-  assert.equal(ev?.question, "Usar A ou B?");
-  assert.deepEqual(h.orch.inbox().map((i) => i.status), ["blocked"]);
-  assert.deepEqual(h.orch.inbox().map((i) => i.status), ["blocked"], "decisão aberta continua no inbox");
-
-  await h.orch.answer(t.task_id, "Use A");
-  const sent = h.herdr.opsOf("prompt").at(-1)?.args as { target: string; text: string };
-  assert.equal(sent.text, "Use A");
-  assert.equal(h.orch.get(t.task_id).status, "running");
-
-  h.herdr.waitImpl = async () => {
-    writeReport(t.task_dir, t.task_id, { status: "done", result: "feito com A" }, "2");
-    return { reached: "idle" };
-  };
-  const done = await h.orch.watch(t.task_id, new AbortController().signal);
-  assert.equal(done?.status, "done");
-});
-
 test("answer rejeita tarefa que não está bloqueada", async () => {
   const h = makeHarness();
   const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report" });
   await assert.rejects(h.orch.answer(t.task_id, "oi"), /não está bloqueada/);
-});
-
-test("worker ocioso sem nunca ter trabalhado recebe o brief uma única vez de novo", async () => {
-  const h = makeHarness();
-  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report" });
-  let round = 0;
-  h.herdr.waitImpl = async (_target, until) => {
-    if (until.includes("working")) return { timeout: true };
-    round++;
-    if (round === 2) writeReport(t.task_dir, t.task_id, { status: "done", result: "ok" });
-    return { reached: "idle" };
-  };
-  const ev = await h.orch.watch(t.task_id, new AbortController().signal);
-  assert.equal(ev?.status, "done");
-  assert.equal(h.herdr.opsOf("prompt").length, 1, "um único reenvio com lembrete (o brief inicial vai no lançamento)");
-  assert.equal(h.orch.get(t.task_id).prompt_attempts, 2);
-});
-
-test("worker que já trabalhou e ficou ocioso sem relatório recebe um lembrete, depois falha com a última saída", async () => {
-  const h = makeHarness();
-  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report" });
-  h.herdr.recentText = "Marcos, sem pedido ainda. O que precisa?";
-  h.herdr.waitImpl = async (_t, until) => (until.includes("working") ? { reached: "working" } : { reached: "idle" });
-  const ev = await h.orch.watch(t.task_id, new AbortController().signal);
-  assert.equal(ev?.status, "failed");
-  assert.equal(h.herdr.opsOf("prompt").length, 1, "um reenvio com lembrete");
-  const reminder = (h.herdr.opsOf("prompt")[0].args as { text: string }).text;
-  assert.match(reminder, /ainda nao chamou orch_report/);
-  assert.match(ev?.error ?? "", /Última saída do worker: Marcos, sem pedido ainda/);
 });
 
 test("brief manda o worker arrendar a própria worktree; o orquestrador não arrenda", async () => {
@@ -288,36 +155,6 @@ test("delegate recusa project_path que não é raiz de repositório git (ex.: di
   assert.equal(h.herdr.opsOf("createTab").length, 0);
 });
 
-
-test("worker ocioso sem orch_report vira failed", async () => {
-  const h = makeHarness();
-  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report" });
-  h.herdr.waitImpl = async () => ({ reached: "idle" });
-  const ev = await h.orch.watch(t.task_id, new AbortController().signal);
-  assert.equal(ev?.status, "failed");
-  assert.match(ev?.error ?? "", /sem chamar orch_report/);
-});
-
-test("timeout de bloco não encerra; prazo vencido marca timeout sem fechar a tab", async () => {
-  const h = makeHarness();
-  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report", timeout_minutes: 1 });
-  const before = h.herdr.opsOf("closeTab").length;
-  h.herdr.waitImpl = async () => {
-    h.clock.ms += 61_000;
-    return { timeout: true };
-  };
-  const ev = await h.orch.watch(t.task_id, new AbortController().signal);
-  assert.equal(ev?.status, "timeout");
-  assert.equal(h.herdr.opsOf("closeTab").length, before);
-});
-
-test("watch é encerrado pelo AbortSignal sem evento", async () => {
-  const h = makeHarness();
-  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report" });
-  const ac = new AbortController();
-  ac.abort();
-  assert.equal(await h.orch.watch(t.task_id, ac.signal), null);
-});
 
 test("cancel fecha só a tab da tarefa; outra tarefa e o workspace permanecem", async () => {
   const h = makeHarness();
@@ -505,4 +342,82 @@ test("modo design: fluxo grill/plan/spec/tickets, oracle com regra de fatias ver
   assert.match(brief, /fatias verticais/);
   assert.match(brief, /Fatia horizontal .* é reprovada/);
   assert.match(brief, /Tracker de issues do projeto: plane/);
+});
+
+test("refresh lê o relatório em disco: done vira evento uma vez, e depois não repete", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  writeReport(t.task_dir, t.task_id, { status: "done", result: "achei 3 falhas", artifacts: ["/r.md"] });
+  const ev = await h.orch.refresh(t.task_id);
+  assert.equal(ev?.status, "done");
+  assert.equal(ev?.result, "achei 3 falhas");
+  assert.equal(await h.orch.refresh(t.task_id), null, "mesmo relatório não gera evento de novo");
+  assert.equal(h.orch.takeNotice(t.task_id), true);
+  assert.equal(h.orch.takeNotice(t.task_id), false);
+});
+
+test("bloqueio: refresh traz a pergunta; resposta reabre; novo relatório conclui", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  writeReport(t.task_dir, t.task_id, { status: "blocked", question: "Usar A ou B?" }, "1");
+  const ev = await h.orch.refresh(t.task_id);
+  assert.equal(ev?.status, "blocked");
+  assert.equal(ev?.question, "Usar A ou B?");
+  assert.deepEqual((await h.orch.inbox()).map((i) => i.status), ["blocked"]);
+  await h.orch.answer(t.task_id, "Use A");
+  writeReport(t.task_dir, t.task_id, { status: "done", result: "feito com A" }, "2");
+  assert.equal((await h.orch.refresh(t.task_id))?.status, "done");
+});
+
+test("done não fecha a tab: quem fecha é o orquestrador via close", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  writeReport(t.task_dir, t.task_id, { status: "done", result: "ok" });
+  await h.orch.refresh(t.task_id);
+  assert.equal(h.herdr.opsOf("closeTab").length, 0);
+  assert.ok(h.herdr.panesList.some((p) => p.pane_id === t.pane_id));
+  await h.orch.close(t.task_id);
+  assert.equal(h.herdr.opsOf("closeTab").at(-1)?.args, t.tab_id);
+});
+
+test("failed não fecha a tab (fica para inspeção)", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  writeReport(t.task_dir, t.task_id, { status: "failed", result: "não deu" });
+  await h.orch.refresh(t.task_id);
+  assert.equal(h.orch.get(t.task_id).status, "failed");
+  assert.equal(h.herdr.opsOf("closeTab").length, 0);
+});
+
+test("pane sumido sem relatório vira lost, com relatório vira done", async () => {
+  const h = makeHarness();
+  const a = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  const b = await h.orch.delegate({ project_path: h.project, role: "b", request: "x", objective: "y", mode: "report" });
+  h.herdr.panesList = h.herdr.panesList.filter((p) => p.pane_id !== a.pane_id && p.pane_id !== b.pane_id);
+  writeReport(b.task_dir, b.task_id, { status: "done", result: "salvo" });
+  assert.equal((await h.orch.refresh(a.task_id))?.status, "lost");
+  assert.equal((await h.orch.refresh(b.task_id))?.status, "done");
+});
+
+test("worker recebe o endereço e o token do webhook do orquestrador", async () => {
+  const h = makeHarness();
+  h.orch.setHook("http://127.0.0.1:4555/hook", "tok123");
+  await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  const env = (h.herdr.opsOf("createTab")[0].args as { env: Record<string, string> }).env;
+  assert.equal(env.PI_ORCH_HOOK_URL, "http://127.0.0.1:4555/hook");
+  assert.equal(env.PI_ORCH_HOOK_TOKEN, "tok123");
+});
+
+test("onTerminal avisa a fila quando a tarefa termina", async () => {
+  const h = makeHarness();
+  const seen: string[] = [];
+  const orch = new Orchestrator({
+    herdr: h.herdr, store: new Store(join(h.stateDir, "ot.json")), tasksDir: join(h.stateDir, "ot-tasks"),
+    workerExtPath: "/x", now: () => h.clock.ms, newHex: () => "eeeeeeee", availableModels: () => ["claude-bridge/claude-haiku-5-5"], dryRun: false,
+    onTerminal: (id) => seen.push(id),
+  });
+  const t = await orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  writeReport(t.task_dir, t.task_id, { status: "done", result: "ok" });
+  await orch.refresh(t.task_id);
+  assert.deepEqual(seen, [t.task_id]);
 });

@@ -39,10 +39,14 @@ const orch = new Orchestrator({
 
 const log = (msg: string) => console.log(`[smoke ${new Date().toISOString()}] ${msg}`);
 
+/** Teste contra o Herdr real: consulta o estado a cada 5 s até haver evento. Em produção o worker avisa por webhook. */
 async function watchUntilSettled(taskId: string, label: string): Promise<WatchEvent> {
-  const ac = new AbortController();
-  const ev = await orch.watch(taskId, ac.signal);
-  if (!ev) throw new Error(`${label}: watch abortado`);
+  let ev: WatchEvent | null = null;
+  for (let i = 0; i < 240 && !ev; i++) {
+    await new Promise((r) => setTimeout(r, 5_000));
+    ev = await orch.refresh(taskId);
+  }
+  if (!ev) throw new Error(`${label}: sem evento após 20 min`);
   log(`${label}: evento=${ev.status} result=${JSON.stringify(ev.result)} question=${JSON.stringify(ev.question)} error=${JSON.stringify(ev.error)}`);
   return ev;
 }
@@ -85,7 +89,7 @@ async function scenarioBlockedAnswer(): Promise<void> {
   });
   const ev = await watchUntilSettled(t.task_id, "B1");
   if (ev.status !== "blocked") throw new Error(`B: esperado blocked, veio ${ev.status}`);
-  const pending = orch.inbox();
+  const pending = await orch.inbox();
   if (!pending.some((p) => p.task_id === t.task_id && p.status === "blocked")) throw new Error("B: decisão não apareceu no inbox");
   await orch.answer(t.task_id, "Português.");
   log("B: resposta enviada");
