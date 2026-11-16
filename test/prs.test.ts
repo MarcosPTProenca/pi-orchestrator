@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseRedPrs, fixInputFor, ghEnvFor } from "../src/prs.ts";
+import { parseRedPrs, parseGraphqlRedPrs, repoFromRemote, fixInputFor, ghEnvFor } from "../src/prs.ts";
 import { FixQueue } from "../src/queue.ts";
 
 const sample = [
@@ -61,4 +61,21 @@ test("FixQueue: falha ao iniciar um item não trava a fila", async () => {
   await q.enqueue(["bad", "a", "b"]);
   assert.equal(q.failed.length, 1);
   assert.deepEqual(q.runningIds.sort(), ["t-a", "t-b"]);
+});
+
+test("repoFromRemote reconhece https, ssh e alias de host", () => {
+  assert.deepEqual(repoFromRemote("git@github-pers:MarcosPTProenca/adaptative-learning.git"), { owner: "MarcosPTProenca", name: "adaptative-learning" });
+  assert.deepEqual(repoFromRemote("https://github.com/owner/repo"), { owner: "owner", name: "repo" });
+  assert.throws(() => repoFromRemote("nada-aqui"), /remote não reconhecido/);
+});
+
+test("parseGraphqlRedPrs traduz a resposta do GraphQL para PRs vermelhas", () => {
+  const gql = { data: { repository: { pullRequests: { nodes: [
+    { number: 129, title: "t", url: "https://github.com/o/r/pull/129", headRefName: "fm/x",
+      commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: [{ __typename: "CheckRun", name: "quality", conclusion: "FAILURE" }] } } } }] } },
+    { number: 93, title: "ok", url: "u", headRefName: "y",
+      commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: [{ __typename: "CheckRun", name: "check", conclusion: "SUCCESS" }] } } } }] } },
+  ] } } } };
+  const red = parseGraphqlRedPrs(gql);
+  assert.deepEqual(red.map((p) => [p.number, p.failing]), [[129, ["quality"]]]);
 });

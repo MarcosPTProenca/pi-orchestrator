@@ -50,20 +50,51 @@ export function ghEnvFor(remoteUrl: string, base: NodeJS.ProcessEnv): NodeJS.Pro
   return { ...base, GH_TOKEN: token };
 }
 
+/** owner e nome a partir da URL do remote (https ou ssh, com alias de host como github-pers). */
+export function repoFromRemote(remoteUrl: string): { owner: string; name: string } {
+  const m = remoteUrl.match(/[:/]([^/:]+)\/([^/]+?)(?:\.git)?\/?$/);
+  if (!m) throw new Error(`remote não reconhecido: ${remoteUrl.replace(/\/\/[^@]*@/, "//")}`);
+  return { owner: m[1], name: m[2] };
+}
+
+/** Interpreta a resposta do GraphQL de PRs abertas com o último commit e seus checks. */
+export function parseGraphqlRedPrs(json: unknown): RedPr[] {
+  const nodes = (json as { data?: { repository?: { pullRequests?: { nodes?: unknown[] } } } })?.data?.repository?.pullRequests?.nodes;
+  if (!Array.isArray(nodes)) throw new Error("resposta do GraphQL sem pullRequests");
+  const flat = nodes.map((raw) => {
+    const pr = raw as Record<string, unknown>;
+    const commit = (pr.commits as { nodes?: { commit?: { statusCheckRollup?: { contexts?: { nodes?: Record<string, unknown>[] } } } }[] })?.nodes?.[0]?.commit;
+    const contexts = commit?.statusCheckRollup?.contexts?.nodes ?? [];
+    return {
+      number: Number(pr.number),
+      title: String(pr.title ?? ""),
+      headRefName: String(pr.headRefName ?? ""),
+      url: String(pr.url ?? ""),
+      statusCheckRollup: contexts.map((c) => ({ name: c.name ?? c.context, conclusion: c.conclusion, state: c.state })),
+    };
+  });
+  return parseRedPrs(flat);
+}
+
+const PRS_QUERY =
+  "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){pullRequests(states:OPEN,first:100){nodes{number title url headRefName commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{__typename ... on CheckRun{name conclusion status} ... on StatusContext{context state}}}}}}}}}}}";
+
+/** PRs abertas com check vermelho do repositório, pela API GraphQL via `gh api` (o `gh pr list` falha nesta máquina). */
 export function listRedPrs(repoPath: string, remoteUrl: string): Promise<RedPr[]> {
+  const { owner, name } = repoFromRemote(remoteUrl);
   const env = ghEnvFor(remoteUrl, process.env);
   return new Promise((resolve, reject) => {
     execFile(
       "gh",
-      ["pr", "list", "--state", "open", "--limit", "100", "--json", "number,title,headRefName,url,statusCheckRollup"],
+      ["api", "graphql", "-f", `query=${PRS_QUERY}`, "-F", `owner=${owner}`, "-F", `name=${name}`],
       { cwd: repoPath, env, timeout: 120_000, maxBuffer: 32 * 1024 * 1024 },
       (err, stdout, stderr) => {
         if (err) {
-          reject(new Error(`gh pr list falhou: ${(stderr || err.message).trim()}`));
+          reject(new Error(`gh api graphql falhou: ${(stderr || err.message).trim()}`));
           return;
         }
         try {
-          resolve(parseRedPrs(JSON.parse(stdout)));
+          resolve(parseGraphqlRedPrs(JSON.parse(stdout)));
         } catch (e) {
           reject(e);
         }
