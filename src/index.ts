@@ -13,7 +13,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { HerdrCli } from "./herdr.ts";
 import { availableModels, resolveModel } from "./models.ts";
 import { Orchestrator, MODES, type DelegateInput, type WatchEvent } from "./orchestrator.ts";
-import { fixInputFor, listRedPrs } from "./prs.ts";
+import { fixInputFor, listRedPrs, prFromUrl, fetchPrState, prStateLine } from "./prs.ts";
 import { FixQueue } from "./queue.ts";
 import { locateProject } from "./locate.ts";
 import { orchestratorAgentName } from "./label.ts";
@@ -160,8 +160,20 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     hookHandle = await startHook0(hookToken, async (taskId) => {
       const event = await orch.refresh(taskId);
       if (event && orch.takeNotice(taskId)) {
+        // Antes de dar uma PR como pronta, confere o estado atual dela no GitHub (conflito, mergeabilidade).
+        let prLine = "";
+        if (event.status === "done") {
+          const task = orch.get(taskId);
+          for (const url of event.artifacts) {
+            const pr = prFromUrl(url);
+            if (!pr) continue;
+            const remote = execFileSync("git", ["remote", "get-url", "origin"], { cwd: task.project_path, encoding: "utf8" }).trim();
+            const state = await fetchPrState(remote, pr.number, pr.owner, pr.name, task.project_path).catch((e) => ({ error: String(e) }));
+            prLine += "\n" + ("error" in state ? `Não consegui conferir o estado da PR #${pr.number}: ${state.error}` : prStateLine(state));
+          }
+        }
         pi.sendMessage(
-          { customType: "orch-event", content: modelMessageFor(event), display: false, details: event },
+          { customType: "orch-event", content: modelMessageFor(event) + prLine, display: false, details: event },
           { triggerTurn: true },
         );
       }

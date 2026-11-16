@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseRedPrs, parseGraphqlRedPrs, repoFromRemote, fixInputFor, ghEnvFor } from "../src/prs.ts";
+import { parseRedPrs, parseGraphqlRedPrs, repoFromRemote, fixInputFor, ghEnvFor, conflictNote, prFromUrl, prStateLine } from "../src/prs.ts";
 import { FixQueue } from "../src/queue.ts";
 
 const sample = [
@@ -78,4 +78,31 @@ test("parseGraphqlRedPrs traduz a resposta do GraphQL para PRs vermelhas", () =>
   ] } } } };
   const red = parseGraphqlRedPrs(gql);
   assert.deepEqual(red.map((p) => [p.number, p.failing]), [[129, ["quality"]]]);
+});
+
+test("conflictNote avisa o worker quando a PR tem conflito com a base", () => {
+  const [pr] = parseGraphqlRedPrs({ data: { repository: { pullRequests: { nodes: [
+    { number: 131, title: "t", url: "https://github.com/o/r/pull/131", headRefName: "fm/al-issue-52-q1", baseRefName: "fm/al-issue-51-q1",
+      mergeable: "CONFLICTING", mergeStateStatus: "DIRTY",
+      commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: [{ __typename: "CheckRun", name: "quality", conclusion: "FAILURE" }] } } } }] } },
+    ] } } } });
+  assert.equal(pr.mergeStateStatus, "DIRTY");
+  assert.match(conflictNote(pr), /conflito de merge contra a base fm\/al-issue-51-q1/);
+  const input = fixInputFor(pr, "/repo");
+  assert.ok(input.constraints?.some((c) => /conflito com a base fm\/al-issue-51-q1/.test(c)));
+  assert.match(input.objective, /conflito/);
+});
+
+test("PR limpa não ganha aviso de conflito", () => {
+  const [pr] = parseGraphqlRedPrs({ data: { repository: { pullRequests: { nodes: [
+    { number: 9, title: "t", url: "u", headRefName: "x", baseRefName: "main", mergeable: "MERGEABLE", mergeStateStatus: "CLEAN",
+      commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: [{ __typename: "CheckRun", name: "q", conclusion: "FAILURE" }] } } } }] } },
+    ] } } } });
+  assert.equal(conflictNote(pr), "");
+});
+
+test("prFromUrl e prStateLine", () => {
+  assert.deepEqual(prFromUrl("https://github.com/MarcosPTProenca/adaptative-learning/pull/131"), { owner: "MarcosPTProenca", name: "adaptative-learning", number: 131 });
+  assert.equal(prFromUrl("https://example.com/x"), null);
+  assert.match(prStateLine({ number: 131, state: "OPEN", mergeable: "CONFLICTING", mergeStateStatus: "DIRTY", headRefOid: "x" }), /CONFLITO/);
 });
