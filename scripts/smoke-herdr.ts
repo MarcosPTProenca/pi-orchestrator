@@ -11,6 +11,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { HerdrCli } from "../src/herdr.ts";
+import { TreehouseCli } from "../src/worktree.ts";
 import { Orchestrator, type WatchEvent } from "../src/orchestrator.ts";
 import { Store } from "../src/store.ts";
 
@@ -28,6 +29,7 @@ writeFileSync(join(project, "README.md"), "Projeto descartável do smoke test do
 
 const orch = new Orchestrator({
   herdr: new HerdrCli(),
+  worktrees: new TreehouseCli(),
   store: new Store(join(stateDir, "state.json")),
   tasksDir: join(stateDir, "tasks"),
   workerExtPath: workerExt,

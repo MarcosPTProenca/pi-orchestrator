@@ -12,10 +12,12 @@ import {
   type TaskStatus,
 } from "./contract.ts";
 import type { HerdrPort } from "./herdr.ts";
+import type { WorktreePort } from "./worktree.ts";
 import type { Store } from "./store.ts";
 
 export interface OrchDeps {
   herdr: HerdrPort;
+  worktrees: WorktreePort;
   store: Store;
   tasksDir: string;
   workerExtPath: string;
@@ -24,10 +26,13 @@ export interface OrchDeps {
 }
 
 export interface DelegateInput {
+  /** Raiz de um repositório git (checkout principal). O trabalho roda numa worktree arrendada dele. */
   project_path: string;
   role: string;
   brief: string;
   timeout_minutes?: number;
+  /** Modelo do worker, ex.: claude-bridge/claude-haiku-5-5. Omitido = padrão do Pi. */
+  model?: string;
 }
 
 export interface WatchEvent {
@@ -46,10 +51,13 @@ const START_WAIT_MS = 20_000;
 const RETRY_MS = 5_000;
 const DEFAULT_TIMEOUT_MIN = 30;
 const MAX_PROMPT_ATTEMPTS = 2;
+const DIAG_LINES = 30;
 
-export function buildBrief(taskId: string, reportPath: string, input: DelegateInput): string {
+export function buildBrief(taskId: string, reportPath: string, input: DelegateInput, worktreePath: string): string {
   return [
     `# Tarefa ${taskId} (papel: ${input.role})`,
+    "",
+    `Sua worktree isolada é ${worktreePath}. Trabalhe só nela; não altere o checkout principal.`,
     "",
     "Você é um worker de uma sessão Pi independente, iniciada pelo orquestrador.",
     "Execute a tarefa abaixo com seu setup normal (skills, extensões, subagentes).",
@@ -141,6 +149,9 @@ export class Orchestrator {
     if (!isAbsolute(input.project_path) || !isDirectory(input.project_path)) {
       throw new Error(`project_path precisa ser um diretório absoluto existente: ${input.project_path}`);
     }
+    if (!existsSync(join(input.project_path, ".git"))) {
+      throw new Error(`project_path não é a raiz de um repositório git: ${input.project_path}. Informe o checkout do projeto, não um diretório pai.`);
+    }
     if (input.brief.trim() === "") throw new Error("brief vazio");
 
     const projectId = basename(input.project_path);
@@ -150,7 +161,9 @@ export class Orchestrator {
     mkdirSync(taskDir, { recursive: true });
     const briefPath = join(taskDir, "brief.md");
     const reportPath = join(taskDir, "report.json");
-    writeFileSync(briefPath, buildBrief(taskId, reportPath, input));
+
+    const worktreePath = await this.d.worktrees.lease(input.project_path, taskId);
+    writeFileSync(briefPath, buildBrief(taskId, reportPath, input, worktreePath));
 
     const timeoutMin = input.timeout_minutes ?? DEFAULT_TIMEOUT_MIN;
     const now = this.iso();
@@ -158,6 +171,8 @@ export class Orchestrator {
       task_id: taskId,
       project_id: projectId,
       project_path: input.project_path,
+      worktree_path: worktreePath,
+      model: input.model ?? null,
       role: input.role,
       worker_id: workerId,
       workspace_id: "",
@@ -188,7 +203,7 @@ export class Orchestrator {
       const ws = await this.ensureWorkspace(input.project_path, projectId);
       const tab = await this.d.herdr.createTab({
         workspaceId: ws.workspace_id,
-        cwd: input.project_path,
+        cwd: worktreePath,
         label: `${input.role}-${taskId.slice(-6)}`,
         env: { PI_ORCH_ROLE: "worker", PI_ORCH_TASK_ID: taskId, PI_ORCH_TASK_DIR: taskDir },
       });
@@ -199,12 +214,9 @@ export class Orchestrator {
         t.pane_id = tab.pane_id;
         t.terminal_id = tab.terminal_id;
       });
-      await this.d.herdr.startAgent({
-        name: workerId,
-        paneId: tab.pane_id,
-        piArgs: ["-e", this.d.workerExtPath],
-        timeoutMs: 60_000,
-      });
+      const piArgs = ["-e", this.d.workerExtPath];
+      if (input.model) piArgs.push("--model", input.model);
+      await this.d.herdr.startAgent({ name: workerId, paneId: tab.pane_id, piArgs, timeoutMs: 60_000 });
       await this.d.herdr.prompt(workerId, this.startPrompt(briefPath));
       return this.update(taskId, (t) => {
         t.status = "running";
@@ -356,16 +368,23 @@ export class Orchestrator {
         );
       }
       const current = this.get(taskId);
-      if (!current.worker_started && current.prompt_attempts < MAX_PROMPT_ATTEMPTS) {
-        // Ocioso sem nunca ter trabalhado: o brief provavelmente não foi consumido. Reenvia uma vez.
-        await this.d.herdr.prompt(current.worker_id, this.startPrompt(current.brief_path));
+      if (current.prompt_attempts < MAX_PROMPT_ATTEMPTS) {
+        // Ocioso sem relatório: o brief pode não ter sido consumido ou o worker parou no meio. Reenvia com lembrete.
+        const reminder = `${this.startPrompt(current.brief_path)} Você ainda não chamou orch_report. Execute o brief agora e encerre com orch_report.`;
+        await this.d.herdr.prompt(current.worker_id, reminder);
         this.update(taskId, (x) => {
           x.prompt_attempts += 1;
         });
         awaitingStart = true;
         continue;
       }
-      return this.setTerminal(taskId, "failed", "worker ficou ocioso sem chamar orch_report");
+      const tail = await this.d.herdr.readRecent(current.worker_id, DIAG_LINES).catch(() => "");
+      const lastLines = tail.split("\n").map((l) => l.trim()).filter((l) => l !== "").slice(-4).join(" | ");
+      return this.setTerminal(
+        taskId,
+        "failed",
+        `worker ficou ocioso sem chamar orch_report após ${current.prompt_attempts} envios.${lastLines ? ` Última saída do worker: ${lastLines}` : ""}`,
+      );
     }
   }
 

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validateReport, reportKey } from "../src/contract.ts";
@@ -8,6 +8,7 @@ import { parsePanes, parseTabCreate, parseWorkspaceCreate, parseWorkspaceIds } f
 import { Orchestrator } from "../src/orchestrator.ts";
 import { Store } from "../src/store.ts";
 import { makeHarness, writeReport } from "./fakes.ts";
+import { parseLeasePath } from "../src/worktree.ts";
 
 test("validateReport: blocked exige question e id de tarefa correto", () => {
   assert.throws(() => validateReport({ task_id: "t1", status: "blocked", result: "" }, "t1"), /exige question/);
@@ -49,7 +50,7 @@ test("delegate cria workspace do projeto, tab da tarefa e inicia o worker na tab
   assert.equal(t.status, "running");
   assert.equal(h.herdr.opsOf("createWorkspace").length, 1);
   const tabArgs = h.herdr.opsOf("createTab")[0].args as { workspaceId: string; cwd: string; env: Record<string, string> };
-  assert.equal(tabArgs.cwd, h.project);
+  assert.equal(tabArgs.cwd, t.worktree_path, "tab abre na worktree, não no checkout");
   assert.equal(tabArgs.env.PI_ORCH_ROLE, "worker");
   assert.equal(tabArgs.env.PI_ORCH_TASK_ID, t.task_id);
   assert.equal(t.tab_id.startsWith(`${t.workspace_id}:`), true);
@@ -81,6 +82,7 @@ test("tarefas do mesmo projeto reutilizam o workspace; projetos diferentes ganha
   assert.equal(h.herdr.opsOf("createWorkspace").length, 1);
 
   const other = mkdtempSync(join(tmpdir(), "orch-other-"));
+  mkdirSync(join(other, ".git"));
   writeReport(b.task_dir, b.task_id, { status: "done", result: "ok" }, "x2");
   await h.orch.watch(b.task_id, new AbortController().signal);
   const c = await h.orch.delegate({ project_path: other, role: "c", brief: "3" });
@@ -228,13 +230,56 @@ test("worker ocioso sem nunca ter trabalhado recebe o brief uma única vez de no
   assert.equal(h.orch.get(t.task_id).prompt_attempts, 2);
 });
 
-test("worker que já trabalhou e ficou ocioso sem relatório NÃO recebe brief de novo", async () => {
+test("worker que já trabalhou e ficou ocioso sem relatório recebe um lembrete, depois falha com a última saída", async () => {
   const h = makeHarness();
   const t = await h.orch.delegate({ project_path: h.project, role: "a", brief: "x" });
+  h.herdr.recentText = "Marcos, sem pedido ainda. O que precisa?";
   h.herdr.waitImpl = async (_t, until) => (until.includes("working") ? { reached: "working" } : { reached: "idle" });
   const ev = await h.orch.watch(t.task_id, new AbortController().signal);
   assert.equal(ev?.status, "failed");
-  assert.equal(h.herdr.opsOf("prompt").length, 1);
+  assert.equal(h.herdr.opsOf("prompt").length, 2, "um reenvio com lembrete");
+  const reminder = (h.herdr.opsOf("prompt")[1].args as { text: string }).text;
+  assert.match(reminder, /ainda não chamou orch_report/);
+  assert.match(ev?.error ?? "", /Última saída do worker: Marcos, sem pedido ainda/);
+});
+
+test("delegate roda o worker numa worktree arrendada, nunca no checkout principal", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", brief: "x" });
+  assert.equal(h.worktrees.leases.length, 1);
+  assert.equal(h.worktrees.leases[0].repo, h.project);
+  assert.equal(t.worktree_path, h.worktrees.leases[0].path);
+  const tab = h.herdr.opsOf("createTab")[0].args as { cwd: string };
+  assert.equal(tab.cwd, t.worktree_path);
+  assert.match(readFileSync(t.brief_path, "utf8"), new RegExp(t.worktree_path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+});
+
+test("delegate passa o modelo pedido ao pi e registra na tarefa", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", brief: "x", model: "claude-bridge/claude-haiku-5-5" });
+  const start = h.herdr.opsOf("startAgent")[0].args as { piArgs: string[] };
+  assert.deepEqual(start.piArgs, ["-e", "/fake/worker-ext.ts", "--model", "claude-bridge/claude-haiku-5-5"]);
+  assert.equal(t.model, "claude-bridge/claude-haiku-5-5");
+});
+
+test("delegate sem model não passa --model (padrão do Pi)", async () => {
+  const h = makeHarness();
+  await h.orch.delegate({ project_path: h.project, role: "a", brief: "x" });
+  const start = h.herdr.opsOf("startAgent")[0].args as { piArgs: string[] };
+  assert.equal(start.piArgs.includes("--model"), false);
+});
+
+test("delegate recusa project_path que não é raiz de repositório git (ex.: diretório pai)", async () => {
+  const h = makeHarness();
+  const parent = mkdtempSync(join(tmpdir(), "orch-parent-"));
+  await assert.rejects(h.orch.delegate({ project_path: parent, role: "a", brief: "x" }), /não é a raiz de um repositório git/);
+  assert.equal(h.herdr.opsOf("createTab").length, 0);
+});
+
+test("parseLeasePath extrai o caminho absoluto da saída do treehouse", () => {
+  assert.equal(parseLeasePath("/home/u/.treehouse/x/1/repo\n"), "/home/u/.treehouse/x/1/repo");
+  assert.equal(parseLeasePath("banner\n/abs/path\n"), "/abs/path");
+  assert.throws(() => parseLeasePath("sem caminho\n"), /caminho absoluto/);
 });
 
 test("worker ocioso sem orch_report vira failed", async () => {
@@ -309,6 +354,7 @@ test("estado persiste entre instâncias do orquestrador (reinício)", async () =
   const t = await h.orch.delegate({ project_path: h.project, role: "a", brief: "x" });
   const again = new Orchestrator({
     herdr: h.herdr,
+    worktrees: h.worktrees,
     store: new Store(join(h.stateDir, "state.json")),
     tasksDir: join(h.stateDir, "tasks"),
     workerExtPath: "/x",

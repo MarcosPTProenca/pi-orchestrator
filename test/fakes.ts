@@ -1,7 +1,8 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HerdrPort, PaneInfo, TabResult, WorkspaceResult } from "../src/herdr.ts";
+import type { WorktreePort } from "../src/worktree.ts";
 import { Orchestrator } from "../src/orchestrator.ts";
 import { Store } from "../src/store.ts";
 
@@ -73,6 +74,13 @@ export class FakeHerdr implements HerdrPort {
     return this.panesList.map((p) => ({ ...p }));
   }
 
+  async readRecent(_target: string, _lines: number): Promise<string> {
+    this.calls.push({ op: "readRecent", args: _target });
+    return this.recentText;
+  }
+
+  recentText = "";
+
   opsOf(op: string): { op: string; args: unknown }[] {
     return this.calls.filter((c) => c.op === op);
   }
@@ -80,27 +88,43 @@ export class FakeHerdr implements HerdrPort {
 
 export interface Harness {
   herdr: FakeHerdr;
+  worktrees: FakeWorktrees;
   orch: Orchestrator;
   stateDir: string;
   project: string;
   clock: { ms: number };
 }
 
+/** Worktrees simuladas: cada lease devolve um diretório novo dentro de `root`. */
+export class FakeWorktrees implements WorktreePort {
+  leases: { repo: string; holder: string; path: string }[] = [];
+  constructor(private readonly root: string) {}
+  async lease(repoPath: string, holder: string): Promise<string> {
+    const path = join(this.root, `wt-${this.leases.length + 1}`);
+    mkdirSync(path, { recursive: true });
+    this.leases.push({ repo: repoPath, holder, path });
+    return path;
+  }
+}
+
 export function makeHarness(): Harness {
   const stateDir = mkdtempSync(join(tmpdir(), "orch-state-"));
   const project = mkdtempSync(join(tmpdir(), "orch-proj-"));
+  mkdirSync(join(project, ".git"));
   const herdr = new FakeHerdr();
+  const worktrees = new FakeWorktrees(mkdtempSync(join(tmpdir(), "orch-wt-")));
   const clock = { ms: Date.parse("2026-11-16T12:00:00Z") };
   let counter = 0;
   const orch = new Orchestrator({
     herdr,
+    worktrees,
     store: new Store(join(stateDir, "state.json")),
     tasksDir: join(stateDir, "tasks"),
     workerExtPath: "/fake/worker-ext.ts",
     now: () => clock.ms,
     newHex: () => (++counter).toString(16).padStart(8, "a"),
   });
-  return { herdr, orch, stateDir, project, clock };
+  return { herdr, worktrees, orch, stateDir, project, clock };
 }
 
 /** Simula o worker chamando orch_report: grava report.json na pasta da tarefa. */

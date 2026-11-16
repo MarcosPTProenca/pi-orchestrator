@@ -43,6 +43,8 @@ export interface HerdrPort {
     signal?: AbortSignal,
   ): Promise<{ reached: string } | { timeout: true }>;
   panes(): Promise<PaneInfo[]>;
+  /** Últimas linhas de texto do agente (diagnóstico). */
+  readRecent(target: string, lines: number): Promise<string>;
 }
 
 export class HerdrError extends Error {
@@ -174,6 +176,10 @@ export class HerdrCli implements HerdrPort {
     }
     if (/timed? ?out/i.test(r.error)) return { timeout: true };
     throw new HerdrError(args, r.error);
+  }
+
+  async readRecent(target: string, lines: number): Promise<string> {
+    return this.runOk(["agent", "read", target, "--source", "recent", "--lines", String(lines), "--format", "text"]);
   }
 
   async panes(): Promise<PaneInfo[]> {

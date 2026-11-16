@@ -8,6 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { HerdrCli } from "./herdr.ts";
+import { TreehouseCli } from "./worktree.ts";
 import { Orchestrator, type WatchEvent } from "./orchestrator.ts";
 import { Store, defaultStateDir } from "./store.ts";
 
@@ -22,6 +23,10 @@ export const FIRST_MATE_ROLE = [
   "- O brief é autocontido: objetivo, escopo, o que não fazer e o formato do relatório final.",
   "- Fale com o usuário em resultados e decisões. Não narre progresso nem mecanismo.",
   "- Quando um worker pedir decisão, apresente a pergunta ao usuário e use orch_answer com a resposta dele.",
+  "- project_path é a raiz do repositório (checkout principal, com .git). Se o usuário nomear um repositório, localize-o (ex.: ~/github/<nome>) e confira antes de delegar. Nunca delegue em diretório pai.",
+  "- O worker trabalha numa worktree arrendada, não no checkout. Não tente contornar isso.",
+  "- Se o usuário pedir lotes (ex.: 2 a 2), delegue só o lote atual e espere os avisos dele antes do próximo.",
+  "- Quando o usuário pedir um modelo, passe-o em model (ex.: claude-bridge/claude-haiku-5-5).",
   "- Depois de delegar, diga em uma frase o que foi delegado e encerre o turno.",
   "- Não consulte status nem espere com bg_wait. O aviso chega sozinho quando houver resultado, decisão ou falha.",
   "- Não repita avisos já dados. Use orch_status ou orch_inbox só quando o usuário pedir.",
@@ -57,6 +62,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   const stateDir = defaultStateDir();
   const orch = new Orchestrator({
     herdr: new HerdrCli(),
+    worktrees: new TreehouseCli(),
     store: new Store(join(stateDir, "state.json")),
     tasksDir: join(stateDir, "tasks"),
     workerExtPath: process.env.PI_ORCH_WORKER_EXT ?? resolve(here, "worker-ext.ts"),
@@ -111,19 +117,20 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     name: "orch_delegate",
     label: "orch delegate",
     description:
-      "Cria um pane Herdr com uma sessão Pi independente em project_path e entrega o brief. Retorna a tarefa. Um watcher avisa quando houver decisão, bloqueio ou conclusão.",
+      "Arrenda uma worktree do treehouse no repositório project_path, abre uma tab no workspace do projeto e inicia um worker Pi nela com o brief. Um watcher avisa quando houver decisão, bloqueio ou conclusão.",
     parameters: {
       type: "object",
       properties: {
-        project_path: { type: "string", description: "Diretório absoluto do projeto (ou worktree)." },
+        project_path: { type: "string", description: "Raiz absoluta de um repositório git (checkout principal, com .git)." },
         role: { type: "string", description: "Papel curto, ex.: investigate, review." },
         brief: { type: "string", description: "Brief autocontido: objetivo, escopo, critérios de conclusão." },
         timeout_minutes: { type: "number", description: "Prazo; ao expirar, marca timeout sem encerrar o pane." },
+        model: { type: "string", description: "Modelo do worker, ex.: claude-bridge/claude-haiku-5-5. Omitir usa o padrão do Pi." },
       },
       required: ["project_path", "role", "brief"],
       additionalProperties: false,
     },
-    async execute(_id: string, params: { project_path: string; role: string; brief: string; timeout_minutes?: number }) {
+    async execute(_id: string, params: { project_path: string; role: string; brief: string; timeout_minutes?: number; model?: string }) {
       const task = await orch.delegate(params);
       startWatch(task.task_id);
       return asText({ task_id: task.task_id, worker_id: task.worker_id, pane_id: task.pane_id, status: task.status });
