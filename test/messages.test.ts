@@ -25,12 +25,15 @@ test("papel do orquestrador: não executa trabalho de projeto e lança pelas too
   assert.match(FIRST_MATE_ROLE, /Não executa o trabalho do projeto/);
   assert.match(FIRST_MATE_ROLE, /orch_delegate/);
   assert.match(FIRST_MATE_ROLE, /orch_fix_red_prs/);
+  assert.match(FIRST_MATE_ROLE, /orch_locate_project antes de perguntar/);
 });
 
-test("launcher exclui as ferramentas que o orquestrador não pode usar", () => {
+test("launcher exclui só os subagents ocultos; o orquestrador mantém as ferramentas normais do Pi", () => {
   const bin = readFileSync(join(process.cwd(), "bin", "pi-orch"), "utf8");
-  for (const tool of ["bash", "edit", "write", "read", "grep", "find", "ls", "subagent", "subagents_enable", "bg_wait", "subagent_supervisor"]) {
-    assert.match(bin, new RegExp(`--exclude-tools [^\\n]*\\b${tool}\\b`), `falta excluir ${tool}`);
+  const line = bin.split("\n").find((l) => l.includes("--exclude-tools")) ?? "";
+  assert.match(line, /--exclude-tools subagent,subagents_enable/);
+  for (const tool of ["bash", "read", "edit", "write", "grep", "find", "ls"]) {
+    assert.doesNotMatch(line, new RegExp(`\\b${tool}\\b`), `${tool} não deve ser excluído`);
   }
 });
 

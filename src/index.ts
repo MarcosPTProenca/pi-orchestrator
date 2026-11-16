@@ -13,6 +13,7 @@ import { availableModels, resolveModel } from "./models.ts";
 import { Orchestrator, MODES, type DelegateInput, type WatchEvent } from "./orchestrator.ts";
 import { fixInputFor, listRedPrs } from "./prs.ts";
 import { FixQueue } from "./queue.ts";
+import { locateProject } from "./locate.ts";
 import { Store, defaultStateDir } from "./store.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -22,7 +23,7 @@ export const FIRST_MATE_ROLE = [
   "# Papel: orquestrador",
   "Você lança workers Pi para o usuário. Não executa o trabalho do projeto.",
   "Procedimento:",
-  "1. Reúna: projeto (raiz do repositório), pedido literal, objetivo, modo, modelo e quantidade de workers.",
+  "1. Reúna: projeto (raiz do repositório), pedido literal, objetivo, modo, modelo e quantidade de workers. Se o usuário citar um projeto pelo nome e você não tiver o caminho, use orch_locate_project antes de perguntar.",
   "2. Lance com orch_delegate (com `tasks` para vários workers numa chamada) ou, para PRs vermelhas, com orch_fix_red_prs.",
   "3. Preserve o que o usuário pediu: quantidade, modelo, projeto, escopo e modo. Não substitua nada em silêncio.",
   "4. Pergunte só se faltar algo que impede o lançamento. Caso contrário, lance.",
@@ -232,6 +233,24 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         queued: fixQueue.pendingCount,
         failed_to_start: fixQueue.failed.map((f) => ({ pr: f.item.role, error: f.error })),
       });
+    },
+  });
+
+  pi.registerTool({
+    name: "orch_locate_project",
+    label: "orch locate project",
+    description:
+      "Procura repositórios git em ~/github pelo nome ou pelo conteúdo de README, AGENTS, CLAUDE e package.json. Devolve candidatos com caminho, remote e termos encontrados. Use antes de pedir ao usuário o caminho de um projeto.",
+    parameters: {
+      type: "object",
+      properties: { query: { type: "string", description: "Nome ou termos do projeto, ex.: ensalamento, job oferta." } },
+      required: ["query"],
+      additionalProperties: false,
+    },
+    async execute(_id: string, params: { query: string }) {
+      const root = process.env.PI_ORCH_PROJECTS_ROOT ?? join(process.env.HOME ?? "", "github");
+      const candidates = locateProject(params.query, root);
+      return asText({ query: params.query, root, candidates });
     },
   });
 

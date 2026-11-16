@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { scenarios, type Scenario, type Run, type Check } from "./scenarios.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const EXCLUDED = "bash,edit,write,read,grep,find,ls,subagent,subagents_enable,bg_wait,subagent_supervisor";
+const EXCLUDED = "subagent,subagents_enable";
 const args = process.argv.slice(2);
 const model = args[args.indexOf("--model") + 1] ?? "openai-codex/gpt-6.1-sol";
 const only = args.includes("--only") ? args[args.indexOf("--only") + 1] : undefined;
