@@ -56,7 +56,8 @@ test("delegate cria workspace do projeto, tab da tarefa e inicia o worker na tab
   const start = h.herdr.opsOf("startAgent")[0].args as { paneId: string; piArgs: string[] };
   assert.equal(start.paneId, t.pane_id);
   assert.deepEqual(start.piArgs.slice(0, 2), ["-e", "/fake/worker-ext.ts"]);
-  assert.match(start.piArgs[2], /## Pedido do usuário/);
+  assert.match(start.piArgs.at(-1) as string, /chame orch_report/);
+  assert.match(readFileSync(t.brief_path, "utf8"), /## Pedido do usuário/);
   assert.match(readFileSync(t.brief_path, "utf8"), /Analise o login/);
   assert.match(readFileSync(t.brief_path, "utf8"), /orch_report/);
   assert.equal(h.herdr.opsOf("prompt").length, 0, "brief vai como argumento inicial, não como prompt");
@@ -251,7 +252,7 @@ test("worker que já trabalhou e ficou ocioso sem relatório recebe um lembrete,
   assert.equal(ev?.status, "failed");
   assert.equal(h.herdr.opsOf("prompt").length, 1, "um reenvio com lembrete");
   const reminder = (h.herdr.opsOf("prompt")[0].args as { text: string }).text;
-  assert.match(reminder, /ainda não chamou orch_report/);
+  assert.match(reminder, /ainda nao chamou orch_report/);
   assert.match(ev?.error ?? "", /Última saída do worker: Marcos, sem pedido ainda/);
 });
 
@@ -468,12 +469,12 @@ test("brief pede resumo de até 5 linhas no result e proíbe comentar em PR sem 
   assert.match(brief, /Não comente nem publique em PR ou issue/);
 });
 
-test("o brief vai inline no prompt do worker; o worker não depende de ler arquivo", async () => {
+test("o brief vai ao worker pela extensão (contexto), e o argumento de lançamento é curto", async () => {
   const h = makeHarness();
   const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "Pedido único XYZ", objective: "y", mode: "report" });
-  const sent = (h.herdr.opsOf("startAgent")[0].args as { piArgs: string[] }).piArgs.at(-1) as string;
+  const sent = readFileSync(t.brief_path, "utf8");
   assert.match(sent, /## Pedido do usuário \(literal\)\nPedido único XYZ/);
   assert.match(sent, /## Critérios de conclusão/);
-  assert.doesNotMatch(sent, /Leia o arquivo/);
-  assert.match(sent, /chame orch_report/);
+  const launch = (h.herdr.opsOf("startAgent")[0].args as { piArgs: string[] }).piArgs.at(-1) as string;
+  assert.doesNotMatch(launch, /\n/, "argumento de lançamento sem quebras de linha");
 });

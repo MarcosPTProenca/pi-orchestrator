@@ -59,6 +59,8 @@ export interface WatchEvent {
 }
 
 const WAIT_CHUNK_MS = 60_000;
+/** Mensagem inicial curta, sem caracteres que o shell do Herdr precise codificar. */
+const LAUNCH_MESSAGE = "Execute a tarefa do brief que voce recebeu no contexto. Ao terminar, chame orch_report.";
 /** Teto para o worker começar a trabalhar após o prompt. Evita ler `idle` anterior ao início. */
 const START_WAIT_MS = 20_000;
 const RETRY_MS = 5_000;
@@ -198,10 +200,11 @@ export class Orchestrator {
         t.pane_id = tab.pane_id;
         t.terminal_id = tab.terminal_id;
       });
-      // Como o FirstMate: o brief é a mensagem inicial de lançamento, não um prompt enviado depois.
+      // Argumento inicial curto e seguro para o shell. O brief completo chega pela extensão do worker,
+      // que o injeta como contexto antes do primeiro turno (o Herdr recusa texto multilinha em argumento).
       const piArgs = ["-e", this.d.workerExtPath];
       if (model) piArgs.push("--model", model);
-      piArgs.push(this.startPrompt(briefPath));
+      piArgs.push(LAUNCH_MESSAGE);
       await this.d.herdr.startAgent({ name: workerId, paneId: tab.pane_id, piArgs, timeoutMs: 60_000 });
       return this.update(taskId, (t) => {
         t.status = "running";
@@ -297,10 +300,9 @@ export class Orchestrator {
     });
   }
 
-  /** Prompt do worker: o brief completo vai inline. O arquivo fica só como registro de auditoria. */
-  private startPrompt(briefPath: string): string {
-    const brief = readFileSync(briefPath, "utf8");
-    return `${brief}\n\nExecute a tarefa acima. Ao terminar, chame orch_report.`;
+  /** Lembrete enviado ao worker que ficou ocioso: uma linha, sem quebras. */
+  private startPrompt(_briefPath: string): string {
+    return LAUNCH_MESSAGE;
   }
 
   private async watchLoop(taskId: string, signal: AbortSignal): Promise<WatchEvent | null> {
@@ -363,7 +365,7 @@ export class Orchestrator {
       const current = this.get(taskId);
       if (current.prompt_attempts < MAX_PROMPT_ATTEMPTS) {
         // Ocioso sem relatório: o brief pode não ter sido consumido ou o worker parou no meio. Reenvia com lembrete.
-        const reminder = `${this.startPrompt(current.brief_path)}\n\nVocê ainda não chamou orch_report. Execute a tarefa agora e encerre com orch_report.`;
+        const reminder = "Voce ainda nao chamou orch_report. Execute a tarefa do brief agora e encerre com orch_report.";
         await this.d.herdr.prompt(current.worker_id, reminder);
         this.update(taskId, (x) => {
           x.prompt_attempts += 1;

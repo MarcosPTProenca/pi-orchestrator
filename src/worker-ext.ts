@@ -3,7 +3,7 @@
  * orquestrador ao criar o pane). Registra a tool `orch_report`, que grava
  * `report.json` na pasta da tarefa. Não altera o restante do setup do Pi.
  */
-import { renameSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { REPORT_STATUSES, validateReport } from "./contract.ts";
@@ -19,8 +19,14 @@ export const WORKER_PREAMBLE = [
 export default function workerExtension(pi: ExtensionAPI): void {
   if (process.env.PI_ORCH_ROLE !== "worker") return;
   pi.on("before_agent_start", (event) => {
-    if (event.systemPrompt.includes(WORKER_PREAMBLE)) return;
-    return { systemPrompt: `${event.systemPrompt}\n\n${WORKER_PREAMBLE}` };
+    // O brief vai como contexto da sessão, lido da pasta da própria tarefa (sem passar pelo shell).
+    const briefPath = join(taskDir as string, "brief.md");
+    const brief = existsSync(briefPath) ? readFileSync(briefPath, "utf8") : "";
+    const systemPrompt = event.systemPrompt.includes(WORKER_PREAMBLE) ? event.systemPrompt : `${event.systemPrompt}\n\n${WORKER_PREAMBLE}`;
+    return {
+      systemPrompt,
+      message: brief ? { customType: "orch-brief", content: brief, display: false } : undefined,
+    };
   });
   const taskId = process.env.PI_ORCH_TASK_ID;
   const taskDir = process.env.PI_ORCH_TASK_DIR;
