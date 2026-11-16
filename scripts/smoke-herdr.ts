@@ -1,0 +1,147 @@
+/**
+ * Smoke test real contra o Herdr (não faz parte de `npm test`).
+ * Requer HERDR_ENV=1 e HERDR_PANE_ID. Cria panes e workers Pi reais, em um
+ * projeto descartável e com estado isolado. Cenários: conclusão, bloqueio com
+ * resposta e cancelamento. Panes criados são fechados ao final.
+ */
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { randomBytes } from "node:crypto";
+import { HerdrCli } from "../src/herdr.ts";
+import { Orchestrator, type WatchEvent } from "../src/orchestrator.ts";
+import { Store } from "../src/store.ts";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const workerExt = join(here, "..", "src", "worker-ext.ts");
+
+if (process.env.HERDR_ENV !== "1" || !process.env.HERDR_PANE_ID) {
+  console.error("smoke: rode dentro de um pane do Herdr");
+  process.exit(1);
+}
+
+const stateDir = mkdtempSync(join(tmpdir(), "pi-orch-smoke-state-"));
+const project = mkdtempSync(join(tmpdir(), "pi-orch-smoke-proj-"));
+writeFileSync(join(project, "README.md"), "Projeto descartável do smoke test do pi-orchestrator.\n");
+
+const orch = new Orchestrator({
+  herdr: new HerdrCli(),
+  store: new Store(join(stateDir, "state.json")),
+  tasksDir: join(stateDir, "tasks"),
+  workerExtPath: workerExt,
+  maxActive: 1,
+  now: () => Date.now(),
+  newHex: () => randomBytes(4).toString("hex"),
+});
+
+const log = (msg: string) => console.log(`[smoke ${new Date().toISOString()}] ${msg}`);
+
+async function watchUntilSettled(taskId: string, label: string): Promise<WatchEvent> {
+  const ac = new AbortController();
+  const ev = await orch.watch(taskId, ac.signal);
+  if (!ev) throw new Error(`${label}: watch abortado`);
+  log(`${label}: evento=${ev.status} result=${JSON.stringify(ev.result)} question=${JSON.stringify(ev.question)} error=${JSON.stringify(ev.error)}`);
+  return ev;
+}
+
+async function scenarioDone(): Promise<void> {
+  log("A: conclusão");
+  const t = await orch.delegate({
+    project_path: project,
+    role: "smoke-report",
+    brief:
+      "Leia o arquivo README.md no diretório atual. Não edite nenhum arquivo. " +
+      "Ao terminar, chame orch_report com status done e, em result, a primeira linha do README.",
+    timeout_minutes: 8,
+  });
+  log(`A: delegada task=${t.task_id} pane=${t.pane_id} worker=${t.worker_id}`);
+  const ev = await watchUntilSettled(t.task_id, "A");
+  if (ev.status !== "done") throw new Error(`A: esperado done, veio ${ev.status}`);
+  const panesA = (await new HerdrCli().panes()).map((p) => p.pane_id);
+  if (panesA.includes(t.pane_id)) throw new Error("A: tab de tarefa concluída deveria ter sido fechada");
+  if (!orch.takeNotice(t.task_id)) throw new Error("A: aviso deveria estar pendente uma vez");
+  if (orch.takeNotice(t.task_id)) throw new Error("A: aviso repetido");
+  log("A: OK (done, aviso deduplicado)");
+}
+
+async function scenarioBlockedAnswer(): Promise<void> {
+  log("B: bloqueio e resposta");
+  const t = await orch.delegate({
+    project_path: project,
+    role: "smoke-question",
+    brief:
+      "Antes de qualquer coisa, chame orch_report com status blocked e a pergunta exata: " +
+      "'Responder em português ou inglês?'. Encerre o turno. " +
+      "Quando receber a resposta na próxima mensagem, chame orch_report com status done, " +
+      "em result escreva apenas a resposta recebida.",
+    timeout_minutes: 8,
+  });
+  const ev = await watchUntilSettled(t.task_id, "B1");
+  if (ev.status !== "blocked") throw new Error(`B: esperado blocked, veio ${ev.status}`);
+  const pending = orch.inbox();
+  if (!pending.some((p) => p.task_id === t.task_id && p.status === "blocked")) throw new Error("B: decisão não apareceu no inbox");
+  await orch.answer(t.task_id, "Português.");
+  log("B: resposta enviada");
+  const done = await watchUntilSettled(t.task_id, "B2");
+  if (done.status !== "done") throw new Error(`B: esperado done após resposta, veio ${done.status}`);
+  log("B: OK (blocked, inbox, resposta, done)");
+}
+
+async function scenarioCancel(): Promise<void> {
+  log("C: cancelamento");
+  const t = await orch.delegate({
+    project_path: project,
+    role: "smoke-cancel",
+    brief: "Escreva um poema de 20 linhas sobre pipes e depois chame orch_report com status done.",
+    timeout_minutes: 8,
+  });
+  log(`C: delegada task=${t.task_id} workspace=${t.workspace_id} tab=${t.tab_id} pane=${t.pane_id}`);
+  await new Promise((r) => setTimeout(r, 5_000));
+  const c = await orch.cancel(t.task_id);
+  const after = (await new HerdrCli().panes()).map((p) => p.pane_id);
+  if (c.status !== "cancelled") throw new Error(`C: status ${c.status}`);
+  if (after.includes(t.pane_id)) throw new Error("C: pane da tarefa não foi fechado");
+  if (!after.includes(process.env.HERDR_PANE_ID as string)) throw new Error("C: pane do orquestrador foi afetado");
+  log(`C: OK (tab da tarefa fechada; pane do orquestrador preservado; panes depois=${after.join(",")})`);
+}
+
+/** Fecha qualquer tarefa ativa que este smoke tenha criado (ownership por pane_id + terminal_id). */
+async function cleanup(): Promise<void> {
+  for (const t of orch.list()) {
+    if (t.status === "starting" || t.status === "running" || t.status === "blocked") {
+      await orch.cancel(t.task_id).then(() => log(`limpeza: ${t.task_id} cancelada`), (e) => log(`limpeza falhou: ${String(e)}`));
+    }
+  }
+}
+
+/** Remove o workspace descartável criado pelo smoke (registrado no estado isolado). */
+function closeSmokeWorkspaces(): void {
+  for (const ws of Object.values(new Store(join(stateDir, "state.json")).load().workspaces)) {
+    try {
+      execFileSync("herdr", ["workspace", "close", ws.workspace_id], { stdio: "ignore", timeout: 20_000 });
+      log(`limpeza: workspace ${ws.workspace_id} fechado`);
+    } catch (e) {
+      log(`limpeza: workspace ${ws.workspace_id} não fechado: ${String(e)}`);
+    }
+  }
+}
+
+async function main(): Promise<void> {
+  log(`estado isolado: ${stateDir}; projeto descartável: ${project}`);
+  try {
+    await scenarioDone();
+    await scenarioBlockedAnswer();
+    await scenarioCancel();
+    log("SMOKE OK");
+  } finally {
+    await cleanup();
+    closeSmokeWorkspaces();
+  }
+}
+
+main().catch((err: unknown) => {
+  log(`SMOKE FALHOU: ${err instanceof Error ? err.stack : String(err)}`);
+  process.exitCode = 1;
+});

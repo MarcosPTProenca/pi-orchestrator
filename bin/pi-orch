@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Launcher do orquestrador: carrega a extensão só nesta sessão (não altera o Pi global).
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [ "${HERDR_ENV:-}" != "1" ] || [ -z "${HERDR_PANE_ID:-}" ]; then
+  echo "pi-orch: rode dentro de um pane do Herdr (HERDR_ENV=1 e HERDR_PANE_ID definidos)" >&2
+  exit 1
+fi
+export PI_ORCH_WORKER_EXT="$HERE/src/worker-ext.ts"
+exec pi -e "$HERE/src/index.ts" "$@"
