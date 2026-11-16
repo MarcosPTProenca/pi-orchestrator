@@ -52,7 +52,8 @@ export interface TaskRecord {
   brief_path: string;
   created_at: string;
   updated_at: string;
-  deadline_at: string;
+  /** Prazo explícito pedido pelo usuário (ISO UTC). null = sem prazo: o worker segue até terminar. */
+  deadline_at: string | null;
   question: string | null;
   result: string | null;
   artifacts: string[];

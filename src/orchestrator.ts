@@ -64,7 +64,6 @@ const LAUNCH_MESSAGE = "Execute a tarefa do brief que voce recebeu no contexto. 
 /** Teto para o worker começar a trabalhar após o prompt. Evita ler `idle` anterior ao início. */
 const START_WAIT_MS = 20_000;
 const RETRY_MS = 5_000;
-const DEFAULT_TIMEOUT_MIN = 30;
 const MAX_PROMPT_ATTEMPTS = 2;
 const DIAG_LINES = 30;
 
@@ -150,7 +149,8 @@ export class Orchestrator {
 
     writeFileSync(briefPath, renderBrief(taskId, intake, reportPath));
 
-    const timeoutMin = input.timeout_minutes ?? DEFAULT_TIMEOUT_MIN;
+    // Prazo só existe se o usuário pediu. Sem prazo, o worker segue até terminar.
+    const deadlineAt = input.timeout_minutes ? this.iso(this.d.now() + input.timeout_minutes * 60_000) : null;
     const initialStatus: TaskStatus = this.d.dryRun ? "planned" : "starting";
     const now = this.iso();
     const record: TaskRecord = {
@@ -169,7 +169,7 @@ export class Orchestrator {
       brief_path: briefPath,
       created_at: now,
       updated_at: now,
-      deadline_at: this.iso(this.d.now() + timeoutMin * 60_000),
+      deadline_at: deadlineAt,
       question: null,
       result: null,
       artifacts: [],
@@ -314,9 +314,9 @@ export class Orchestrator {
 
       if (this.collect(taskId)) return this.toEvent(this.get(taskId));
 
-      const remaining = Date.parse(t.deadline_at) - this.d.now();
+      const remaining = t.deadline_at === null ? Number.POSITIVE_INFINITY : Date.parse(t.deadline_at) - this.d.now();
       if (remaining <= 0) {
-        return this.setTerminal(taskId, "timeout", "prazo excedido; o worker não foi encerrado");
+        return this.setTerminal(taskId, "timeout", `prazo definido por você (${t.deadline_at}) foi atingido; o worker segue rodando`);
       }
 
       let outcome: { reached: string } | { timeout: true };

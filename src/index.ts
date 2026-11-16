@@ -67,7 +67,7 @@ export function formatEvent(e: WatchEvent): string {
     case "failed":
       return `${ref}: não concluiu. ${e.error ?? ""}`.trim();
     case "timeout":
-      return `${ref}: passou do prazo e segue aberto. Quer que eu cancele?`;
+      return `${ref}: o prazo que você definiu foi atingido e o worker segue rodando. Quer que eu cancele?`;
     case "lost":
       return `${ref}: perdi o acompanhamento (${e.error ?? "motivo desconhecido"}).`;
     default:
@@ -77,6 +77,12 @@ export function formatEvent(e: WatchEvent): string {
 
 function asText(value: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }], details: value };
+}
+
+/** Horário de Brasília (America/Sao_Paulo) para exibir ao usuário. Armazenamento continua em UTC. */
+export function formatBrasilia(iso: string | null): string | null {
+  if (!iso) return null;
+  return new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "medium" }).format(new Date(iso));
 }
 
 const TERMINAL = new Set(["done", "failed", "timeout", "lost"]);
@@ -94,7 +100,7 @@ const DELEGATE_ITEM = {
     branch: { type: "string", description: "Branch de trabalho. Omitida: o worker descobre a da PR citada." },
     spec: { type: "string", description: "Especificação de construção, só quando o pedido precisa de passos próprios." },
     model: { type: "string", description: "Modelo exato, ex.: claude-bridge/claude-haiku-5-5. Se indisponível, a chamada falha." },
-    timeout_minutes: { type: "number" },
+    timeout_minutes: { type: "number", description: "Prazo explícito pedido pelo usuário, em minutos. Omitir = sem prazo." },
   },
   required: ["project_path", "role", "request", "objective", "mode"],
   additionalProperties: false,
@@ -276,7 +282,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
           model: t.model,
           pane_id: t.pane_id,
           question: t.question,
-          deadline_at: t.deadline_at,
+          deadline_at: formatBrasilia(t.deadline_at),
         })),
       );
     },
