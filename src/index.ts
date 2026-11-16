@@ -13,14 +13,40 @@ import { Store, defaultStateDir } from "./store.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-function formatEvent(e: WatchEvent): string {
-  const head = `[orquestrador] ${e.project_id} (${e.task_id}): ${e.status}`;
-  const lines = [head];
-  if (e.status === "blocked") lines.push(`Decisão necessária: ${e.question ?? "(sem pergunta)"}`, `Responda com orch_answer(task_id="${e.task_id}", answer=...).`);
-  if (e.result) lines.push(`Resultado: ${e.result}`);
-  if (e.artifacts.length) lines.push(`Artefatos: ${e.artifacts.join(", ")}`);
-  if (e.error) lines.push(`Erro: ${e.error}`);
-  return lines.join("\n");
+/** Papel do orquestrador (first mate). Acrescentado ao prompt do sistema a cada turno. */
+export const FIRST_MATE_ROLE = [
+  "# Papel: orquestrador",
+  "Você coordena workers. Não executa trabalho de projeto.",
+  "- Qualquer análise, leitura profunda, comando, edição ou pesquisa vai para um worker via orch_delegate.",
+  "- Você só lê o suficiente para escrever um brief claro (read, grep, find, ls).",
+  "- O brief é autocontido: objetivo, escopo, o que não fazer e o formato do relatório final.",
+  "- Fale com o usuário em resultados e decisões. Não narre progresso nem mecanismo.",
+  "- Quando um worker pedir decisão, apresente a pergunta ao usuário e use orch_answer com a resposta dele.",
+  "- Depois de delegar, diga em uma frase o que foi delegado e encerre o turno.",
+  "- Não consulte status nem espere com bg_wait. O aviso chega sozinho quando houver resultado, decisão ou falha.",
+  "- Não repita avisos já dados. Use orch_status ou orch_inbox só quando o usuário pedir.",
+].join("\n");
+
+/** Mensagem ao usuário: resultado ou decisão, sem campos técnicos. */
+export function formatEvent(e: WatchEvent): string {
+  const ref = `[${e.task_id.slice(-6)}] ${e.project_id}`;
+  switch (e.status) {
+    case "done": {
+      const lines = [`${ref}: concluído. ${e.result ?? ""}`.trim()];
+      if (e.artifacts.length) lines.push(`Arquivos: ${e.artifacts.join(", ")}`);
+      return lines.join("\n");
+    }
+    case "blocked":
+      return `${ref} precisa de uma decisão: ${e.question ?? "(pergunta não informada)"}`;
+    case "failed":
+      return `${ref}: não concluiu. ${e.error ?? ""}`.trim();
+    case "timeout":
+      return `${ref}: passou do prazo e segue aberto. Quer que eu cancele?`;
+    case "lost":
+      return `${ref}: perdi o acompanhamento (${e.error ?? "motivo desconhecido"}).`;
+    default:
+      return `${ref}: ${e.status}`;
+  }
 }
 
 function asText(value: unknown) {
@@ -51,7 +77,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         if (event && orch.takeNotice(taskId)) {
           pi.sendMessage(
             { customType: "orch-event", content: formatEvent(event), display: true, details: event },
-            { triggerTurn: true },
+            { triggerTurn: false },
           );
         }
       })
@@ -59,7 +85,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         watchers.delete(taskId);
         pi.sendMessage(
           { customType: "orch-event", content: `[orquestrador] watcher de ${taskId} falhou: ${String(err)}`, display: true },
-          { triggerTurn: true },
+          { triggerTurn: false },
         );
       });
   };
@@ -69,6 +95,11 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     for (const t of orch.list()) {
       if (t.status === "running" || t.status === "starting") startWatch(t.task_id);
     }
+  });
+
+  pi.on("before_agent_start", (event) => {
+    if (event.systemPrompt.includes(FIRST_MATE_ROLE)) return;
+    return { systemPrompt: `${event.systemPrompt}\n\n${FIRST_MATE_ROLE}` };
   });
 
   pi.on("session_shutdown", () => {
