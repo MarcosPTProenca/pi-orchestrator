@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { formatEvent, modelMessageFor, FIRST_MATE_ROLE } from "../src/index.ts";
 
 const base = { task_id: "t-abcdef123456", project_id: "rko", result: null, question: null, artifacts: [], error: null };
@@ -28,13 +29,11 @@ test("papel do orquestrador: não executa trabalho de projeto e lança pelas too
   assert.match(FIRST_MATE_ROLE, /orch_locate_project antes de perguntar/);
 });
 
-test("launcher exclui só os subagents ocultos; o orquestrador mantém as ferramentas normais do Pi", () => {
+test("launcher não exclui ferramentas: subagents de pesquisa ficam disponíveis; worker está desabilitado no settings", () => {
   const bin = readFileSync(join(process.cwd(), "bin", "pi-orch"), "utf8");
-  const line = bin.split("\n").find((l) => l.includes("--exclude-tools")) ?? "";
-  assert.match(line, /--exclude-tools subagent,subagents_enable/);
-  for (const tool of ["bash", "read", "edit", "write", "grep", "find", "ls"]) {
-    assert.doesNotMatch(line, new RegExp(`\\b${tool}\\b`), `${tool} não deve ser excluído`);
-  }
+  assert.doesNotMatch(bin, /--exclude-tools/);
+  const settings = JSON.parse(readFileSync(join(homedir(), ".pi", "agent", "settings.json"), "utf8"));
+  assert.equal(settings.subagents.agentOverrides.worker.disabled, true);
 });
 
 test("mensagem ao orquestrador pede resumo curto e não cola o relatório", () => {

@@ -8,5 +8,5 @@ if [ "${HERDR_ENV:-}" != "1" ] || [ -z "${HERDR_PANE_ID:-}" ]; then
   exit 1
 fi
 export PI_ORCH_WORKER_EXT="$HERE/src/worker-ext.ts"
-# Orquestrador = agente Pi normal (todas as ferramentas). Só subagents ocultos ficam fora: workers são sessões Herdr.
-exec pi --exclude-tools subagent,subagents_enable -e "$HERE/src/index.ts" "$@"
+# Orquestrador = agente Pi normal, com todas as ferramentas (inclusive subagents de pesquisa). O agente worker do pi-subagents está desabilitado em settings.json.
+exec pi -e "$HERE/src/index.ts" "$@"

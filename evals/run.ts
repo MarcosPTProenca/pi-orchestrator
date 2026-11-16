@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { scenarios, type Scenario, type Run, type Check } from "./scenarios.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const EXCLUDED = "subagent,subagents_enable";
+const EXCLUDED = "";
 const args = process.argv.slice(2);
 const model = args[args.indexOf("--model") + 1] ?? "openai-codex/gpt-6.1-sol";
 const only = args.includes("--only") ? args[args.indexOf("--only") + 1] : undefined;
@@ -83,7 +83,7 @@ function runPi(prompt: string, env: NodeJS.ProcessEnv): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(
       "pi",
-      ["--mode", "json", "--model", model, "--exclude-tools", EXCLUDED, "-e", join(ROOT, "src", "index.ts"), "-p", prompt],
+      ["--mode", "json", "--model", model, ...(EXCLUDED ? ["--exclude-tools", EXCLUDED] : []), "-e", join(ROOT, "src", "index.ts"), "-p", prompt],
       { cwd: ROOT, env, stdio: ["ignore", "pipe", "pipe"] },
     );
     let out = "";
