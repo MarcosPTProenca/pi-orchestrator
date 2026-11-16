@@ -478,3 +478,11 @@ test("o brief vai ao worker pela extensão (contexto), e o argumento de lançame
   const launch = (h.herdr.opsOf("startAgent")[0].args as { piArgs: string[] }).piArgs.at(-1) as string;
   assert.doesNotMatch(launch, /\n/, "argumento de lançamento sem quebras de linha");
 });
+
+test("brief manda devolver a worktree só quando não há trabalho pendente", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  const brief = readFileSync(t.brief_path, "utf8");
+  assert.match(brief, /treehouse return/);
+  assert.match(brief, /não devolva e informe o caminho/);
+});

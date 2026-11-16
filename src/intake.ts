@@ -166,6 +166,7 @@ export function renderBrief(taskId: string, pack: IntakePack, reportPath: string
     "4. Obstáculo que se repete duas vezes: orch_report com status blocked e o motivo.",
     "5. Não reporte progresso. Chame orch_report uma vez, no fim.",
     "6. Não comente nem publique em PR ou issue, a menos que o pedido diga isso.",
+    "7. Ao terminar: se não houver alterações nem commits sem push, devolva sua worktree com `treehouse return <caminho>`. Se houver trabalho não enviado, não devolva e informe o caminho no relatório.",
     "",
     "## Relatório final",
     "Chame orch_report com status (done, failed ou blocked), result e artifacts (URLs, caminhos).",
