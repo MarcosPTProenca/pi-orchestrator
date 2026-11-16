@@ -14,6 +14,8 @@ import { Orchestrator, MODES, type DelegateInput, type WatchEvent } from "./orch
 import { fixInputFor, listRedPrs } from "./prs.ts";
 import { FixQueue } from "./queue.ts";
 import { locateProject } from "./locate.ts";
+import { orchestratorAgentName } from "./label.ts";
+import { execFile } from "node:child_process";
 import { Store, defaultStateDir } from "./store.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -149,8 +151,13 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     return task.task_id;
   };
 
-  pi.on("session_start", async () => {
+  pi.on("session_start", async (_event, ctx) => {
     if (dryRun) return;
+    // Nome visível no painel do Herdr: mostra que é o orquestrador e em qual pasta. Falha é ignorada.
+    const pane = process.env.HERDR_PANE_ID;
+    if (pane) {
+      execFile("herdr", ["agent", "rename", pane, orchestratorAgentName(ctx.cwd)], { timeout: 15_000 }, () => undefined);
+    }
     await orch.reconcile();
     for (const t of orch.list()) {
       if (t.status === "running" || t.status === "starting") startWatch(t.task_id);

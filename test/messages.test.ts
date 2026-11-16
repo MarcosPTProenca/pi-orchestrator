@@ -45,3 +45,12 @@ test("mensagem ao orquestrador pede resumo curto e não cola o relatório", () =
   assert.ok(msg.length < 2000, "bruto não cabe inteiro");
   assert.match(msg, /https:\/\/github\.com\/o\/r\/pull\/1/);
 });
+
+test("nome do orquestrador no Herdr: orquestrador-<pasta>, no padrão aceito", async () => {
+  const { orchestratorAgentName } = await import("../src/label.ts");
+  assert.equal(orchestratorAgentName("/home/marcos_pinho/github/pi-orchestrator"), "orquestrador-pi-orchestrator");
+  assert.equal(orchestratorAgentName("/x/Job Planejamento_Oferta!"), "orquestrador-job-planejamento-of");
+  const n = orchestratorAgentName("/x/" + "a".repeat(80));
+  assert.match(n, /^[a-z][a-z0-9_-]{0,31}$/);
+  assert.equal(orchestratorAgentName("/x/---"), "orquestrador-sessao");
+});
