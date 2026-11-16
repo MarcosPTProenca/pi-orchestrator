@@ -26,6 +26,8 @@ export const FIRST_MATE_ROLE = [
   "- Você não cria worktree. O worker arrenda a própria pelo treehouse ao iniciar, conforme as instruções dele.",
   "- Se o usuário pedir lotes (ex.: 2 a 2), delegue só o lote atual e espere os avisos dele antes do próximo.",
   "- Quando o usuário pedir um modelo, passe-o em model (ex.: claude-bridge/claude-haiku-5-5).",
+  "- Pedido de PR ou issue é trabalho direto: um worker vê a PR ou a issue e resolve do início ao fim (entender, corrigir, testar, dar push). Não separe em etapas de levantamento, implementação e revisão, a menos que eu peça.",
+  "- Você não fecha worker sozinho. Um worker concluído fica aberto até você validar o resultado; depois use orch_close.",
   "- Depois de delegar, diga em uma frase o que foi delegado e encerre o turno.",
   "- Não consulte status nem espere com bg_wait. O aviso chega sozinho quando houver resultado, decisão ou falha.",
   "- Não repita avisos já dados. Use orch_status ou orch_inbox só quando o usuário pedir.",
@@ -183,6 +185,23 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       const task = await orch.answer(params.task_id, params.answer);
       startWatch(task.task_id);
       return asText({ task_id: task.task_id, status: task.status });
+    },
+  });
+
+  pi.registerTool({
+    name: "orch_close",
+    label: "orch close",
+    description:
+      "Fecha a tab de uma tarefa já concluída, falha ou expirada, depois que você validou o resultado. Não apaga relatórios.",
+    parameters: {
+      type: "object",
+      properties: { task_id: { type: "string" } },
+      required: ["task_id"],
+      additionalProperties: false,
+    },
+    async execute(_id: string, params: { task_id: string }) {
+      const task = await orch.close(params.task_id);
+      return asText({ task_id: task.task_id, status: task.status, tab_closed: true });
     },
   });
 

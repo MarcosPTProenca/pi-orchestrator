@@ -65,6 +65,7 @@ export function buildBrief(taskId: string, reportPath: string, input: DelegateIn
     "",
     "## Contrato",
     "- Entregue um resultado concreto para a tarefa, não um relato de progresso.",
+    "- Se o objetivo é resolver algo (ex.: corrigir uma PR), faça a correção completa, valide e dê push. Não entregue só o levantamento.",
     "- Se o escopo estiver ambíguo e a decisão for do usuário, pare com `blocked`; não escolha sozinho.",
     "- Você não fala com o usuário. Só o orquestrador fala com ele.",
     "",
@@ -292,17 +293,23 @@ export class Orchestrator {
    * Devolve null se o sinal de cancelamento do watcher disparar.
    */
   async watch(taskId: string, signal: AbortSignal): Promise<WatchEvent | null> {
-    const ev = await this.watchLoop(taskId, signal);
-    if (ev?.status === "done") await this.retire(taskId);
-    return ev;
+    return this.watchLoop(taskId, signal);
   }
 
-  /** Conclusão validada: fecha a tab do worker (dono confirmado). Relatório e sessão ficam em disco. */
-  private async retire(taskId: string): Promise<void> {
+  /**
+   * Fecha a tab do worker. Quem decide é o orquestrador, depois de validar o resultado:
+   * conclusão não fecha nada sozinha. Dono confirmado por pane_id + terminal_id.
+   */
+  async close(taskId: string): Promise<TaskRecord> {
     const t = this.get(taskId);
-    if ((await this.ownership(t).catch(() => "missing")) === "owned") {
-      await this.d.herdr.closeTab(t.tab_id).catch(() => undefined);
+    const owner = await this.ownership(t);
+    if (owner === "mismatch") {
+      throw new Error(`tab ${t.tab_id} não corresponde mais à tarefa ${taskId}; nada foi fechado`);
     }
+    if (owner === "owned") await this.d.herdr.closeTab(t.tab_id);
+    return this.update(taskId, (x) => {
+      x.notified = true;
+    });
   }
 
   private startPrompt(briefPath: string): string {

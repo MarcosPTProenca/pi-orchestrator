@@ -126,7 +126,7 @@ test("falha ao iniciar o worker fecha só a tab da tarefa e marca failed", async
   assert.equal(failed.status, "failed");
 });
 
-test("done fecha a tab do worker e preserva o relatório em disco", async () => {
+test("done NÃO fecha a tab: quem fecha é o orquestrador via close, depois de validar", async () => {
   const h = makeHarness();
   const t = await h.orch.delegate({ project_path: h.project, role: "a", brief: "x" });
   h.herdr.waitImpl = async () => {
@@ -134,9 +134,21 @@ test("done fecha a tab do worker e preserva o relatório em disco", async () => 
     return { reached: "idle" };
   };
   await h.orch.watch(t.task_id, new AbortController().signal);
+  assert.equal(h.herdr.opsOf("closeTab").length, 0, "conclusão não fecha tab");
+  assert.ok(h.herdr.panesList.some((p) => p.pane_id === t.pane_id), "pane da tarefa segue aberto");
+  await h.orch.close(t.task_id);
   assert.equal(h.herdr.opsOf("closeTab").at(-1)?.args, t.tab_id);
   assert.equal(h.herdr.panesList.some((p) => p.pane_id === t.pane_id), false);
   assert.match(readFileSync(join(t.task_dir, "report.json"), "utf8"), /"status":"done"/);
+});
+
+test("close recusa tab trocada (terminal_id diferente)", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", brief: "x" });
+  h.herdr.panesList = h.herdr.panesList.map((p) => (p.pane_id === t.pane_id ? { ...p, terminal_id: "outro" } : p));
+  const before = h.herdr.opsOf("closeTab").length;
+  await assert.rejects(h.orch.close(t.task_id), /não corresponde/);
+  assert.equal(h.herdr.opsOf("closeTab").length, before);
 });
 
 test("failed e blocked não fecham a tab (para inspeção)", async () => {
