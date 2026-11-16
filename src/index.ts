@@ -4,8 +4,8 @@
  * quando há decisão, bloqueio ou conclusão.
  */
 import { execFileSync } from "node:child_process";
-import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
+import { startHook as startHook0, type HookHandle } from "./hook.ts";
+import { DEFAULT_PRIORITY, pickModel, checkRequestedQuota, readQuota, type ProviderQuota } from "./quota.ts";
 import { randomBytes } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -101,7 +101,7 @@ const DELEGATE_ITEM = {
     source: { type: "string", description: "URL da PR ou issue, quando houver." },
     branch: { type: "string", description: "Branch de trabalho. Omitida: o worker descobre a da PR citada." },
     spec: { type: "string", description: "Especificação de construção, só quando o pedido precisa de passos próprios." },
-    model: { type: "string", description: "Modelo exato, ex.: claude-bridge/claude-haiku-5-5. Se indisponível, a chamada falha." },
+    model: { type: "string", description: "Modelo exato, ex.: claude-bridge/claude-haiku-5-5. Pedido explícito: se indisponível ou sem cota, a chamada falha. Omitido: escolha automática pela cota (haiku 5.5, luna 6, kiro/auto por último)." },
     tracker: { type: "string", enum: ["github", "plane", "none"], description: "Onde ficam as issues deste projeto, descoberto pelo contexto (GitHub issues ou Plane)." },
     timeout_minutes: { type: "number", description: "Prazo explícito pedido pelo usuário, em minutos. Omitir = sem prazo." },
   },
@@ -112,6 +112,28 @@ const DELEGATE_ITEM = {
 export default function orchestratorExtension(pi: ExtensionAPI): void {
   const stateDir = defaultStateDir();
   const dryRun = process.env.PI_ORCH_DRY_RUN === "1";
+  let quotaCache: { at: number; quotas: ProviderQuota[] } | undefined;
+
+  /** Cota com cache de 60 s, para não chamar o quota-axi a cada item de um lote. */
+  const quotas = async (): Promise<ProviderQuota[]> => {
+    if (quotaCache && Date.now() - quotaCache.at < 60_000) return quotaCache.quotas;
+    const fresh = await readQuota();
+    quotaCache = { at: Date.now(), quotas: fresh };
+    return fresh;
+  };
+
+  /** Modelo antes do lançamento. Pedido explícito: valida existência e cota, sem trocar. Sem pedido: ordem por cota. */
+  const chooseModel = async (requested: string | undefined): Promise<{ model: string | undefined; reason: string }> => {
+    const avail = availableModels();
+    if (requested !== undefined && requested.trim() !== "") {
+      const model = resolveModel(requested, avail);
+      checkRequestedQuota(model!, await quotas());
+      return { model, reason: "pedido explícito" };
+    }
+    const picked = pickModel(DEFAULT_PRIORITY, await quotas(), avail);
+    return { model: picked.model, reason: picked.reason };
+  };
+
   const orch = new Orchestrator({
     herdr: new HerdrCli(),
     store: new Store(join(stateDir, "state.json")),
@@ -121,6 +143,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     newHex: () => randomBytes(4).toString("hex"),
     availableModels,
     dryRun,
+    chooseModel,
     onTerminal: (taskId: string) => {
       void fixQueue?.settle(taskId);
     },
@@ -129,47 +152,21 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   /** Fila de correções de PR: no máximo N workers em paralelo, avançando quando um termina. */
   let fixQueue: FixQueue<DelegateInput> | undefined;
   const hookToken = randomBytes(24).toString("hex");
-  let hookServer: Server | undefined;
+  let hookHandle: HookHandle | undefined;
 
-  /**
-   * Webhook: o worker faz POST aqui ao terminar. A ligação é local (127.0.0.1) e exige o token.
-   * O POST só diz qual tarefa terminou; o estado vem do relatório em disco.
-   */
-  const startHook = (): Promise<void> => {
-    if (dryRun || hookServer) return Promise.resolve();
-    return new Promise((resolve, reject) => {
-      hookServer = createServer((req, res) => {
-        if (req.method !== "POST" || req.url !== "/hook" || req.headers.authorization !== `Bearer ${hookToken}`) {
-          res.writeHead(401).end();
-          return;
-        }
-        let body = "";
-        req.on("data", (chunk) => (body += chunk));
-        req.on("end", () => {
-          void (async () => {
-            try {
-              const { task_id } = JSON.parse(body) as { task_id: string };
-              const event = await orch.refresh(task_id);
-              res.writeHead(200).end("ok");
-              if (event && orch.takeNotice(task_id)) {
-                pi.sendMessage(
-                  { customType: "orch-event", content: modelMessageFor(event), display: false, details: event },
-                  { triggerTurn: true },
-                );
-              }
-            } catch {
-              res.writeHead(400).end();
-            }
-          })();
-        });
-      });
-      hookServer.once("error", reject);
-      hookServer.listen(Number(process.env.PI_ORCH_HOOK_PORT ?? 0), "127.0.0.1", () => {
-        const { port } = hookServer!.address() as AddressInfo;
-        orch.setHook(`http://127.0.0.1:${port}/hook`, hookToken);
-        resolve();
-      });
-    });
+  /** Webhook: o worker faz POST ao terminar. Só diz qual tarefa terminou; o estado vem do relatório em disco. */
+  const startHook = async (): Promise<void> => {
+    if (dryRun || hookHandle) return;
+    hookHandle = await startHook0(hookToken, async (taskId) => {
+      const event = await orch.refresh(taskId);
+      if (event && orch.takeNotice(taskId)) {
+        pi.sendMessage(
+          { customType: "orch-event", content: modelMessageFor(event), display: false, details: event },
+          { triggerTurn: true },
+        );
+      }
+    }, Number(process.env.PI_ORCH_HOOK_PORT ?? 0));
+    orch.setHook(hookHandle.url, hookToken);
   };
 
   const startTask = async (input: DelegateInput): Promise<string> => {
@@ -194,8 +191,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("session_shutdown", () => {
-    hookServer?.close();
-    hookServer = undefined;
+    hookHandle?.close();
+    hookHandle = undefined;
   });
 
   pi.registerTool({
@@ -213,6 +210,13 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     },
     async execute(_id: string, params: { tasks: Array<Record<string, unknown>> }) {
       const inputs = params.tasks as unknown as DelegateInput[];
+      // Antes de lançar qualquer item: escolhe e valida o modelo de todos (falha de cota não deixa lote pela metade).
+      const choices = [];
+      for (const input of inputs) {
+        const choice = await chooseModel(input.model);
+        input.model = choice.model;
+        choices.push(choice.reason);
+      }
       for (const input of inputs) orch.checkDelegate(input);
       const started = [];
       // Sequencial de propósito: a criação do workspace do projeto não pode correr em paralelo.
@@ -223,6 +227,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
           role: task.role,
           status: task.status,
           model: task.model,
+          model_reason: choices[inputs.indexOf(input)],
           mode: input.mode,
           project: task.project_path,
           brief: task.brief_path,

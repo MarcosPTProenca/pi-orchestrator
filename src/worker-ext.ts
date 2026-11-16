@@ -7,6 +7,8 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { REPORT_STATUSES, validateReport } from "./contract.ts";
+import { fallbackReportFor } from "./fallback.ts";
+import { postToHook } from "./hook.ts";
 
 /** Preâmbulo do worker (equivalente ao do FirstMate): quem lançou, e o que é autoridade e o que não é. */
 export const WORKER_PREAMBLE = [
@@ -33,26 +35,17 @@ export default function workerExtension(pi: ExtensionAPI): void {
   if (!taskId || !taskDir) return;
 
   // Webhook: ao terminar o turno, o worker garante o relatório e avisa o orquestrador por POST.
-  // Sem relatório escrito, grava um de falha. Se o POST falhar, o relatório em disco segue valendo.
-  pi.on("agent_end", async () => {
+  // Sem relatório, grava um de falha com o motivo (cota ou erro do modelo). Se o POST falhar, o relatório segue em disco.
+  pi.on("agent_end", async (event) => {
     const file = join(taskDir, "report.json");
     if (!existsSync(file)) {
-      writeFileSync(`${file}.tmp`, JSON.stringify({ task_id: taskId, status: "failed", result: "Encerrou o turno sem chamar orch_report.", question: null, artifacts: [], reported_at: new Date().toISOString() }, null, 2));
+      const report = fallbackReportFor(taskId, (event as { messages?: unknown[] }).messages ?? [], new Date().toISOString());
+      writeFileSync(`${file}.tmp`, JSON.stringify(report, null, 2));
       renameSync(`${file}.tmp`, file);
     }
     const url = process.env.PI_ORCH_HOOK_URL;
     const token = process.env.PI_ORCH_HOOK_TOKEN;
-    if (!url || !token) return;
-    try {
-      await fetch(url, {
-        method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-        body: JSON.stringify({ task_id: taskId }),
-        signal: AbortSignal.timeout(5_000),
-      });
-    } catch {
-      // Orquestrador fora do ar: o relatório fica em disco e a reconciliação o pega ao iniciar.
-    }
+    if (url && token) await postToHook(url, token, taskId);
   });
 
   pi.registerTool({
