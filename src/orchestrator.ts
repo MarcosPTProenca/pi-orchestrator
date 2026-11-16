@@ -296,8 +296,10 @@ export class Orchestrator {
     });
   }
 
+  /** Prompt do worker: o brief completo vai inline. O arquivo fica só como registro de auditoria. */
   private startPrompt(briefPath: string): string {
-    return `Leia o arquivo ${briefPath} e execute a tarefa. Ao terminar, chame orch_report.`;
+    const brief = readFileSync(briefPath, "utf8");
+    return `${brief}\n\nExecute a tarefa acima. Ao terminar, chame orch_report.`;
   }
 
   private async watchLoop(taskId: string, signal: AbortSignal): Promise<WatchEvent | null> {
@@ -360,7 +362,7 @@ export class Orchestrator {
       const current = this.get(taskId);
       if (current.prompt_attempts < MAX_PROMPT_ATTEMPTS) {
         // Ocioso sem relatório: o brief pode não ter sido consumido ou o worker parou no meio. Reenvia com lembrete.
-        const reminder = `${this.startPrompt(current.brief_path)} Você ainda não chamou orch_report. Execute o brief agora e encerre com orch_report.`;
+        const reminder = `${this.startPrompt(current.brief_path)}\n\nVocê ainda não chamou orch_report. Execute a tarefa agora e encerre com orch_report.`;
         await this.d.herdr.prompt(current.worker_id, reminder);
         this.update(taskId, (x) => {
           x.prompt_attempts += 1;

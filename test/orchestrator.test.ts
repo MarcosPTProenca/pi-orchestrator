@@ -466,3 +466,13 @@ test("brief pede resumo de até 5 linhas no result e proíbe comentar em PR sem 
   assert.match(brief, /no máximo 5 linhas/);
   assert.match(brief, /Não comente nem publique em PR ou issue/);
 });
+
+test("o brief vai inline no prompt do worker; o worker não depende de ler arquivo", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "Pedido único XYZ", objective: "y", mode: "report" });
+  const sent = (h.herdr.opsOf("prompt")[0].args as { text: string }).text;
+  assert.match(sent, /## Pedido do usuário \(literal\)\nPedido único XYZ/);
+  assert.match(sent, /## Critérios de conclusão/);
+  assert.doesNotMatch(sent, /Leia o arquivo/);
+  assert.match(sent, /chame orch_report/);
+});
