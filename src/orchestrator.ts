@@ -23,11 +23,21 @@ export interface OrchDeps {
   newHex: () => string;
 }
 
+export const MODES = ["report", "direct-pr", "local-only"] as const;
+export type Mode = (typeof MODES)[number];
+
 export interface DelegateInput {
   /** Raiz de um repositório git (checkout principal). O worker arrenda a própria worktree a partir dele. */
   project_path: string;
   role: string;
-  brief: string;
+  /** Pedido do usuário, com o contexto necessário para lê-lo (ex.: a PR ou issue e o que ela diz). */
+  intent: string;
+  /** Especificação de construção escrita pelo orquestrador: o que fazer, em que ordem e como validar. */
+  spec: string;
+  /** report: só relatório. direct-pr: implementa, dá push na branch e abre/atualiza o PR. local-only: implementa sem push. */
+  mode: Mode;
+  /** Branch existente (ex.: branch de uma PR) em que o worker trabalha. Obrigatória em direct-pr que atualiza uma PR. */
+  branch?: string;
   timeout_minutes?: number;
   /** Modelo do worker, ex.: claude-bridge/claude-haiku-5-5. Omitido = padrão do Pi. */
   model?: string;
@@ -51,40 +61,55 @@ const DEFAULT_TIMEOUT_MIN = 30;
 const MAX_PROMPT_ATTEMPTS = 2;
 const DIAG_LINES = 30;
 
-export function buildBrief(taskId: string, reportPath: string, input: DelegateInput): string {
+const DOD: Record<Mode, (branch: string) => string[]> = {
+  report: () => [
+    "Investigue e escreva o relatório em `result`: o que você fez, o que encontrou, evidências (comandos e saídas, arquivo:linha) e o que recomenda.",
+    "Não faça push nem abra PR. Não altere o remoto.",
+  ],
+  "direct-pr": (branch) => [
+    "Implemente o que a especificação pede, seguindo a skill `implement`: entender, implementar, testar, revisar.",
+    `Faça commit na branch \`${branch}\`, dê push e abra o PR (ou atualize o existente) com gh.`,
+    "Verifique os checks do PR. Se a falha for do seu código, corrija e rode de novo até ficarem verdes.",
+    "Ao final, coloque em `artifacts` a URL completa do PR.",
+  ],
+  "local-only": (branch) => [
+    "Implemente o que a especificação pede, com testes, seguindo a skill `implement`.",
+    `Faça commit na branch \`${branch}\`. Não faça push nem abra PR.`,
+  ],
+};
+
+export function buildBrief(taskId: string, reportPath: string, input: DelegateInput, branch: string): string {
+  const dod = DOD[input.mode](branch).map((l) => `- ${l}`);
   return [
-    `# Tarefa ${taskId} (papel: ${input.role})`,
+    `# Tarefa ${taskId} (papel: ${input.role}, modo: ${input.mode})`,
     "",
-    "## Worktree",
-    `Antes de qualquer coisa, arrende sua worktree a partir do repositório ${input.project_path}:`,
-    `\`treehouse get --lease --lease-holder ${taskId}\``,
-    "O comando imprime o caminho da worktree. Entre nela e trabalhe só nela; não altere o checkout principal.",
+    "Você é um worker: uma unidade autônoma gerenciada pelo orquestrador. Trabalhe sem esperar um humano.",
     "",
-    "Você é um worker de uma sessão Pi independente, iniciada pelo orquestrador.",
-    "Execute a tarefa abaixo com seu setup normal (skills, extensões, subagentes).",
+    "## Pedido do usuário",
+    input.intent.trim(),
     "",
-    "## Contrato",
-    "- Entregue um resultado concreto para a tarefa, não um relato de progresso.",
-    "- Você é uma unidade completa, não um sub-agente de uma etapa. Percorra o fluxo inteiro até o fim: entenda a issue ou PR, implemente, teste, revise e entregue o PR (ou atualize o existente) com os checks verificados.",
-    "- Siga a skill `implement` do seu ambiente como contrato de execução. Não pare em levantamento nem entregue só um diagnóstico, a menos que o objetivo seja só diagnóstico.",
-    "- Se o escopo estiver ambíguo e a decisão for do usuário, pare com `blocked`; não escolha sozinho.",
-    "- Você não fala com o usuário. Só o orquestrador fala com ele.",
+    "## Especificação de construção",
+    input.spec.trim(),
     "",
-    "## Ao terminar",
-    "Chame a tool `orch_report` exatamente uma vez no fim:",
-    "- `status`: `done` se concluiu; `failed` se não conseguiu; `blocked` se precisa de decisão humana.",
-    "- `result`: resumo objetivo do que foi feito e do que foi encontrado.",
-    "- `artifacts`: caminhos absolutos de relatórios ou arquivos gerados, se houver.",
-    "- `question`: obrigatório com `blocked`. Uma pergunta objetiva, com as opções.",
+    "## Setup",
+    `1. Arrende sua worktree isolada a partir do repositório ${input.project_path}: \`treehouse get --lease --lease-holder ${taskId}\`. O comando imprime o caminho; entre nele.`,
+    `2. Verifique o isolamento com \`pwd -P\` e \`git rev-parse --show-toplevel\`. Os dois devem apontar para a sua worktree, não para ${input.project_path}. Se não baterem, chame orch_report com status failed e pare.`,
+    input.branch ? `3. Faça checkout da branch \`${input.branch}\` na sua worktree antes de editar.` : "",
     "",
-    "Se usar `blocked`, chame orch_report e encerre o turno. Você receberá a resposta como nova mensagem.",
-    "Não pergunte ao usuário diretamente; a comunicação passa pelo orquestrador.",
-    `Caminho do relatório gravado pelo orch_report: ${reportPath}`,
+    "## Regras",
+    "1. Só faça push ou abra PR conforme o modo acima. Nunca no checkout principal.",
+    "2. Use gh autenticado com a conta certa, conforme as skills de credenciais. Nunca consulte a API sem autenticação.",
+    "3. Você não fala com o usuário. Decisão de produto ou ação destrutiva: chame orch_report com status blocked e question, e encerre o turno.",
+    "4. Obstáculo que se repete duas vezes: orch_report com status blocked e o motivo.",
+    "5. Não reporte progresso. Chame orch_report uma vez, no fim.",
     "",
-    "## Tarefa",
-    input.brief.trim(),
+    "## Definição de pronto",
+    ...dod,
     "",
-  ].join("\n");
+    "## Relatório final",
+    `Chame orch_report com status (done, failed ou blocked), result (standalone, com evidências) e artifacts (URLs, caminhos). O relatório fica em ${reportPath}.`,
+    "",
+  ].filter((l) => l !== undefined).join("\n");
 }
 
 function isDirectory(path: string): boolean {
@@ -155,17 +180,25 @@ export class Orchestrator {
     if (!existsSync(join(input.project_path, ".git"))) {
       throw new Error(`project_path não é a raiz de um repositório git: ${input.project_path}. Informe o checkout do projeto, não um diretório pai.`);
     }
-    if (input.brief.trim() === "") throw new Error("brief vazio");
+    for (const [field, value] of [["intent", input.intent], ["spec", input.spec], ["role", input.role]] as const) {
+      if (!value || value.trim() === "") throw new Error(`${field} vazio`);
+      if (/\{[A-Z_]+\}/.test(value)) throw new Error(`${field} ainda tem placeholder: ${value.match(/\{[A-Z_]+\}/)?.[0]}`);
+    }
+    if (!(MODES as readonly string[]).includes(input.mode)) throw new Error(`mode inválido: ${String(input.mode)} (use ${MODES.join(", ")})`);
+    if (input.mode === "direct-pr" && !input.branch) {
+      throw new Error("direct-pr exige branch: a branch da PR existente, ou uma nova branch para abrir o PR");
+    }
 
     const projectId = basename(input.project_path);
     const taskId = `t-${this.d.newHex()}`;
+    const branch = input.branch ?? `fm/${taskId}`;
     const workerId = `orch-${this.d.newHex().slice(0, 8)}`;
     const taskDir = join(this.d.tasksDir, taskId);
     mkdirSync(taskDir, { recursive: true });
     const briefPath = join(taskDir, "brief.md");
     const reportPath = join(taskDir, "report.json");
 
-    writeFileSync(briefPath, buildBrief(taskId, reportPath, input));
+    writeFileSync(briefPath, buildBrief(taskId, reportPath, input, branch));
 
     const timeoutMin = input.timeout_minutes ?? DEFAULT_TIMEOUT_MIN;
     const now = this.iso();

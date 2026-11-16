@@ -50,9 +50,11 @@ async function scenarioDone(): Promise<void> {
   const t = await orch.delegate({
     project_path: project,
     role: "smoke-report",
-    brief:
+    intent:
       "Leia o arquivo README.md no diretório atual. Não edite nenhum arquivo. " +
       "Ao terminar, chame orch_report com status done e, em result, a primeira linha do README.",
+    spec: "Leia README.md e reporte a primeira linha. Não edite nenhum arquivo.",
+    mode: "report",
     timeout_minutes: 8,
   });
   log(`A: delegada task=${t.task_id} pane=${t.pane_id} worker=${t.worker_id}`);
@@ -70,11 +72,13 @@ async function scenarioBlockedAnswer(): Promise<void> {
   const t = await orch.delegate({
     project_path: project,
     role: "smoke-question",
-    brief:
+    intent:
       "Antes de qualquer coisa, chame orch_report com status blocked e a pergunta exata: " +
       "'Responder em português ou inglês?'. Encerre o turno. " +
       "Quando receber a resposta na próxima mensagem, chame orch_report com status done, " +
       "em result escreva apenas a resposta recebida.",
+    spec: "Siga exatamente o pedido e chame orch_report conforme indicado.",
+    mode: "report",
     timeout_minutes: 8,
   });
   const ev = await watchUntilSettled(t.task_id, "B1");
@@ -93,7 +97,7 @@ async function scenarioCancel(): Promise<void> {
   const t = await orch.delegate({
     project_path: project,
     role: "smoke-cancel",
-    brief: "Escreva um poema de 20 linhas sobre pipes e depois chame orch_report com status done.",
+    intent: "Escreva um poema de 20 linhas sobre pipes e depois chame orch_report com status done.", spec: "Escreva um poema de 20 linhas sobre pipes e depois chame orch_report com status done.", mode: "report",
     timeout_minutes: 8,
   });
   log(`C: delegada task=${t.task_id} workspace=${t.workspace_id} tab=${t.tab_id} pane=${t.pane_id}`);
@@ -132,7 +136,7 @@ async function scenarioConcurrent(): Promise<void> {
   const briefs = ["Leia README.md e chame orch_report com status done e a primeira palavra do arquivo em result.", "Liste os arquivos do diretório atual e chame orch_report com status done e a quantidade de itens em result."];
   const tasks = [];
   for (const [i, brief] of briefs.entries()) {
-    tasks.push(await orch.delegate({ project_path: project, role: `smoke-par-${i}`, brief, timeout_minutes: 8 }));
+    tasks.push(await orch.delegate({ project_path: project, role: `smoke-par-${i}`, intent: brief, spec: brief, mode: "report", timeout_minutes: 8 }));
   }
   if (tasks[0].workspace_id !== tasks[1].workspace_id) throw new Error("D: as duas deveriam estar no mesmo workspace do projeto");
   if (tasks[0].tab_id === tasks[1].tab_id) throw new Error("D: cada tarefa deveria ter sua tab");
