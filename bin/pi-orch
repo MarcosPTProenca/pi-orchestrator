@@ -8,4 +8,5 @@ if [ "${HERDR_ENV:-}" != "1" ] || [ -z "${HERDR_PANE_ID:-}" ]; then
   exit 1
 fi
 export PI_ORCH_WORKER_EXT="$HERE/src/worker-ext.ts"
-exec pi -e "$HERE/src/index.ts" "$@"
+# Esta sessão delega só por orch_delegate: tools do pi-subagents ficam fora (sem subagent/worker ocultos).
+exec pi --exclude-tools subagent,subagents_enable -e "$HERE/src/index.ts" "$@"
