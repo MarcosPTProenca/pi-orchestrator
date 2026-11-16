@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { formatEvent, FIRST_MATE_ROLE } from "../src/index.ts";
+import { formatEvent, modelMessageFor, FIRST_MATE_ROLE } from "../src/index.ts";
 
 const base = { task_id: "t-abcdef123456", project_id: "rko", result: null, question: null, artifacts: [], error: null };
 
@@ -32,4 +32,14 @@ test("launcher exclui as ferramentas que o orquestrador não pode usar", () => {
   for (const tool of ["bash", "edit", "write", "read", "grep", "find", "ls", "subagent", "subagents_enable", "bg_wait", "subagent_supervisor"]) {
     assert.match(bin, new RegExp(`--exclude-tools [^\\n]*\\b${tool}\\b`), `falta excluir ${tool}`);
   }
+});
+
+test("mensagem ao orquestrador pede resumo curto e não cola o relatório", () => {
+  const long = "x".repeat(5000);
+  const msg = modelMessageFor({ ...base, status: "done", result: long, artifacts: ["https://github.com/o/r/pull/1"] } as never);
+  assert.match(msg, /\[evento de worker\]/);
+  assert.match(msg, /Responda ao usuário em até 5 linhas/);
+  assert.match(msg, /truncado/);
+  assert.ok(msg.length < 2000, "bruto não cabe inteiro");
+  assert.match(msg, /https:\/\/github\.com\/o\/r\/pull\/1/);
 });

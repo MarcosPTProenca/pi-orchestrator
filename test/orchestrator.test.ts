@@ -458,3 +458,11 @@ test("direct-pr sem branch: o brief manda o worker descobrir a branch da PR cita
   assert.match(brief, /gh pr view <número> --json headRefName/);
   assert.match(brief, /descubra a branch da PR citada/);
 });
+
+test("brief pede resumo de até 5 linhas no result e proíbe comentar em PR sem pedido", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  const brief = readFileSync(t.brief_path, "utf8");
+  assert.match(brief, /no máximo 5 linhas/);
+  assert.match(brief, /Não comente nem publique em PR ou issue/);
+});

@@ -165,9 +165,12 @@ export function renderBrief(taskId: string, pack: IntakePack, reportPath: string
     "3. Você não fala com o usuário. Decisão que é do usuário, ou ação destrutiva: chame orch_report com status blocked e question, e encerre o turno.",
     "4. Obstáculo que se repete duas vezes: orch_report com status blocked e o motivo.",
     "5. Não reporte progresso. Chame orch_report uma vez, no fim.",
+    "6. Não comente nem publique em PR ou issue, a menos que o pedido diga isso.",
     "",
     "## Relatório final",
-    `Chame orch_report com status (done, failed ou blocked), result (standalone, com evidências) e artifacts (URLs, caminhos). O relatório fica em ${reportPath}.`,
+    "Chame orch_report com status (done, failed ou blocked), result e artifacts (URLs, caminhos).",
+    "- result: resumo de no máximo 5 linhas, em português, dizendo o que foi feito e o que ficou pendente.",
+    `- As evidências completas (comandos, saídas, arquivo:linha) vão no arquivo do relatório, ${reportPath}, não no result.`,
     "",
   );
   return lines.join("\n");

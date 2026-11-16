@@ -30,7 +30,27 @@ export const FIRST_MATE_ROLE = [
   "Resultados e decisões chegam como mensagens: apresente-os sem narrar o mecanismo.",
 ].join("\n");
 
-/** Mensagem ao usuário: resultado ou decisão, sem campos técnicos. */
+/**
+ * Mensagem para o orquestrador (não para o terminal). O modelo lê o evento e responde ao usuário
+ * em poucas linhas. O texto bruto do worker é truncado: o relatório completo fica no arquivo.
+ */
+export function modelMessageFor(e: WatchEvent): string {
+  const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)} [truncado; relatório completo no arquivo do worker]` : text);
+  const lines = [
+    `[evento de worker] tarefa ${e.task_id} (${e.project_id}): ${e.status}`,
+  ];
+  if (e.result) lines.push(`Resumo do worker: ${clip(e.result, 1200)}`);
+  if (e.question) lines.push(`Pergunta do worker: ${clip(e.question, 600)}`);
+  if (e.artifacts.length) lines.push(`Artefatos: ${e.artifacts.join(", ")}`);
+  if (e.error) lines.push(`Erro: ${clip(e.error, 400)}`);
+  lines.push(
+    "",
+    "Responda ao usuário em até 5 linhas: o que aconteceu, o que ficou pronto e o que falta validar. Cite URLs de PR quando houver. Não cole o relatório do worker, e não narre o mecanismo.",
+  );
+  return lines.join("\n");
+}
+
+/** Mensagem exibida no terminal: só para o caso de o turno não ser possível. */
 export function formatEvent(e: WatchEvent): string {
   const ref = `[${e.task_id.slice(-6)}] ${e.project_id}`;
   switch (e.status) {
@@ -105,9 +125,11 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         watchers.delete(taskId);
         if (event && TERMINAL.has(event.status)) void fixQueue?.settle(taskId);
         if (event && orch.takeNotice(taskId)) {
+          // Conclusão, decisão e falha viram um turno do orquestrador, que resume ao usuário.
+          // O conteúdo bruto não aparece no terminal (display: false).
           pi.sendMessage(
-            { customType: "orch-event", content: formatEvent(event), display: true, details: event },
-            { triggerTurn: false },
+            { customType: "orch-event", content: modelMessageFor(event), display: false, details: event },
+            { triggerTurn: true },
           );
         }
       })
