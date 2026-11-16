@@ -147,9 +147,11 @@ export function renderBrief(taskId: string, pack: IntakePack, reportPath: string
     "## Setup",
     `1. Arrende sua worktree isolada a partir de ${pack.project_path}: \`treehouse get --lease --lease-holder ${taskId}\`. O comando imprime o caminho; entre nele.`,
     `2. Verifique o isolamento com \`pwd -P\` e \`git rev-parse --show-toplevel\`. Os dois devem apontar para a sua worktree, não para ${pack.project_path}. Se não baterem, chame orch_report com status failed e pare.`,
-    pack.branch
-      ? `3. Faça checkout da branch \`${pack.branch}\` antes de editar.`
-      : "3. Se o pedido cita uma PR, descubra a branch dela (`gh pr view <número> --json headRefName`) e faça checkout. Sem PR, crie uma branch nova a partir da base.",
+    ...(pack.branch
+      ? [`3. Faça checkout da branch \`${pack.branch}\` antes de editar.`]
+      : pack.mode === "report"
+        ? []
+        : ["3. Se o pedido cita uma PR, descubra a branch dela (`gh pr view <número> --json headRefName`) e faça checkout. Sem PR, crie uma branch nova a partir da base."]),
     "",
   ];
   if (pack.spec) lines.push("## Especificação de construção", pack.spec, "");
