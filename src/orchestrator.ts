@@ -36,7 +36,7 @@ export interface DelegateInput {
   spec: string;
   /** report: só relatório. direct-pr: implementa, dá push na branch e abre/atualiza o PR. local-only: implementa sem push. */
   mode: Mode;
-  /** Branch existente (ex.: branch de uma PR) em que o worker trabalha. Obrigatória em direct-pr que atualiza uma PR. */
+  /** Branch em que o worker trabalha. Omitida: o worker descobre a branch da PR citada no pedido. */
   branch?: string;
   timeout_minutes?: number;
   /** Modelo do worker, ex.: claude-bridge/claude-haiku-5-5. Omitido = padrão do Pi. */
@@ -68,18 +68,22 @@ const DOD: Record<Mode, (branch: string) => string[]> = {
   ],
   "direct-pr": (branch) => [
     "Implemente o que a especificação pede, seguindo a skill `implement`: entender, implementar, testar, revisar.",
-    `Faça commit na branch \`${branch}\`, dê push e abra o PR (ou atualize o existente) com gh.`,
+    branch
+      ? `Faça commit na branch \`${branch}\`, dê push e abra o PR (ou atualize o existente) com gh.`
+      : "Faça commit na branch de trabalho, dê push e abra o PR (ou atualize o existente da PR citada) com gh.",
     "Verifique os checks do PR. Se a falha for do seu código, corrija e rode de novo até ficarem verdes.",
     "Ao final, coloque em `artifacts` a URL completa do PR.",
   ],
   "local-only": (branch) => [
     "Implemente o que a especificação pede, com testes, seguindo a skill `implement`.",
-    `Faça commit na branch \`${branch}\`. Não faça push nem abra PR.`,
+    branch
+      ? `Faça commit na branch \`${branch}\`. Não faça push nem abra PR.`
+      : "Faça commit na branch de trabalho. Não faça push nem abra PR.",
   ],
 };
 
-export function buildBrief(taskId: string, reportPath: string, input: DelegateInput, branch: string): string {
-  const dod = DOD[input.mode](branch).map((l) => `- ${l}`);
+export function buildBrief(taskId: string, reportPath: string, input: DelegateInput): string {
+  const dod = DOD[input.mode](input.branch ?? "").map((l) => `- ${l}`);
   return [
     `# Tarefa ${taskId} (papel: ${input.role}, modo: ${input.mode})`,
     "",
@@ -94,7 +98,9 @@ export function buildBrief(taskId: string, reportPath: string, input: DelegateIn
     "## Setup",
     `1. Arrende sua worktree isolada a partir do repositório ${input.project_path}: \`treehouse get --lease --lease-holder ${taskId}\`. O comando imprime o caminho; entre nele.`,
     `2. Verifique o isolamento com \`pwd -P\` e \`git rev-parse --show-toplevel\`. Os dois devem apontar para a sua worktree, não para ${input.project_path}. Se não baterem, chame orch_report com status failed e pare.`,
-    input.branch ? `3. Faça checkout da branch \`${input.branch}\` na sua worktree antes de editar.` : "",
+    input.branch
+      ? `3. Faça checkout da branch \`${input.branch}\` na sua worktree antes de editar.`
+      : "3. Se o pedido cita uma PR, descubra a branch dela (`gh pr view <número> --json headRefName`) e faça checkout. Sem PR, crie uma branch nova a partir da base.",
     "",
     "## Regras",
     "1. Só faça push ou abra PR conforme o modo acima. Nunca no checkout principal.",
@@ -185,20 +191,16 @@ export class Orchestrator {
       if (/\{[A-Z_]+\}/.test(value)) throw new Error(`${field} ainda tem placeholder: ${value.match(/\{[A-Z_]+\}/)?.[0]}`);
     }
     if (!(MODES as readonly string[]).includes(input.mode)) throw new Error(`mode inválido: ${String(input.mode)} (use ${MODES.join(", ")})`);
-    if (input.mode === "direct-pr" && !input.branch) {
-      throw new Error("direct-pr exige branch: a branch da PR existente, ou uma nova branch para abrir o PR");
-    }
 
     const projectId = basename(input.project_path);
     const taskId = `t-${this.d.newHex()}`;
-    const branch = input.branch ?? `fm/${taskId}`;
     const workerId = `orch-${this.d.newHex().slice(0, 8)}`;
     const taskDir = join(this.d.tasksDir, taskId);
     mkdirSync(taskDir, { recursive: true });
     const briefPath = join(taskDir, "brief.md");
     const reportPath = join(taskDir, "report.json");
 
-    writeFileSync(briefPath, buildBrief(taskId, reportPath, input, branch));
+    writeFileSync(briefPath, buildBrief(taskId, reportPath, input));
 
     const timeoutMin = input.timeout_minutes ?? DEFAULT_TIMEOUT_MIN;
     const now = this.iso();

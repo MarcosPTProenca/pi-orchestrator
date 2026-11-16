@@ -406,7 +406,10 @@ test("delegate recusa intent ou spec vazios e placeholders sobrando", async () =
   assert.equal(h.herdr.opsOf("createTab").length, 0);
 });
 
-test("direct-pr sem branch é recusado", async () => {
+test("direct-pr sem branch: o worker descobre a branch da PR citada (sem etapa do orquestrador)", async () => {
   const h = makeHarness();
-  await assert.rejects(h.orch.delegate({ project_path: h.project, role: "a", intent: "x", spec: "y", mode: "direct-pr" }), /exige branch/);
+  const t = await h.orch.delegate({ project_path: h.project, role: "fix", intent: "PR #137", spec: "corrigir", mode: "direct-pr" });
+  const brief = readFileSync(t.brief_path, "utf8");
+  assert.match(brief, /gh pr view <número> --json headRefName/);
+  assert.match(brief, /commit na branch de trabalho/);
 });

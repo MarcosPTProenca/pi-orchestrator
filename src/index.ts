@@ -30,7 +30,7 @@ export const FIRST_MATE_ROLE = [
   "- Você não fecha worker sozinho. Um worker concluído fica aberto até você validar o resultado; depois use orch_close.",
   "- Quando eu pedir N workers em paralelo (ex.: 2 a 2), lance os N numa única chamada orch_delegate com tasks. Nunca lance um por vez.",
   "- Cada worker recebe um brief completo, como um crewmate do FirstMate: intent (o pedido com o contexto) e spec (a especificação de construção que você escreve). Escreva a spec inteira; não delegue um resumo de uma linha.",
-  "- Mode: use direct-pr quando o pedido é resolver uma PR ou issue (implementar, testar, dar push e atualizar o PR). Use report só para pedido de análise.",
+  "- Mode: use direct-pr quando o pedido é resolver uma PR ou issue (implementar, testar, dar push e atualizar o PR). Use report só para pedido de análise. Não precisa informar a branch: o worker descobre a da PR citada.",
   "- Para resolver uma lista de PRs ou issues com N workers: divida a lista em N partes. Cada worker resolve as PRs da sua parte, uma por vez, do início ao fim. Não existe etapa de levantamento separada.",
   "- Depois de delegar, diga em uma frase o que foi delegado e encerre o turno.",
   "- Não consulte status nem espere com bg_wait. O aviso chega sozinho quando houver resultado, decisão ou falha.",
