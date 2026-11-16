@@ -87,3 +87,11 @@ test("horário exibido é o de Brasília (America/Sao_Paulo)", async () => {
   assert.match(formatBrasilia("2026-11-16T19:44:15Z") ?? "", /16\/11\/2026.*16:44/);
   assert.equal(formatBrasilia(null), null);
 });
+
+test("nome do worker no Herdr: worker-<projeto>-<id>, no padrão aceito", async () => {
+  const { workerAgentName } = await import("../src/label.ts");
+  const n = workerAgentName("/home/u/github/adaptative-learning", "a1b2c3d4e5");
+  assert.equal(n, "worker-adaptative-lea-a1b2c3");
+  assert.match(n, /^[a-z][a-z0-9_-]{0,31}$/);
+  assert.match(workerAgentName("/x/" + "z".repeat(60), "9f"), /^[a-z][a-z0-9_-]{0,31}$/);
+});

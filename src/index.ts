@@ -100,6 +100,7 @@ const DELEGATE_ITEM = {
     branch: { type: "string", description: "Branch de trabalho. Omitida: o worker descobre a da PR citada." },
     spec: { type: "string", description: "Especificação de construção, só quando o pedido precisa de passos próprios." },
     model: { type: "string", description: "Modelo exato, ex.: claude-bridge/claude-haiku-5-5. Se indisponível, a chamada falha." },
+    tracker: { type: "string", enum: ["github", "plane", "none"], description: "Onde ficam as issues deste projeto, descoberto pelo contexto (GitHub issues ou Plane)." },
     timeout_minutes: { type: "number", description: "Prazo explícito pedido pelo usuário, em minutos. Omitir = sem prazo." },
   },
   required: ["project_path", "role", "request", "objective", "mode"],

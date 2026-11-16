@@ -5,7 +5,9 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 
-export const MODES = ["report", "direct-pr", "local-only"] as const;
+export const MODES = ["report", "direct-pr", "local-only", "design"] as const;
+export const TRACKERS = ["github", "plane", "none"] as const;
+export type Tracker = (typeof TRACKERS)[number];
 export type Mode = (typeof MODES)[number];
 
 export interface IntakeInput {
@@ -25,6 +27,8 @@ export interface IntakeInput {
   spec?: string;
   /** Modelo já validado (provider/id) ou undefined para o padrão. */
   model?: string;
+  /** Onde ficam as issues deste projeto (o orquestrador descobre pelo contexto). */
+  tracker?: Tracker;
 }
 
 export interface IntakePack {
@@ -35,6 +39,7 @@ export interface IntakePack {
   objective: string;
   mode: Mode;
   constraints: string[];
+  tracker: Tracker | null;
   source: string | null;
   branch: string | null;
   spec: string | null;
@@ -76,6 +81,13 @@ export function acceptanceFor(mode: Mode, branch: string | null): string[] {
         "Implementar o pedido seguindo a skill `implement`, com testes.",
         "Commit local na branch de trabalho. Nenhum push e nenhum PR.",
       ];
+    case "design":
+      return [
+        "Fluxo de design: `grill-with-docs` (entrevista e glossário), `plan`, `to-spec` (especificação) e `to-tickets` (issues com dependências declaradas).",
+        "Discovery com subagents quando precisar de fatos (`researcher`), de evidências em logs (`log-researcher`).",
+        "Revisão obrigatória pelo subagent `oracle`, com a regra: features são fatias verticais (tracer bullets) que atravessam todas as camadas e entregam valor sozinhas. Fatia horizontal (só banco, só API, só tela) é reprovada e a correção é pedida ao agente principal antes de seguir.",
+        "Entregar o conjunto de issues aprovado pelo usuário, publicado no tracker do projeto. Não publicar nada além do que foi aprovado.",
+      ];
   }
 }
 
@@ -110,6 +122,7 @@ export function buildIntake(input: IntakeInput): IntakePack {
     objective: nonEmpty("objective", input.objective),
     mode: input.mode,
     constraints: (input.constraints ?? []).map((c) => nonEmpty("constraint", c)),
+    tracker: input.tracker ?? null,
     source: input.source?.trim() || null,
     branch,
     spec: input.spec?.trim() ? nonEmpty("spec", input.spec) : null,
@@ -134,6 +147,7 @@ export function renderBrief(taskId: string, pack: IntakePack, reportPath: string
     "",
     "## Fonte",
     pack.source ?? "(nenhuma fonte externa informada)",
+    `Tracker de issues do projeto: ${pack.tracker ?? "não informado"}.`,
     "",
     "## Restrições",
     ...(pack.constraints.length ? pack.constraints.map((c, i) => `${i + 1}. ${c}`) : ["(nenhuma adicional)"]),

@@ -486,3 +486,23 @@ test("brief manda devolver a worktree só quando não há trabalho pendente", as
   assert.match(brief, /treehouse return/);
   assert.match(brief, /não devolva e informe o caminho/);
 });
+
+test("worker recebe nome visível worker-<projeto>-<id>", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  const name = (h.herdr.opsOf("startAgent")[0].args as { name: string }).name;
+  assert.equal(t.worker_id, name);
+  assert.match(name, /^worker-/);
+});
+
+test("modo design: fluxo grill/plan/spec/tickets, oracle com regra de fatias verticais, tracker no brief", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "design", request: "Quero o módulo de simulação", objective: "Issues prontas para implementação", mode: "design", tracker: "plane" });
+  const brief = readFileSync(t.brief_path, "utf8");
+  assert.match(brief, /grill-with-docs/);
+  assert.match(brief, /to-tickets/);
+  assert.match(brief, /subagent `oracle`/);
+  assert.match(brief, /fatias verticais/);
+  assert.match(brief, /Fatia horizontal .* é reprovada/);
+  assert.match(brief, /Tracker de issues do projeto: plane/);
+});

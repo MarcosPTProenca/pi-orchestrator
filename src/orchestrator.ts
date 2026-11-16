@@ -3,6 +3,7 @@
  * e reconciliação. Não chama LLM. Recebe o Herdr e o estado por injeção.
  */
 import { resolveModel } from "./models.ts";
+import { workerAgentName } from "./label.ts";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join } from "node:path";
 import {
@@ -45,6 +46,7 @@ export interface DelegateInput {
   spec?: string;
   /** Modelo exato (provider/id). Omitido: padrão do Pi. */
   model?: string;
+  tracker?: "github" | "plane" | "none";
   timeout_minutes?: number;
 }
 
@@ -141,7 +143,7 @@ export class Orchestrator {
     const intake = buildIntake({ ...input, model });
 
     const taskId = `t-${this.d.newHex()}`;
-    const workerId = `orch-${this.d.newHex().slice(0, 8)}`;
+    const workerId = workerAgentName(input.project_path, taskId.slice(2));
     const taskDir = join(this.d.tasksDir, taskId);
     mkdirSync(taskDir, { recursive: true });
     const briefPath = join(taskDir, "brief.md");
