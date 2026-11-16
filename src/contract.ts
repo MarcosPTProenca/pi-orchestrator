@@ -18,7 +18,7 @@ export const TASK_STATUSES = [
 ] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
-/** Estados que ocupam um pane e contam para o limite de concorrência. */
+/** Estados que ocupam um pane. */
 const ACTIVE: readonly TaskStatus[] = ["starting", "running", "blocked"];
 
 export function isActive(status: TaskStatus): boolean {
@@ -59,6 +59,10 @@ export interface TaskRecord {
   /** false quando há um aviso ainda não entregue ao usuário. */
   notified: boolean;
   error: string | null;
+  /** Quantas vezes o brief foi enviado (reenvio único se o worker não iniciou). */
+  prompt_attempts: number;
+  /** true quando o Herdr mostrou o worker trabalhando ao menos uma vez. */
+  worker_started: boolean;
 }
 
 export function validateReport(input: unknown, taskId: string): Report {

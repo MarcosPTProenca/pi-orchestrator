@@ -19,7 +19,6 @@ export interface OrchDeps {
   store: Store;
   tasksDir: string;
   workerExtPath: string;
-  maxActive: number;
   now: () => number;
   newHex: () => string;
 }
@@ -46,6 +45,7 @@ const WAIT_CHUNK_MS = 60_000;
 const START_WAIT_MS = 20_000;
 const RETRY_MS = 5_000;
 const DEFAULT_TIMEOUT_MIN = 30;
+const MAX_PROMPT_ATTEMPTS = 2;
 
 export function buildBrief(taskId: string, reportPath: string, input: DelegateInput): string {
   return [
@@ -137,10 +137,6 @@ export class Orchestrator {
       throw new Error(`project_path precisa ser um diretório absoluto existente: ${input.project_path}`);
     }
     if (input.brief.trim() === "") throw new Error("brief vazio");
-    const active = this.list().filter((t) => isActive(t.status)).length;
-    if (active >= this.d.maxActive) {
-      throw new Error(`limite de ${this.d.maxActive} tarefa(s) ativa(s) atingido; cancele ou conclua antes`);
-    }
 
     const projectId = basename(input.project_path);
     const taskId = `t-${this.d.newHex()}`;
@@ -175,6 +171,8 @@ export class Orchestrator {
       last_report_key: null,
       notified: true,
       error: null,
+      prompt_attempts: 1,
+      worker_started: false,
     };
     const state = this.d.store.load();
     state.tasks[taskId] = record;
@@ -202,10 +200,7 @@ export class Orchestrator {
         piArgs: ["-e", this.d.workerExtPath],
         timeoutMs: 60_000,
       });
-      await this.d.herdr.prompt(
-        workerId,
-        `Leia o arquivo ${briefPath} e execute a tarefa. Ao terminar, chame orch_report.`,
-      );
+      await this.d.herdr.prompt(workerId, this.startPrompt(briefPath));
       return this.update(taskId, (t) => {
         t.status = "running";
       });
@@ -294,6 +289,10 @@ export class Orchestrator {
     }
   }
 
+  private startPrompt(briefPath: string): string {
+    return `Leia o arquivo ${briefPath} e execute a tarefa. Ao terminar, chame orch_report.`;
+  }
+
   private async watchLoop(taskId: string, signal: AbortSignal): Promise<WatchEvent | null> {
     let awaitingStart = true;
     for (;;) {
@@ -312,7 +311,12 @@ export class Orchestrator {
       try {
         if (awaitingStart) {
           awaitingStart = false;
-          await this.d.herdr.waitAgent(t.worker_id, ["working"], Math.min(START_WAIT_MS, remaining), signal);
+          const started = await this.d.herdr.waitAgent(t.worker_id, ["working"], Math.min(START_WAIT_MS, remaining), signal);
+          if ("reached" in started) {
+            this.update(taskId, (x) => {
+              x.worker_started = true;
+            });
+          }
           if (signal.aborted) return null;
           if (this.collect(taskId)) return this.toEvent(this.get(taskId));
         }
@@ -345,6 +349,16 @@ export class Orchestrator {
             x.notified = false;
           }),
         );
+      }
+      const current = this.get(taskId);
+      if (!current.worker_started && current.prompt_attempts < MAX_PROMPT_ATTEMPTS) {
+        // Ocioso sem nunca ter trabalhado: o brief provavelmente não foi consumido. Reenvia uma vez.
+        await this.d.herdr.prompt(current.worker_id, this.startPrompt(current.brief_path));
+        this.update(taskId, (x) => {
+          x.prompt_attempts += 1;
+        });
+        awaitingStart = true;
+        continue;
       }
       return this.setTerminal(taskId, "failed", "worker ficou ocioso sem chamar orch_report");
     }

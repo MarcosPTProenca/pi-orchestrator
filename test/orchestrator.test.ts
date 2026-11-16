@@ -70,7 +70,7 @@ test("a tab seed fica como âncora do projeto: nenhuma tab é fechada ao criar t
 });
 
 test("tarefas do mesmo projeto reutilizam o workspace; projetos diferentes ganham outro", async () => {
-  const h = makeHarness({ maxActive: 1 });
+  const h = makeHarness();
   const a = await h.orch.delegate({ project_path: h.project, role: "a", brief: "1" });
   h.herdr.waitImpl = async () => ({ timeout: true });
   h.clock.ms += 1;
@@ -100,10 +100,14 @@ test("se o workspace do projeto sumiu, cria outro (estado não aponta para works
   assert.equal(h.herdr.opsOf("createWorkspace").length, 2);
 });
 
-test("delegate respeita o limite de tarefas ativas", async () => {
-  const h = makeHarness({ maxActive: 1 });
-  await h.orch.delegate({ project_path: h.project, role: "a", brief: "um" });
-  await assert.rejects(h.orch.delegate({ project_path: h.project, role: "b", brief: "dois" }), /limite de 1/);
+test("várias tarefas ativas ao mesmo tempo são aceitas, cada uma com sua tab", async () => {
+  const h = makeHarness();
+  const a = await h.orch.delegate({ project_path: h.project, role: "a", brief: "um" });
+  const b = await h.orch.delegate({ project_path: h.project, role: "b", brief: "dois" });
+  assert.equal(a.status, "running");
+  assert.equal(b.status, "running");
+  assert.notEqual(a.tab_id, b.tab_id);
+  assert.equal(h.herdr.opsOf("createWorkspace").length, 1);
 });
 
 test("delegate rejeita caminho relativo", async () => {
@@ -208,6 +212,31 @@ test("answer rejeita tarefa que não está bloqueada", async () => {
   await assert.rejects(h.orch.answer(t.task_id, "oi"), /não está bloqueada/);
 });
 
+test("worker ocioso sem nunca ter trabalhado recebe o brief uma única vez de novo", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", brief: "x" });
+  let round = 0;
+  h.herdr.waitImpl = async (_target, until) => {
+    if (until.includes("working")) return { timeout: true };
+    round++;
+    if (round === 2) writeReport(t.task_dir, t.task_id, { status: "done", result: "ok" });
+    return { reached: "idle" };
+  };
+  const ev = await h.orch.watch(t.task_id, new AbortController().signal);
+  assert.equal(ev?.status, "done");
+  assert.equal(h.herdr.opsOf("prompt").length, 2, "brief enviado de novo uma vez");
+  assert.equal(h.orch.get(t.task_id).prompt_attempts, 2);
+});
+
+test("worker que já trabalhou e ficou ocioso sem relatório NÃO recebe brief de novo", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", brief: "x" });
+  h.herdr.waitImpl = async (_t, until) => (until.includes("working") ? { reached: "working" } : { reached: "idle" });
+  const ev = await h.orch.watch(t.task_id, new AbortController().signal);
+  assert.equal(ev?.status, "failed");
+  assert.equal(h.herdr.opsOf("prompt").length, 1);
+});
+
 test("worker ocioso sem orch_report vira failed", async () => {
   const h = makeHarness();
   const t = await h.orch.delegate({ project_path: h.project, role: "a", brief: "x" });
@@ -239,7 +268,7 @@ test("watch é encerrado pelo AbortSignal sem evento", async () => {
 });
 
 test("cancel fecha só a tab da tarefa; outra tarefa e o workspace permanecem", async () => {
-  const h = makeHarness({ maxActive: 2 });
+  const h = makeHarness();
   const a = await h.orch.delegate({ project_path: h.project, role: "a", brief: "x" });
   const b = await h.orch.delegate({ project_path: h.project, role: "b", brief: "y" });
   const c = await h.orch.cancel(a.task_id);
@@ -262,7 +291,7 @@ test("cancel recusa pane trocado (terminal_id diferente) sem fechar nada", async
 });
 
 test("reconcile: pane vivo mantém; pane sumido com relatório vira done; sem relatório vira lost", async () => {
-  const h = makeHarness({ maxActive: 5 });
+  const h = makeHarness();
   const live = await h.orch.delegate({ project_path: h.project, role: "a", brief: "1" });
   const gone = await h.orch.delegate({ project_path: h.project, role: "a", brief: "2" });
   const lost = await h.orch.delegate({ project_path: h.project, role: "a", brief: "3" });
@@ -283,7 +312,6 @@ test("estado persiste entre instâncias do orquestrador (reinício)", async () =
     store: new Store(join(h.stateDir, "state.json")),
     tasksDir: join(h.stateDir, "tasks"),
     workerExtPath: "/x",
-    maxActive: 1,
     now: () => h.clock.ms,
     newHex: () => "ffffffff",
   });

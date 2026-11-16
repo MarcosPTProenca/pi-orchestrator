@@ -53,6 +53,7 @@ uma vez no fim, com `done`, `failed` ou `blocked`.
   espera `working` por até 20 s, para não ler o estado anterior ao início.
 - **Conclusão:** `done` fecha a tab do worker. O relatório `report.json` e a sessão Pi
   continuam em disco.
+- **Reenvio:** se o worker ficar ocioso sem nunca ter trabalhado, o brief é reenviado uma vez. Depois disso, falha.
 - **Bloqueio:** `blocked` aparece no inbox e fica até você responder.
 - **Dono:** o orquestrador só fecha panes cujo `pane_id` e `terminal_id` batem com o
   registro. Se não baterem, não fecha nada.
@@ -62,7 +63,7 @@ uma vez no fim, com `done`, `failed` ou `blocked`.
 
 - Estado: `~/.pi/orchestrator/state.json` (troque com `PI_ORCH_STATE_DIR`).
 - Tarefas: `~/.pi/orchestrator/tasks/<task_id>/` com `brief.md` e `report.json`.
-- Limite de tarefas ativas: `PI_ORCH_MAX_ACTIVE` (padrão 1).
+- Sem limite de tarefas simultâneas. Cada tarefa tem sua tab no workspace do projeto.
 
 ## Smoke test real
 

@@ -34,7 +34,6 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     store: new Store(join(stateDir, "state.json")),
     tasksDir: join(stateDir, "tasks"),
     workerExtPath: process.env.PI_ORCH_WORKER_EXT ?? resolve(here, "worker-ext.ts"),
-    maxActive: Number(process.env.PI_ORCH_MAX_ACTIVE ?? 1),
     now: () => Date.now(),
     newHex: () => randomBytes(4).toString("hex"),
   });

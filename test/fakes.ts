@@ -86,7 +86,7 @@ export interface Harness {
   clock: { ms: number };
 }
 
-export function makeHarness(opts: { maxActive?: number } = {}): Harness {
+export function makeHarness(): Harness {
   const stateDir = mkdtempSync(join(tmpdir(), "orch-state-"));
   const project = mkdtempSync(join(tmpdir(), "orch-proj-"));
   const herdr = new FakeHerdr();
@@ -97,7 +97,6 @@ export function makeHarness(opts: { maxActive?: number } = {}): Harness {
     store: new Store(join(stateDir, "state.json")),
     tasksDir: join(stateDir, "tasks"),
     workerExtPath: "/fake/worker-ext.ts",
-    maxActive: opts.maxActive ?? 1,
     now: () => clock.ms,
     newHex: () => (++counter).toString(16).padStart(8, "a"),
   });

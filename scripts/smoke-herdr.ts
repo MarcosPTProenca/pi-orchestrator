@@ -31,7 +31,6 @@ const orch = new Orchestrator({
   store: new Store(join(stateDir, "state.json")),
   tasksDir: join(stateDir, "tasks"),
   workerExtPath: workerExt,
-  maxActive: 1,
   now: () => Date.now(),
   newHex: () => randomBytes(4).toString("hex"),
 });
@@ -128,12 +127,28 @@ function closeSmokeWorkspaces(): void {
   }
 }
 
+async function scenarioConcurrent(): Promise<void> {
+  log("D: duas tarefas simultâneas no mesmo projeto");
+  const briefs = ["Leia README.md e chame orch_report com status done e a primeira palavra do arquivo em result.", "Liste os arquivos do diretório atual e chame orch_report com status done e a quantidade de itens em result."];
+  const tasks = [];
+  for (const [i, brief] of briefs.entries()) {
+    tasks.push(await orch.delegate({ project_path: project, role: `smoke-par-${i}`, brief, timeout_minutes: 8 }));
+  }
+  if (tasks[0].workspace_id !== tasks[1].workspace_id) throw new Error("D: as duas deveriam estar no mesmo workspace do projeto");
+  if (tasks[0].tab_id === tasks[1].tab_id) throw new Error("D: cada tarefa deveria ter sua tab");
+  log(`D: workspace=${tasks[0].workspace_id} tabs=${tasks[0].tab_id},${tasks[1].tab_id}`);
+  const events = await Promise.all(tasks.map((t, i) => watchUntilSettled(t.task_id, `D${i}`)));
+  for (const ev of events) if (ev.status !== "done") throw new Error(`D: esperado done, veio ${ev.status}`);
+  log("D: OK (duas tarefas concluídas em paralelo)");
+}
+
 async function main(): Promise<void> {
   log(`estado isolado: ${stateDir}; projeto descartável: ${project}`);
   try {
     await scenarioDone();
     await scenarioBlockedAnswer();
     await scenarioCancel();
+    await scenarioConcurrent();
     log("SMOKE OK");
   } finally {
     await cleanup();
