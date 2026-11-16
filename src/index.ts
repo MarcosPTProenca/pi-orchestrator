@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { HerdrCli } from "./herdr.ts";
-import { Orchestrator, type WatchEvent } from "./orchestrator.ts";
+import { Orchestrator, type DelegateInput, type WatchEvent } from "./orchestrator.ts";
 import { Store, defaultStateDir } from "./store.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -28,6 +28,8 @@ export const FIRST_MATE_ROLE = [
   "- Quando o usuário pedir um modelo, passe-o em model (ex.: claude-bridge/claude-haiku-5-5).",
   "- Pedido de PR ou issue é trabalho direto: um worker vê a PR ou a issue e resolve do início ao fim (entender, corrigir, testar, dar push). Não separe em etapas de levantamento, implementação e revisão, a menos que eu peça.",
   "- Você não fecha worker sozinho. Um worker concluído fica aberto até você validar o resultado; depois use orch_close.",
+  "- Quando eu pedir N workers em paralelo (ex.: 2 a 2), lance os N numa única chamada orch_delegate com tasks. Nunca lance um por vez.",
+  "- Para resolver uma lista de PRs ou issues com N workers: divida a lista em N partes. Cada worker resolve as PRs da sua parte, uma por vez, do início ao fim. Não existe etapa de levantamento separada.",
   "- Depois de delegar, diga em uma frase o que foi delegado e encerre o turno.",
   "- Não consulte status nem espere com bg_wait. O aviso chega sozinho quando houver resultado, decisão ou falha.",
   "- Não repita avisos já dados. Use orch_status ou orch_inbox só quando o usuário pedir.",
@@ -117,23 +119,41 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     name: "orch_delegate",
     label: "orch delegate",
     description:
-      "Abre uma tab no workspace do projeto e inicia um worker Pi com o brief. O worker arrenda a própria worktree pelo treehouse. Um watcher avisa quando houver decisão, bloqueio ou conclusão.",
+      "Lança workers Pi independentes, cada um com seu brief, numa única chamada. Para N workers em paralelo, passe N itens em tasks. Cada worker arrenda a própria worktree pelo treehouse. Um watcher avisa quando houver decisão, bloqueio ou conclusão.",
     parameters: {
       type: "object",
       properties: {
-        project_path: { type: "string", description: "Raiz absoluta de um repositório git (checkout principal, com .git)." },
-        role: { type: "string", description: "Papel curto, ex.: investigate, review." },
-        brief: { type: "string", description: "Brief autocontido: objetivo, escopo, critérios de conclusão." },
-        timeout_minutes: { type: "number", description: "Prazo; ao expirar, marca timeout sem encerrar o pane." },
-        model: { type: "string", description: "Modelo do worker, ex.: claude-bridge/claude-haiku-5-5. Omitir usa o padrão do Pi." },
+        tasks: {
+          type: "array",
+          minItems: 1,
+          maxItems: 8,
+          description: "Um item por worker. Lance todos juntos; não chame orch_delegate uma vez por worker.",
+          items: {
+          type: "object",
+          properties: {
+            project_path: { type: "string", description: "Raiz absoluta de um repositório git." },
+            role: { type: "string" },
+            brief: { type: "string" },
+            timeout_minutes: { type: "number" },
+            model: { type: "string" },
+          },
+          required: ["project_path", "role", "brief"],
+          additionalProperties: false,
+        }
+        },
       },
-      required: ["project_path", "role", "brief"],
+      required: ["tasks"],
       additionalProperties: false,
     },
-    async execute(_id: string, params: { project_path: string; role: string; brief: string; timeout_minutes?: number; model?: string }) {
-      const task = await orch.delegate(params);
-      startWatch(task.task_id);
-      return asText({ task_id: task.task_id, worker_id: task.worker_id, pane_id: task.pane_id, status: task.status });
+    async execute(_id: string, params: { tasks: DelegateInput[] }) {
+      const started = [];
+      // Sequencial de propósito: a criação do workspace do projeto não pode correr em paralelo.
+      for (const input of params.tasks) {
+        const task = await orch.delegate(input);
+        startWatch(task.task_id);
+        started.push({ task_id: task.task_id, role: task.role, worker_id: task.worker_id, pane_id: task.pane_id, status: task.status });
+      }
+      return asText({ started_count: started.length, started });
     },
   });
 
