@@ -160,18 +160,32 @@ export interface PrState {
   mergeable: string;
   mergeStateStatus: string;
   headRefOid: string;
+  checks: { name: string; conclusion: string | null; status: string | null }[];
 }
 
 /** Estado atual de uma PR, pela API (sem cache). Usado antes de o orquestrador dar uma tarefa por concluída. */
 export function fetchPrState(remoteUrl: string, number: number, owner: string, name: string, cwd: string): Promise<PrState> {
   const env = ghEnvFor(remoteUrl, process.env);
-  const q = "query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){number state mergeable mergeStateStatus headRefOid}}}";
+  const q = "query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){number state mergeable mergeStateStatus headRefOid commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{__typename ... on CheckRun{name conclusion status} ... on StatusContext{context state}}}}}}}}}}";
   return new Promise((resolve, reject) => {
     execFile("gh", ["api", "graphql", "-f", `query=${q}`, "-F", `owner=${owner}`, "-F", `name=${name}`, "-F", `n=${number}`], { cwd, env, timeout: 90_000 }, (err, stdout, stderr) => {
       if (err) return reject(new Error(`gh api graphql falhou: ${(stderr || err.message).trim()}`));
       try {
         const pr = (JSON.parse(stdout) as { data: { repository: { pullRequest: Record<string, unknown> } } }).data.repository.pullRequest;
-        resolve({ number, state: String(pr.state), mergeable: String(pr.mergeable), mergeStateStatus: String(pr.mergeStateStatus), headRefOid: String(pr.headRefOid) });
+        const commit = ((pr.commits as { nodes?: { commit?: { statusCheckRollup?: { contexts?: { nodes?: Record<string, unknown>[] } } } }[] })?.nodes?.[0]?.commit);
+        const ctx = commit?.statusCheckRollup?.contexts?.nodes ?? [];
+        resolve({
+          number,
+          state: String(pr.state),
+          mergeable: String(pr.mergeable),
+          mergeStateStatus: String(pr.mergeStateStatus),
+          headRefOid: String(pr.headRefOid),
+          checks: ctx.map((c) => ({
+            name: String(c.name ?? c.context ?? "check"),
+            conclusion: c.conclusion ? String(c.conclusion) : c.state ? String(c.state) : null,
+            status: c.status ? String(c.status) : null,
+          })),
+        });
       } catch (e) {
         reject(e);
       }
@@ -183,4 +197,34 @@ export function fetchPrState(remoteUrl: string, number: number, owner: string, n
 export function prStateLine(s: PrState): string {
   const conflict = s.mergeStateStatus === "DIRTY" || s.mergeable === "CONFLICTING";
   return `Estado atual da PR #${s.number}: ${s.state}, mergeable ${s.mergeable}, mergeStateStatus ${s.mergeStateStatus}${conflict ? " — CONFLITO: não está pronta para merge." : "."}`;
+}
+
+const GREEN = new Set(["SUCCESS", "NEUTRAL", "SKIPPED", "SUCCESS".toLowerCase()]);
+
+/**
+ * Conferência independente do que o worker disse. Lista os motivos para não dar a PR como pronta.
+ * Vazio = verificada: aberta, mergeável, sem conflito e todos os checks verdes.
+ */
+export function verifyPr(s: PrState): string[] {
+  const problems: string[] = [];
+  if (s.state === "MERGED") return []; // já mesclada: o trabalho chegou ao destino
+  if (s.state !== "OPEN") problems.push(`PR está ${s.state}, não aberta`);
+  if (s.mergeable === "CONFLICTING" || s.mergeStateStatus === "DIRTY") problems.push("conflito de merge com a base");
+  else if (s.mergeable !== "MERGEABLE") problems.push(`mergeable ${s.mergeable}`);
+  if (s.checks.length === 0) problems.push("nenhum check reportado");
+  for (const c of s.checks) {
+    const conclusion = (c.conclusion ?? "").toUpperCase();
+    if (c.status && c.status.toUpperCase() !== "COMPLETED") problems.push(`check "${c.name}" ainda ${c.status}`);
+    else if (!GREEN.has(conclusion)) problems.push(`check "${c.name}" ${conclusion || "sem resultado"}`);
+  }
+  return problems;
+}
+
+/** Linha de verificação para o usuário: "verificada" ou "NÃO verificada" com os motivos. */
+export function verificationLine(s: PrState): string {
+  if (s.state === "MERGED") return `Verificação da PR #${s.number}: VERIFICADA (já mesclada).`;
+  const problems = verifyPr(s);
+  const green = s.checks.filter((c) => GREEN.has((c.conclusion ?? "").toUpperCase())).length;
+  if (problems.length === 0) return `Verificação da PR #${s.number}: VERIFICADA (${green}/${s.checks.length} checks verdes, mergeable, sem conflito).`;
+  return `Verificação da PR #${s.number}: NÃO VERIFICADA. ${problems.join("; ")}.`;
 }

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseRedPrs, parseGraphqlRedPrs, repoFromRemote, fixInputFor, ghEnvFor, conflictNote, prFromUrl, prStateLine } from "../src/prs.ts";
+import { parseRedPrs, parseGraphqlRedPrs, repoFromRemote, fixInputFor, ghEnvFor, conflictNote, prFromUrl, prStateLine, verifyPr, verificationLine } from "../src/prs.ts";
 import { FixQueue } from "../src/queue.ts";
 
 const sample = [
@@ -104,5 +104,32 @@ test("PR limpa não ganha aviso de conflito", () => {
 test("prFromUrl e prStateLine", () => {
   assert.deepEqual(prFromUrl("https://github.com/MarcosPTProenca/adaptative-learning/pull/131"), { owner: "MarcosPTProenca", name: "adaptative-learning", number: 131 });
   assert.equal(prFromUrl("https://example.com/x"), null);
-  assert.match(prStateLine({ number: 131, state: "OPEN", mergeable: "CONFLICTING", mergeStateStatus: "DIRTY", headRefOid: "x" }), /CONFLITO/);
+  assert.match(prStateLine({ number: 131, state: "OPEN", mergeable: "CONFLICTING", mergeStateStatus: "DIRTY", headRefOid: "x", checks: [] }), /CONFLITO/);
+});
+
+const green = (name: string) => ({ name, conclusion: "SUCCESS", status: "COMPLETED" });
+const base = { number: 7, state: "OPEN", mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "abc" };
+
+test("verificação: PR aberta, mergeável e com checks verdes é VERIFICADA", () => {
+  const s = { ...base, checks: [green("quality"), green("check")] };
+  assert.deepEqual(verifyPr(s), []);
+  assert.match(verificationLine(s), /VERIFICADA \(2\/2 checks verdes/);
+});
+
+test("verificação: check vermelho, em andamento ou conflito impedem a verificação", () => {
+  assert.deepEqual(verifyPr({ ...base, checks: [{ name: "quality", conclusion: "FAILURE", status: "COMPLETED" }] }), ['check "quality" FAILURE']);
+  assert.deepEqual(verifyPr({ ...base, checks: [{ name: "quality", conclusion: null, status: "IN_PROGRESS" }] }), ['check "quality" ainda IN_PROGRESS']);
+  const conflict = verifyPr({ ...base, mergeable: "CONFLICTING", mergeStateStatus: "DIRTY", checks: [green("q")] });
+  assert.deepEqual(conflict, ["conflito de merge com a base"]);
+  assert.match(verificationLine({ ...base, mergeable: "CONFLICTING", mergeStateStatus: "DIRTY", checks: [green("q")] }), /NÃO VERIFICADA/);
+});
+
+test("verificação: PR fechada ou sem checks não é verificada", () => {
+  assert.ok(verifyPr({ ...base, state: "CLOSED", checks: [green("q")] }).some((p) => /CLOSED/.test(p)));
+  assert.deepEqual(verifyPr({ ...base, checks: [] }), ["nenhum check reportado"]);
+});
+
+test("verificação: PR já mesclada conta como verificada", () => {
+  assert.deepEqual(verifyPr({ ...base, state: "MERGED", mergeable: "UNKNOWN", checks: [] }), []);
+  assert.match(verificationLine({ ...base, state: "MERGED", checks: [] }), /já mesclada/);
 });

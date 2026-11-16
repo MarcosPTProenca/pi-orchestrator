@@ -13,7 +13,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { HerdrCli } from "./herdr.ts";
 import { availableModels, resolveModel } from "./models.ts";
 import { Orchestrator, MODES, type DelegateInput, type WatchEvent } from "./orchestrator.ts";
-import { fixInputFor, listRedPrs, prFromUrl, fetchPrState, prStateLine } from "./prs.ts";
+import { fixInputFor, listRedPrs, prFromUrl, fetchPrState, verificationLine } from "./prs.ts";
 import { FixQueue } from "./queue.ts";
 import { locateProject } from "./locate.ts";
 import { orchestratorAgentName } from "./label.ts";
@@ -51,6 +51,7 @@ export function modelMessageFor(e: WatchEvent): string {
   lines.push(
     "",
     "Responda ao usuário em até 5 linhas: o que aconteceu, o que ficou pronto e o que falta validar. Cite URLs de PR quando houver. Não cole o relatório do worker, e não narre o mecanismo.",
+    "Se houver uma linha de verificação, ela vale mais que o relatório do worker: se disser NÃO VERIFICADA, não diga que a tarefa está concluída; diga o que falta.",
   );
   return lines.join("\n");
 }
@@ -169,7 +170,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
             if (!pr) continue;
             const remote = execFileSync("git", ["remote", "get-url", "origin"], { cwd: task.project_path, encoding: "utf8" }).trim();
             const state = await fetchPrState(remote, pr.number, pr.owner, pr.name, task.project_path).catch((e) => ({ error: String(e) }));
-            prLine += "\n" + ("error" in state ? `Não consegui conferir o estado da PR #${pr.number}: ${state.error}` : prStateLine(state));
+            prLine += "\n" + ("error" in state ? `Não consegui verificar a PR #${pr.number}: ${state.error}. Não dê a tarefa por concluída.` : verificationLine(state));
           }
         }
         pi.sendMessage(
