@@ -8,7 +8,10 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { HerdrCli } from "./herdr.ts";
+import { execFileSync } from "node:child_process";
 import { Orchestrator, type DelegateInput, type WatchEvent } from "./orchestrator.ts";
+import { fixInputFor, listRedPrs } from "./prs.ts";
+import { FixQueue } from "./queue.ts";
 import { Store, defaultStateDir } from "./store.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -29,9 +32,10 @@ export const FIRST_MATE_ROLE = [
   "- Pedido de PR ou issue é trabalho direto: um worker vê a PR ou a issue e resolve do início ao fim (entender, corrigir, testar, dar push). Não separe em etapas de levantamento, implementação e revisão, a menos que eu peça.",
   "- Você não fecha worker sozinho. Um worker concluído fica aberto até você validar o resultado; depois use orch_close.",
   "- Quando eu pedir N workers em paralelo (ex.: 2 a 2), lance os N numa única chamada orch_delegate com tasks. Nunca lance um por vez.",
+  "- Para resolver PRs vermelhas de um repositório, use orch_fix_red_prs: ele lista as PRs e lança um worker por PR, no máximo dois ao mesmo tempo. Não faça levantamento nem delegue PR por PR à mão.",
   "- Cada worker recebe um brief completo, como um crewmate do FirstMate: intent (o pedido com o contexto) e spec (a especificação de construção que você escreve). Escreva a spec inteira; não delegue um resumo de uma linha.",
   "- Mode: use direct-pr quando o pedido é resolver uma PR ou issue (implementar, testar, dar push e atualizar o PR). Use report só para pedido de análise. Não precisa informar a branch: o worker descobre a da PR citada.",
-  "- Para resolver uma lista de PRs ou issues com N workers: divida a lista em N partes. Cada worker resolve as PRs da sua parte, uma por vez, do início ao fim. Não existe etapa de levantamento separada.",
+
   "- Depois de delegar, diga em uma frase o que foi delegado e encerre o turno.",
   "- Não consulte status nem espere com bg_wait. O aviso chega sozinho quando houver resultado, decisão ou falha.",
   "- Não repita avisos já dados. Use orch_status ou orch_inbox só quando o usuário pedir.",
@@ -75,6 +79,14 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   });
 
   const watchers = new Map<string, AbortController>();
+  /** Fila de correções de PR: no máximo N workers em paralelo, avançando quando um termina. */
+  let fixQueue: FixQueue<DelegateInput> | undefined;
+  const TERMINAL = new Set(["done", "failed", "timeout", "lost"]);
+  const startTask = async (input: DelegateInput): Promise<string> => {
+    const task = await orch.delegate(input);
+    startWatch(task.task_id);
+    return task.task_id;
+  };
 
   const startWatch = (taskId: string): void => {
     if (watchers.has(taskId)) return;
@@ -84,6 +96,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       .watch(taskId, ac.signal)
       .then((event) => {
         watchers.delete(taskId);
+        if (event && TERMINAL.has(event.status)) void fixQueue?.settle(taskId);
         if (event && orch.takeNotice(taskId)) {
           pi.sendMessage(
             { customType: "orch-event", content: formatEvent(event), display: true, details: event },
@@ -215,6 +228,37 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
+    name: "orch_fix_red_prs",
+    label: "orch fix red prs",
+    description:
+      "Lista as PRs abertas com checks vermelhos de um repositório e lança um worker por PR (modo direct-pr), no máximo `concurrency` em paralelo. Avança a fila sozinho quando um worker termina. Use para pedidos de resolver PRs vermelhas.",
+    parameters: {
+      type: "object",
+      properties: {
+        repo_path: { type: "string", description: "Raiz absoluta do checkout do repositório (com .git e remote origin)." },
+        model: { type: "string", description: "Modelo dos workers, ex.: claude-bridge/claude-haiku-5-5." },
+        concurrency: { type: "number", description: "Workers em paralelo, 1 a 4. Padrão 2." },
+      },
+      required: ["repo_path"],
+      additionalProperties: false,
+    },
+    async execute(_id: string, params: { repo_path: string; model?: string; concurrency?: number }) {
+      const remote = execFileSync("git", ["remote", "get-url", "origin"], { cwd: params.repo_path, encoding: "utf8" }).trim();
+      const prs = await listRedPrs(params.repo_path, remote);
+      if (prs.length === 0) return asText({ red_prs: 0, message: "nenhuma PR aberta com check vermelho" });
+      const concurrency = params.concurrency ?? 2;
+      if (!fixQueue) fixQueue = new FixQueue<DelegateInput>(Math.min(Math.max(concurrency, 1), 4), startTask);
+      await fixQueue.enqueue(prs.map((pr) => fixInputFor(pr, params.repo_path, params.model)));
+      return asText({
+        red_prs: prs.map((pr) => ({ number: pr.number, title: pr.title, branch: pr.headRefName, failing: pr.failing })),
+        running_task_ids: fixQueue.runningIds,
+        queued: fixQueue.pendingCount,
+        failed_to_start: fixQueue.failed.map((f) => ({ pr: f.item.role, error: f.error })),
+      });
+    },
+  });
+
+  pi.registerTool({
     name: "orch_close",
     label: "orch close",
     description:
@@ -245,6 +289,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     async execute(_id: string, params: { task_id: string }) {
       const task = await orch.cancel(params.task_id);
       watchers.get(params.task_id)?.abort();
+      void fixQueue?.settle(params.task_id);
       return asText({ task_id: task.task_id, status: task.status });
     },
   });
