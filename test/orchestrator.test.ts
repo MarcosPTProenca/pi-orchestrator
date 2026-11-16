@@ -55,10 +55,11 @@ test("delegate cria workspace do projeto, tab da tarefa e inicia o worker na tab
   assert.equal(t.tab_id.startsWith(`${t.workspace_id}:`), true);
   const start = h.herdr.opsOf("startAgent")[0].args as { paneId: string; piArgs: string[] };
   assert.equal(start.paneId, t.pane_id);
-  assert.deepEqual(start.piArgs, ["-e", "/fake/worker-ext.ts"]);
+  assert.deepEqual(start.piArgs.slice(0, 2), ["-e", "/fake/worker-ext.ts"]);
+  assert.match(start.piArgs[2], /## Pedido do usuário/);
   assert.match(readFileSync(t.brief_path, "utf8"), /Analise o login/);
   assert.match(readFileSync(t.brief_path, "utf8"), /orch_report/);
-  assert.equal(h.herdr.opsOf("prompt").length, 1);
+  assert.equal(h.herdr.opsOf("prompt").length, 0, "brief vai como argumento inicial, não como prompt");
 });
 
 test("a tab seed fica como âncora do projeto: nenhuma tab é fechada ao criar tarefa", async () => {
@@ -237,7 +238,7 @@ test("worker ocioso sem nunca ter trabalhado recebe o brief uma única vez de no
   };
   const ev = await h.orch.watch(t.task_id, new AbortController().signal);
   assert.equal(ev?.status, "done");
-  assert.equal(h.herdr.opsOf("prompt").length, 2, "brief enviado de novo uma vez");
+  assert.equal(h.herdr.opsOf("prompt").length, 1, "um único reenvio com lembrete (o brief inicial vai no lançamento)");
   assert.equal(h.orch.get(t.task_id).prompt_attempts, 2);
 });
 
@@ -248,8 +249,8 @@ test("worker que já trabalhou e ficou ocioso sem relatório recebe um lembrete,
   h.herdr.waitImpl = async (_t, until) => (until.includes("working") ? { reached: "working" } : { reached: "idle" });
   const ev = await h.orch.watch(t.task_id, new AbortController().signal);
   assert.equal(ev?.status, "failed");
-  assert.equal(h.herdr.opsOf("prompt").length, 2, "um reenvio com lembrete");
-  const reminder = (h.herdr.opsOf("prompt")[1].args as { text: string }).text;
+  assert.equal(h.herdr.opsOf("prompt").length, 1, "um reenvio com lembrete");
+  const reminder = (h.herdr.opsOf("prompt")[0].args as { text: string }).text;
   assert.match(reminder, /ainda não chamou orch_report/);
   assert.match(ev?.error ?? "", /Última saída do worker: Marcos, sem pedido ainda/);
 });
@@ -268,7 +269,7 @@ test("delegate passa o modelo pedido ao pi e registra na tarefa", async () => {
   const h = makeHarness();
   const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report", model: "claude-bridge/claude-haiku-5-5" });
   const start = h.herdr.opsOf("startAgent")[0].args as { piArgs: string[] };
-  assert.deepEqual(start.piArgs, ["-e", "/fake/worker-ext.ts", "--model", "claude-bridge/claude-haiku-5-5"]);
+  assert.deepEqual(start.piArgs.slice(0, 4), ["-e", "/fake/worker-ext.ts", "--model", "claude-bridge/claude-haiku-5-5"]);
   assert.equal(t.model, "claude-bridge/claude-haiku-5-5");
 });
 
@@ -435,7 +436,7 @@ test("modelo pedido disponível vai para o pi e fica registrado", async () => {
   const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report", model: "claude-bridge/claude-haiku-5-5" });
   assert.equal(t.model, "claude-bridge/claude-haiku-5-5");
   const start = h.herdr.opsOf("startAgent")[0].args as { piArgs: string[] };
-  assert.deepEqual(start.piArgs.slice(-2), ["--model", "claude-bridge/claude-haiku-5-5"]);
+  assert.deepEqual(start.piArgs.slice(2, 4), ["--model", "claude-bridge/claude-haiku-5-5"]);
 });
 
 test("modo simulação (dryRun): valida, monta o brief e não toca no Herdr", async () => {
@@ -470,7 +471,7 @@ test("brief pede resumo de até 5 linhas no result e proíbe comentar em PR sem 
 test("o brief vai inline no prompt do worker; o worker não depende de ler arquivo", async () => {
   const h = makeHarness();
   const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "Pedido único XYZ", objective: "y", mode: "report" });
-  const sent = (h.herdr.opsOf("prompt")[0].args as { text: string }).text;
+  const sent = (h.herdr.opsOf("startAgent")[0].args as { piArgs: string[] }).piArgs.at(-1) as string;
   assert.match(sent, /## Pedido do usuário \(literal\)\nPedido único XYZ/);
   assert.match(sent, /## Critérios de conclusão/);
   assert.doesNotMatch(sent, /Leia o arquivo/);

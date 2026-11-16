@@ -198,10 +198,11 @@ export class Orchestrator {
         t.pane_id = tab.pane_id;
         t.terminal_id = tab.terminal_id;
       });
+      // Como o FirstMate: o brief é a mensagem inicial de lançamento, não um prompt enviado depois.
       const piArgs = ["-e", this.d.workerExtPath];
       if (model) piArgs.push("--model", model);
+      piArgs.push(this.startPrompt(briefPath));
       await this.d.herdr.startAgent({ name: workerId, paneId: tab.pane_id, piArgs, timeoutMs: 60_000 });
-      await this.d.herdr.prompt(workerId, this.startPrompt(briefPath));
       return this.update(taskId, (t) => {
         t.status = "running";
       });
