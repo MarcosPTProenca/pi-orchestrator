@@ -8,7 +8,6 @@ import { parsePanes, parseTabCreate, parseWorkspaceCreate, parseWorkspaceIds } f
 import { Orchestrator } from "../src/orchestrator.ts";
 import { Store } from "../src/store.ts";
 import { makeHarness, writeReport } from "./fakes.ts";
-import { parseLeasePath } from "../src/worktree.ts";
 
 test("validateReport: blocked exige question e id de tarefa correto", () => {
   assert.throws(() => validateReport({ task_id: "t1", status: "blocked", result: "" }, "t1"), /exige question/);
@@ -50,7 +49,7 @@ test("delegate cria workspace do projeto, tab da tarefa e inicia o worker na tab
   assert.equal(t.status, "running");
   assert.equal(h.herdr.opsOf("createWorkspace").length, 1);
   const tabArgs = h.herdr.opsOf("createTab")[0].args as { workspaceId: string; cwd: string; env: Record<string, string> };
-  assert.equal(tabArgs.cwd, t.worktree_path, "tab abre na worktree, não no checkout");
+  assert.equal(tabArgs.cwd, h.project, "tab abre no checkout do projeto; o worker arrenda a worktree dele");
   assert.equal(tabArgs.env.PI_ORCH_ROLE, "worker");
   assert.equal(tabArgs.env.PI_ORCH_TASK_ID, t.task_id);
   assert.equal(t.tab_id.startsWith(`${t.workspace_id}:`), true);
@@ -243,15 +242,14 @@ test("worker que já trabalhou e ficou ocioso sem relatório recebe um lembrete,
   assert.match(ev?.error ?? "", /Última saída do worker: Marcos, sem pedido ainda/);
 });
 
-test("delegate roda o worker numa worktree arrendada, nunca no checkout principal", async () => {
+test("brief manda o worker arrendar a própria worktree; o orquestrador não arrenda", async () => {
   const h = makeHarness();
   const t = await h.orch.delegate({ project_path: h.project, role: "a", brief: "x" });
-  assert.equal(h.worktrees.leases.length, 1);
-  assert.equal(h.worktrees.leases[0].repo, h.project);
-  assert.equal(t.worktree_path, h.worktrees.leases[0].path);
-  const tab = h.herdr.opsOf("createTab")[0].args as { cwd: string };
-  assert.equal(tab.cwd, t.worktree_path);
-  assert.match(readFileSync(t.brief_path, "utf8"), new RegExp(t.worktree_path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  const brief = readFileSync(t.brief_path, "utf8");
+  assert.match(brief, /treehouse get --lease --lease-holder t-/);
+  assert.match(brief, new RegExp(`--lease-holder ${t.task_id}`));
+  assert.match(brief, /não altere o checkout principal/);
+  assert.equal(h.herdr.opsOf("createTab")[0].args && (h.herdr.opsOf("createTab")[0].args as { cwd: string }).cwd, h.project);
 });
 
 test("delegate passa o modelo pedido ao pi e registra na tarefa", async () => {
@@ -276,11 +274,6 @@ test("delegate recusa project_path que não é raiz de repositório git (ex.: di
   assert.equal(h.herdr.opsOf("createTab").length, 0);
 });
 
-test("parseLeasePath extrai o caminho absoluto da saída do treehouse", () => {
-  assert.equal(parseLeasePath("/home/u/.treehouse/x/1/repo\n"), "/home/u/.treehouse/x/1/repo");
-  assert.equal(parseLeasePath("banner\n/abs/path\n"), "/abs/path");
-  assert.throws(() => parseLeasePath("sem caminho\n"), /caminho absoluto/);
-});
 
 test("worker ocioso sem orch_report vira failed", async () => {
   const h = makeHarness();
@@ -354,7 +347,6 @@ test("estado persiste entre instâncias do orquestrador (reinício)", async () =
   const t = await h.orch.delegate({ project_path: h.project, role: "a", brief: "x" });
   const again = new Orchestrator({
     herdr: h.herdr,
-    worktrees: h.worktrees,
     store: new Store(join(h.stateDir, "state.json")),
     tasksDir: join(h.stateDir, "tasks"),
     workerExtPath: "/x",

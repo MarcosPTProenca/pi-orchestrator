@@ -59,8 +59,6 @@ export interface TaskRecord {
   /** false quando há um aviso ainda não entregue ao usuário. */
   notified: boolean;
   error: string | null;
-  /** Worktree arrendada do treehouse onde o worker trabalha (nunca o checkout principal). */
-  worktree_path: string;
   /** Modelo pedido para o worker (ex.: claude-bridge/claude-haiku-5-5). null = padrão do Pi. */
   model: string | null;
   /** Quantas vezes o brief foi enviado (reenvio se o worker fica ocioso sem relatório). */

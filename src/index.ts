@@ -8,7 +8,6 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { HerdrCli } from "./herdr.ts";
-import { TreehouseCli } from "./worktree.ts";
 import { Orchestrator, type WatchEvent } from "./orchestrator.ts";
 import { Store, defaultStateDir } from "./store.ts";
 
@@ -24,7 +23,7 @@ export const FIRST_MATE_ROLE = [
   "- Fale com o usuário em resultados e decisões. Não narre progresso nem mecanismo.",
   "- Quando um worker pedir decisão, apresente a pergunta ao usuário e use orch_answer com a resposta dele.",
   "- project_path é a raiz do repositório (checkout principal, com .git). Se o usuário nomear um repositório, localize-o (ex.: ~/github/<nome>) e confira antes de delegar. Nunca delegue em diretório pai.",
-  "- O worker trabalha numa worktree arrendada, não no checkout. Não tente contornar isso.",
+  "- Você não cria worktree. O worker arrenda a própria pelo treehouse ao iniciar, conforme as instruções dele.",
   "- Se o usuário pedir lotes (ex.: 2 a 2), delegue só o lote atual e espere os avisos dele antes do próximo.",
   "- Quando o usuário pedir um modelo, passe-o em model (ex.: claude-bridge/claude-haiku-5-5).",
   "- Depois de delegar, diga em uma frase o que foi delegado e encerre o turno.",
@@ -62,7 +61,6 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   const stateDir = defaultStateDir();
   const orch = new Orchestrator({
     herdr: new HerdrCli(),
-    worktrees: new TreehouseCli(),
     store: new Store(join(stateDir, "state.json")),
     tasksDir: join(stateDir, "tasks"),
     workerExtPath: process.env.PI_ORCH_WORKER_EXT ?? resolve(here, "worker-ext.ts"),
@@ -117,7 +115,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     name: "orch_delegate",
     label: "orch delegate",
     description:
-      "Arrenda uma worktree do treehouse no repositório project_path, abre uma tab no workspace do projeto e inicia um worker Pi nela com o brief. Um watcher avisa quando houver decisão, bloqueio ou conclusão.",
+      "Abre uma tab no workspace do projeto e inicia um worker Pi com o brief. O worker arrenda a própria worktree pelo treehouse. Um watcher avisa quando houver decisão, bloqueio ou conclusão.",
     parameters: {
       type: "object",
       properties: {

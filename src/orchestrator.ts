@@ -12,12 +12,10 @@ import {
   type TaskStatus,
 } from "./contract.ts";
 import type { HerdrPort } from "./herdr.ts";
-import type { WorktreePort } from "./worktree.ts";
 import type { Store } from "./store.ts";
 
 export interface OrchDeps {
   herdr: HerdrPort;
-  worktrees: WorktreePort;
   store: Store;
   tasksDir: string;
   workerExtPath: string;
@@ -26,7 +24,7 @@ export interface OrchDeps {
 }
 
 export interface DelegateInput {
-  /** Raiz de um repositório git (checkout principal). O trabalho roda numa worktree arrendada dele. */
+  /** Raiz de um repositório git (checkout principal). O worker arrenda a própria worktree a partir dele. */
   project_path: string;
   role: string;
   brief: string;
@@ -53,11 +51,14 @@ const DEFAULT_TIMEOUT_MIN = 30;
 const MAX_PROMPT_ATTEMPTS = 2;
 const DIAG_LINES = 30;
 
-export function buildBrief(taskId: string, reportPath: string, input: DelegateInput, worktreePath: string): string {
+export function buildBrief(taskId: string, reportPath: string, input: DelegateInput): string {
   return [
     `# Tarefa ${taskId} (papel: ${input.role})`,
     "",
-    `Sua worktree isolada é ${worktreePath}. Trabalhe só nela; não altere o checkout principal.`,
+    "## Worktree",
+    `Antes de qualquer coisa, arrende sua worktree a partir do repositório ${input.project_path}:`,
+    `\`treehouse get --lease --lease-holder ${taskId}\``,
+    "O comando imprime o caminho da worktree. Entre nela e trabalhe só nela; não altere o checkout principal.",
     "",
     "Você é um worker de uma sessão Pi independente, iniciada pelo orquestrador.",
     "Execute a tarefa abaixo com seu setup normal (skills, extensões, subagentes).",
@@ -162,8 +163,7 @@ export class Orchestrator {
     const briefPath = join(taskDir, "brief.md");
     const reportPath = join(taskDir, "report.json");
 
-    const worktreePath = await this.d.worktrees.lease(input.project_path, taskId);
-    writeFileSync(briefPath, buildBrief(taskId, reportPath, input, worktreePath));
+    writeFileSync(briefPath, buildBrief(taskId, reportPath, input));
 
     const timeoutMin = input.timeout_minutes ?? DEFAULT_TIMEOUT_MIN;
     const now = this.iso();
@@ -171,7 +171,6 @@ export class Orchestrator {
       task_id: taskId,
       project_id: projectId,
       project_path: input.project_path,
-      worktree_path: worktreePath,
       model: input.model ?? null,
       role: input.role,
       worker_id: workerId,
@@ -203,7 +202,7 @@ export class Orchestrator {
       const ws = await this.ensureWorkspace(input.project_path, projectId);
       const tab = await this.d.herdr.createTab({
         workspaceId: ws.workspace_id,
-        cwd: worktreePath,
+        cwd: input.project_path,
         label: `${input.role}-${taskId.slice(-6)}`,
         env: { PI_ORCH_ROLE: "worker", PI_ORCH_TASK_ID: taskId, PI_ORCH_TASK_DIR: taskDir },
       });
