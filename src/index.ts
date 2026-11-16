@@ -183,6 +183,19 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       execFile("herdr", ["agent", "rename", pane, orchestratorAgentName(ctx.cwd)], { timeout: 15_000 }, () => undefined);
     }
     await orch.reconcile();
+    // Resultados que chegaram com o orquestrador fechado ficam pendentes: avisa ao abrir, um turno só se houver algo.
+    const pending = await orch.inbox();
+    if (pending.length > 0) {
+      pi.sendMessage(
+        {
+          customType: "orch-event",
+          content: pending.map((e) => modelMessageFor(e)).join("\n\n---\n\n"),
+          display: false,
+          details: { pending: pending.map((e) => e.task_id) },
+        },
+        { triggerTurn: true },
+      );
+    }
   });
 
   pi.on("before_agent_start", (event) => {
