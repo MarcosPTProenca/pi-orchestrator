@@ -2,6 +2,7 @@
  * Núcleo do orquestrador: delegação, acompanhamento, respostas, cancelamento
  * e reconciliação. Não chama LLM. Recebe o Herdr e o estado por injeção.
  */
+import { resolveModel } from "./models.ts";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join } from "node:path";
 import {
@@ -21,26 +22,30 @@ export interface OrchDeps {
   workerExtPath: string;
   now: () => number;
   newHex: () => string;
+  /** provider/id dos modelos disponíveis. Modelo pedido fora desta lista é erro explícito. */
+  availableModels: () => string[];
+  /** true: valida, monta o brief e registra o plano, sem tocar no Herdr. Usado pelos testes de comportamento. */
+  dryRun: boolean;
 }
 
-export const MODES = ["report", "direct-pr", "local-only"] as const;
-export type Mode = (typeof MODES)[number];
+export { MODES, type Mode } from "./intake.ts";
+import { buildIntake, renderBrief, type Mode } from "./intake.ts";
 
 export interface DelegateInput {
-  /** Raiz de um repositório git (checkout principal). O worker arrenda a própria worktree a partir dele. */
   project_path: string;
   role: string;
-  /** Pedido do usuário, com o contexto necessário para lê-lo (ex.: a PR ou issue e o que ela diz). */
-  intent: string;
-  /** Especificação de construção escrita pelo orquestrador: o que fazer, em que ordem e como validar. */
-  spec: string;
-  /** report: só relatório. direct-pr: implementa, dá push na branch e abre/atualiza o PR. local-only: implementa sem push. */
+  /** Pedido do usuário, literal. */
+  request: string;
+  /** Objetivo verificável. */
+  objective: string;
   mode: Mode;
-  /** Branch em que o worker trabalha. Omitida: o worker descobre a branch da PR citada no pedido. */
+  constraints?: string[];
+  source?: string;
   branch?: string;
-  timeout_minutes?: number;
-  /** Modelo do worker, ex.: claude-bridge/claude-haiku-5-5. Omitido = padrão do Pi. */
+  spec?: string;
+  /** Modelo exato (provider/id). Omitido: padrão do Pi. */
   model?: string;
+  timeout_minutes?: number;
 }
 
 export interface WatchEvent {
@@ -60,63 +65,6 @@ const RETRY_MS = 5_000;
 const DEFAULT_TIMEOUT_MIN = 30;
 const MAX_PROMPT_ATTEMPTS = 2;
 const DIAG_LINES = 30;
-
-const DOD: Record<Mode, (branch: string) => string[]> = {
-  report: () => [
-    "Investigue e escreva o relatório em `result`: o que você fez, o que encontrou, evidências (comandos e saídas, arquivo:linha) e o que recomenda.",
-    "Não faça push nem abra PR. Não altere o remoto.",
-  ],
-  "direct-pr": (branch) => [
-    "Implemente o que a especificação pede, seguindo a skill `implement`: entender, implementar, testar, revisar.",
-    branch
-      ? `Faça commit na branch \`${branch}\`, dê push e abra o PR (ou atualize o existente) com gh.`
-      : "Faça commit na branch de trabalho, dê push e abra o PR (ou atualize o existente da PR citada) com gh.",
-    "Verifique os checks do PR. Se a falha for do seu código, corrija e rode de novo até ficarem verdes.",
-    "Ao final, coloque em `artifacts` a URL completa do PR.",
-  ],
-  "local-only": (branch) => [
-    "Implemente o que a especificação pede, com testes, seguindo a skill `implement`.",
-    branch
-      ? `Faça commit na branch \`${branch}\`. Não faça push nem abra PR.`
-      : "Faça commit na branch de trabalho. Não faça push nem abra PR.",
-  ],
-};
-
-export function buildBrief(taskId: string, reportPath: string, input: DelegateInput): string {
-  const dod = DOD[input.mode](input.branch ?? "").map((l) => `- ${l}`);
-  return [
-    `# Tarefa ${taskId} (papel: ${input.role}, modo: ${input.mode})`,
-    "",
-    "Você é um worker: uma unidade autônoma gerenciada pelo orquestrador. Trabalhe sem esperar um humano.",
-    "",
-    "## Pedido do usuário",
-    input.intent.trim(),
-    "",
-    "## Especificação de construção",
-    input.spec.trim(),
-    "",
-    "## Setup",
-    `1. Arrende sua worktree isolada a partir do repositório ${input.project_path}: \`treehouse get --lease --lease-holder ${taskId}\`. O comando imprime o caminho; entre nele.`,
-    `2. Verifique o isolamento com \`pwd -P\` e \`git rev-parse --show-toplevel\`. Os dois devem apontar para a sua worktree, não para ${input.project_path}. Se não baterem, chame orch_report com status failed e pare.`,
-    input.branch
-      ? `3. Faça checkout da branch \`${input.branch}\` na sua worktree antes de editar.`
-      : "3. Se o pedido cita uma PR, descubra a branch dela (`gh pr view <número> --json headRefName`) e faça checkout. Sem PR, crie uma branch nova a partir da base.",
-    "",
-    "## Regras",
-    "1. Só faça push ou abra PR conforme o modo acima. Nunca no checkout principal.",
-    "2. Use gh autenticado com a conta certa, conforme as skills de credenciais. Nunca consulte a API sem autenticação.",
-    "3. Você não fala com o usuário. Decisão de produto ou ação destrutiva: chame orch_report com status blocked e question, e encerre o turno.",
-    "4. Obstáculo que se repete duas vezes: orch_report com status blocked e o motivo.",
-    "5. Não reporte progresso. Chame orch_report uma vez, no fim.",
-    "",
-    "## Definição de pronto",
-    ...dod,
-    "",
-    "## Relatório final",
-    `Chame orch_report com status (done, failed ou blocked), result (standalone, com evidências) e artifacts (URLs, caminhos). O relatório fica em ${reportPath}.`,
-    "",
-  ].filter((l) => l !== undefined).join("\n");
-}
 
 function isDirectory(path: string): boolean {
   try {
@@ -179,20 +127,18 @@ export class Orchestrator {
     return record;
   }
 
-  async delegate(input: DelegateInput): Promise<TaskRecord> {
-    if (!isAbsolute(input.project_path) || !isDirectory(input.project_path)) {
-      throw new Error(`project_path precisa ser um diretório absoluto existente: ${input.project_path}`);
-    }
-    if (!existsSync(join(input.project_path, ".git"))) {
-      throw new Error(`project_path não é a raiz de um repositório git: ${input.project_path}. Informe o checkout do projeto, não um diretório pai.`);
-    }
-    for (const [field, value] of [["intent", input.intent], ["spec", input.spec], ["role", input.role]] as const) {
-      if (!value || value.trim() === "") throw new Error(`${field} vazio`);
-      if (/\{[A-Z_]+\}/.test(value)) throw new Error(`${field} ainda tem placeholder: ${value.match(/\{[A-Z_]+\}/)?.[0]}`);
-    }
-    if (!(MODES as readonly string[]).includes(input.mode)) throw new Error(`mode inválido: ${String(input.mode)} (use ${MODES.join(", ")})`);
+  /** Valida uma delegação sem efeitos: modelo, projeto, pedido, objetivo e modo. Lança erro explícito. */
+  checkDelegate(input: DelegateInput): void {
+    resolveModel(input.model, this.d.availableModels());
+    buildIntake({ ...input, model: input.model });
+  }
 
+  async delegate(input: DelegateInput): Promise<TaskRecord> {
+    // Tudo que pode falhar acontece antes de qualquer efeito: nenhum worker é lançado com entrada inválida.
+    const model = resolveModel(input.model, this.d.availableModels());
     const projectId = basename(input.project_path);
+    const intake = buildIntake({ ...input, model });
+
     const taskId = `t-${this.d.newHex()}`;
     const workerId = `orch-${this.d.newHex().slice(0, 8)}`;
     const taskDir = join(this.d.tasksDir, taskId);
@@ -200,22 +146,23 @@ export class Orchestrator {
     const briefPath = join(taskDir, "brief.md");
     const reportPath = join(taskDir, "report.json");
 
-    writeFileSync(briefPath, buildBrief(taskId, reportPath, input));
+    writeFileSync(briefPath, renderBrief(taskId, intake, reportPath));
 
     const timeoutMin = input.timeout_minutes ?? DEFAULT_TIMEOUT_MIN;
+    const initialStatus: TaskStatus = this.d.dryRun ? "planned" : "starting";
     const now = this.iso();
     const record: TaskRecord = {
       task_id: taskId,
       project_id: projectId,
       project_path: input.project_path,
-      model: input.model ?? null,
+      model: model ?? null,
       role: input.role,
       worker_id: workerId,
       workspace_id: "",
       tab_id: "",
       pane_id: "",
       terminal_id: "",
-      status: "starting",
+      status: initialStatus,
       task_dir: taskDir,
       brief_path: briefPath,
       created_at: now,
@@ -233,6 +180,7 @@ export class Orchestrator {
     const state = this.d.store.load();
     state.tasks[taskId] = record;
     this.d.store.save(state);
+    if (this.d.dryRun) return record;
 
     let tabId: string | undefined;
     try {
@@ -251,7 +199,7 @@ export class Orchestrator {
         t.terminal_id = tab.terminal_id;
       });
       const piArgs = ["-e", this.d.workerExtPath];
-      if (input.model) piArgs.push("--model", input.model);
+      if (model) piArgs.push("--model", model);
       await this.d.herdr.startAgent({ name: workerId, paneId: tab.pane_id, piArgs, timeoutMs: 60_000 });
       await this.d.herdr.prompt(workerId, this.startPrompt(briefPath));
       return this.update(taskId, (t) => {

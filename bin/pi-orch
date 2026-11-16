@@ -10,4 +10,4 @@ fi
 export PI_ORCH_WORKER_EXT="$HERE/src/worker-ext.ts"
 # O orquestrador não executa trabalho de projeto: lê (read/grep/find/ls) e delega por orch_*.
 # Sem bash, edit, write nem subagents (filhos ocultos). Trabalho vai para workers Herdr.
-exec pi --exclude-tools bash,edit,write,subagent,subagents_enable,bg_wait,subagent_supervisor -e "$HERE/src/index.ts" "$@"
+exec pi --exclude-tools bash,edit,write,read,grep,find,ls,subagent,subagents_enable,bg_wait,subagent_supervisor -e "$HERE/src/index.ts" "$@"

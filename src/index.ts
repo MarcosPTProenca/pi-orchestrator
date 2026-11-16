@@ -1,44 +1,33 @@
 /**
  * Extensão do orquestrador (carregada só pelo launcher bin/pi-orch via `pi -e`).
- * Expõe 5 tools tipadas e um watcher por tarefa ativa. Os watchers não usam LLM:
- * só disparam uma mensagem quando há decisão, bloqueio ou conclusão.
+ * Tools tipadas e um watcher por tarefa ativa. Os watchers não usam LLM: só avisam
+ * quando há decisão, bloqueio ou conclusão.
  */
+import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { HerdrCli } from "./herdr.ts";
-import { execFileSync } from "node:child_process";
-import { Orchestrator, type DelegateInput, type WatchEvent } from "./orchestrator.ts";
+import { availableModels, resolveModel } from "./models.ts";
+import { Orchestrator, MODES, type DelegateInput, type WatchEvent } from "./orchestrator.ts";
 import { fixInputFor, listRedPrs } from "./prs.ts";
 import { FixQueue } from "./queue.ts";
 import { Store, defaultStateDir } from "./store.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-/** Papel do orquestrador (first mate). Acrescentado ao prompt do sistema a cada turno. */
+/** Papel do orquestrador. Curto e positivo: o contrato detalhado fica nas tools e no intake. */
 export const FIRST_MATE_ROLE = [
   "# Papel: orquestrador",
-  "Você coordena workers. Não executa trabalho de projeto.",
-  "- Qualquer análise, leitura profunda, comando, edição ou pesquisa vai para um worker via orch_delegate.",
-  "- Você só lê o suficiente para escrever um brief claro (read, grep, find, ls).",
-  "- O brief é autocontido: objetivo, escopo, o que não fazer e o formato do relatório final.",
-  "- Fale com o usuário em resultados e decisões. Não narre progresso nem mecanismo.",
-  "- Quando um worker pedir decisão, apresente a pergunta ao usuário e use orch_answer com a resposta dele.",
-  "- project_path é a raiz do repositório (checkout principal, com .git). Se o usuário nomear um repositório, localize-o (ex.: ~/github/<nome>) e confira antes de delegar. Nunca delegue em diretório pai.",
-  "- Você não cria worktree. O worker arrenda a própria pelo treehouse ao iniciar, conforme as instruções dele.",
-  "- Se o usuário pedir lotes (ex.: 2 a 2), delegue só o lote atual e espere os avisos dele antes do próximo.",
-  "- Quando o usuário pedir um modelo, passe-o em model (ex.: claude-bridge/claude-haiku-5-5).",
-  "- Pedido de PR ou issue é trabalho direto: um worker vê a PR ou a issue e resolve do início ao fim (entender, corrigir, testar, dar push). Não separe em etapas de levantamento, implementação e revisão, a menos que eu peça.",
-  "- Você não fecha worker sozinho. Um worker concluído fica aberto até você validar o resultado; depois use orch_close.",
-  "- Quando eu pedir N workers em paralelo (ex.: 2 a 2), lance os N numa única chamada orch_delegate com tasks. Nunca lance um por vez.",
-  "- Para resolver PRs vermelhas de um repositório, use orch_fix_red_prs: ele lista as PRs e lança um worker por PR, no máximo dois ao mesmo tempo. Não faça levantamento nem delegue PR por PR à mão.",
-  "- Cada worker recebe um brief completo, como um crewmate do FirstMate: intent (o pedido com o contexto) e spec (a especificação de construção que você escreve). Escreva a spec inteira; não delegue um resumo de uma linha.",
-  "- Mode: use direct-pr quando o pedido é resolver uma PR ou issue (implementar, testar, dar push e atualizar o PR). Use report só para pedido de análise. Não precisa informar a branch: o worker descobre a da PR citada.",
-
-  "- Depois de delegar, diga em uma frase o que foi delegado e encerre o turno.",
-  "- Não consulte status nem espere com bg_wait. O aviso chega sozinho quando houver resultado, decisão ou falha.",
-  "- Não repita avisos já dados. Use orch_status ou orch_inbox só quando o usuário pedir.",
+  "Você lança workers Pi para o usuário. Não executa o trabalho do projeto.",
+  "Procedimento:",
+  "1. Reúna: projeto (raiz do repositório), pedido literal, objetivo, modo, modelo e quantidade de workers.",
+  "2. Lance com orch_delegate (com `tasks` para vários workers numa chamada) ou, para PRs vermelhas, com orch_fix_red_prs.",
+  "3. Preserve o que o usuário pediu: quantidade, modelo, projeto, escopo e modo. Não substitua nada em silêncio.",
+  "4. Pergunte só se faltar algo que impede o lançamento. Caso contrário, lance.",
+  "5. Depois de lançar, diga o que foi lançado e encerre o turno. Não pesquise, não levante, não divida trabalho por iniciativa própria.",
+  "Resultados e decisões chegam como mensagens: apresente-os sem narrar o mecanismo.",
 ].join("\n");
 
 /** Mensagem ao usuário: resultado ou decisão, sem campos técnicos. */
@@ -67,8 +56,30 @@ function asText(value: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }], details: value };
 }
 
+const TERMINAL = new Set(["done", "failed", "timeout", "lost"]);
+
+const DELEGATE_ITEM = {
+  type: "object",
+  properties: {
+    project_path: { type: "string", description: "Raiz absoluta do repositório git (checkout principal, com .git)." },
+    role: { type: "string", description: "Papel curto, ex.: fix-pr, investigate." },
+    request: { type: "string", description: "Pedido do usuário, copiado literalmente." },
+    objective: { type: "string", description: "Como saber que terminou: critério verificável." },
+    mode: { type: "string", enum: [...MODES], description: "report: só relatório. direct-pr: implementa, dá push e abre/atualiza o PR. local-only: implementa sem push." },
+    constraints: { type: "array", items: { type: "string" }, description: "Restrições do usuário, copiadas. Ex.: não tocar em outros arquivos." },
+    source: { type: "string", description: "URL da PR ou issue, quando houver." },
+    branch: { type: "string", description: "Branch de trabalho. Omitida: o worker descobre a da PR citada." },
+    spec: { type: "string", description: "Especificação de construção, só quando o pedido precisa de passos próprios." },
+    model: { type: "string", description: "Modelo exato, ex.: claude-bridge/claude-haiku-5-5. Se indisponível, a chamada falha." },
+    timeout_minutes: { type: "number" },
+  },
+  required: ["project_path", "role", "request", "objective", "mode"],
+  additionalProperties: false,
+};
+
 export default function orchestratorExtension(pi: ExtensionAPI): void {
   const stateDir = defaultStateDir();
+  const dryRun = process.env.PI_ORCH_DRY_RUN === "1";
   const orch = new Orchestrator({
     herdr: new HerdrCli(),
     store: new Store(join(stateDir, "state.json")),
@@ -76,20 +87,16 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     workerExtPath: process.env.PI_ORCH_WORKER_EXT ?? resolve(here, "worker-ext.ts"),
     now: () => Date.now(),
     newHex: () => randomBytes(4).toString("hex"),
+    availableModels,
+    dryRun,
   });
 
   const watchers = new Map<string, AbortController>();
   /** Fila de correções de PR: no máximo N workers em paralelo, avançando quando um termina. */
   let fixQueue: FixQueue<DelegateInput> | undefined;
-  const TERMINAL = new Set(["done", "failed", "timeout", "lost"]);
-  const startTask = async (input: DelegateInput): Promise<string> => {
-    const task = await orch.delegate(input);
-    startWatch(task.task_id);
-    return task.task_id;
-  };
 
   const startWatch = (taskId: string): void => {
-    if (watchers.has(taskId)) return;
+    if (dryRun || watchers.has(taskId)) return;
     const ac = new AbortController();
     watchers.set(taskId, ac);
     orch
@@ -113,7 +120,14 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       });
   };
 
+  const startTask = async (input: DelegateInput): Promise<string> => {
+    const task = await orch.delegate(input);
+    startWatch(task.task_id);
+    return task.task_id;
+  };
+
   pi.on("session_start", async () => {
+    if (dryRun) return;
     await orch.reconcile();
     for (const t of orch.list()) {
       if (t.status === "running" || t.status === "starting") startWatch(t.task_id);
@@ -134,45 +148,68 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     name: "orch_delegate",
     label: "orch delegate",
     description:
-      "Lança workers Pi independentes, cada um com brief completo (intent e spec), numa única chamada. Para N workers em paralelo, passe N itens em tasks. Cada worker arrenda a própria worktree pelo treehouse. Um watcher avisa quando houver decisão, bloqueio ou conclusão.",
+      "Lança workers Pi com brief completo montado pelo intake. Para N workers, passe N itens em tasks numa única chamada. A chamada inteira é validada antes: se algum item for inválido, nada é lançado. Cada worker arrenda a própria worktree pelo treehouse.",
     parameters: {
       type: "object",
       properties: {
-        tasks: {
-          type: "array",
-          minItems: 1,
-          maxItems: 8,
-          description: "Um item por worker. Lance todos juntos; não chame orch_delegate uma vez por worker.",
-          items: {
-            type: "object",
-            properties: {
-              project_path: { type: "string", description: "Raiz absoluta de um repositório git." },
-              role: { type: "string", description: "Papel curto, ex.: fix-pr, investigate." },
-              intent: { type: "string", description: "Pedido do usuário com o contexto para lê-lo: PR ou issue, número, o que ela diz. Copie a substância, não resuma." },
-              spec: { type: "string", description: "Especificação de construção escrita por você: o que fazer, em que ordem, como validar, o que não tocar." },
-              mode: { type: "string", enum: ["report", "direct-pr", "local-only"], description: "report: só relatório. direct-pr: implementa, dá push na branch e abre ou atualiza o PR. local-only: implementa sem push." },
-              branch: { type: "string", description: "Branch existente (ex.: head da PR) para direct-pr que atualiza uma PR. Obrigatória em direct-pr." },
-              timeout_minutes: { type: "number" },
-              model: { type: "string" },
-            },
-            required: ["project_path", "role", "intent", "spec", "mode"],
-            additionalProperties: false,
-          },
-        },
+        tasks: { type: "array", minItems: 1, maxItems: 8, items: DELEGATE_ITEM, description: "Um item por worker. Copie o pedido do usuário, sem reescrever." },
       },
       required: ["tasks"],
       additionalProperties: false,
     },
     async execute(_id: string, params: { tasks: Array<Record<string, unknown>> }) {
+      const inputs = params.tasks as unknown as DelegateInput[];
+      for (const input of inputs) orch.checkDelegate(input);
       const started = [];
       // Sequencial de propósito: a criação do workspace do projeto não pode correr em paralelo.
-      for (const raw of params.tasks) {
-        const input = raw as unknown as DelegateInput;
+      for (const input of inputs) {
         const task = await orch.delegate(input);
         startWatch(task.task_id);
-        started.push({ task_id: task.task_id, role: task.role, worker_id: task.worker_id, pane_id: task.pane_id, status: task.status });
+        started.push({
+          task_id: task.task_id,
+          role: task.role,
+          status: task.status,
+          model: task.model,
+          mode: input.mode,
+          project: task.project_path,
+          brief: task.brief_path,
+        });
       }
-      return asText({ started_count: started.length, started });
+      return asText({ started_count: started.length, dry_run: dryRun, started });
+    },
+  });
+
+  pi.registerTool({
+    name: "orch_fix_red_prs",
+    label: "orch fix red prs",
+    description:
+      "Lista as PRs abertas com checks vermelhos de um repositório e lança um worker por PR (modo direct-pr), no máximo `concurrency` em paralelo. Avança a fila sozinho quando um worker termina. Use para pedidos de resolver PRs vermelhas.",
+    parameters: {
+      type: "object",
+      properties: {
+        repo_path: { type: "string", description: "Raiz absoluta do checkout do repositório (com .git e remote origin)." },
+        model: { type: "string", description: "Modelo exato dos workers. Se indisponível, nada é lançado." },
+        concurrency: { type: "number", description: "Workers em paralelo, 1 a 4. Padrão 2." },
+      },
+      required: ["repo_path"],
+      additionalProperties: false,
+    },
+    async execute(_id: string, params: { repo_path: string; model?: string; concurrency?: number }) {
+      resolveModel(params.model, availableModels());
+      const remote = execFileSync("git", ["remote", "get-url", "origin"], { cwd: params.repo_path, encoding: "utf8" }).trim();
+      const prs = await listRedPrs(params.repo_path, remote);
+      if (prs.length === 0) return asText({ red_prs: 0, message: "nenhuma PR aberta com check vermelho" });
+      const concurrency = params.concurrency ?? 2;
+      if (!fixQueue) fixQueue = new FixQueue<DelegateInput>(Math.min(Math.max(concurrency, 1), 4), startTask);
+      const inputs = prs.map((pr) => fixInputFor(pr, params.repo_path, params.model));
+      for (const input of inputs) orch.checkDelegate(input);
+      await fixQueue.enqueue(inputs);
+      return asText({
+        red_prs: prs.map((pr) => ({ number: pr.number, title: pr.title, branch: pr.headRefName, failing: pr.failing })),
+        running_task_ids: fixQueue.runningIds,
+        queued: fixQueue.pendingCount,
+        failed_to_start: fixQueue.failed.map((f) => ({ pr: f.item.role, error: f.error })),
+      });
     },
   });
 
@@ -188,6 +225,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
           project_id: t.project_id,
           role: t.role,
           status: t.status,
+          model: t.model,
           pane_id: t.pane_id,
           question: t.question,
           deadline_at: t.deadline_at,
@@ -199,8 +237,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "orch_inbox",
     label: "orch inbox",
-    description:
-      "Mostra decisões abertas (bloqueadas) e tarefas concluídas, falhas ou expiradas ainda não avisadas. Cada aviso terminal aparece uma vez.",
+    description: "Mostra decisões abertas (bloqueadas) e tarefas concluídas, falhas ou expiradas ainda não avisadas. Cada aviso terminal aparece uma vez.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
     async execute() {
       return asText(orch.inbox());
@@ -213,10 +250,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     description: "Envia a resposta do usuário a uma tarefa bloqueada. O worker recebe como nova mensagem e continua.",
     parameters: {
       type: "object",
-      properties: {
-        task_id: { type: "string" },
-        answer: { type: "string" },
-      },
+      properties: { task_id: { type: "string" }, answer: { type: "string" } },
       required: ["task_id", "answer"],
       additionalProperties: false,
     },
@@ -228,41 +262,9 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
-    name: "orch_fix_red_prs",
-    label: "orch fix red prs",
-    description:
-      "Lista as PRs abertas com checks vermelhos de um repositório e lança um worker por PR (modo direct-pr), no máximo `concurrency` em paralelo. Avança a fila sozinho quando um worker termina. Use para pedidos de resolver PRs vermelhas.",
-    parameters: {
-      type: "object",
-      properties: {
-        repo_path: { type: "string", description: "Raiz absoluta do checkout do repositório (com .git e remote origin)." },
-        model: { type: "string", description: "Modelo dos workers, ex.: claude-bridge/claude-haiku-5-5." },
-        concurrency: { type: "number", description: "Workers em paralelo, 1 a 4. Padrão 2." },
-      },
-      required: ["repo_path"],
-      additionalProperties: false,
-    },
-    async execute(_id: string, params: { repo_path: string; model?: string; concurrency?: number }) {
-      const remote = execFileSync("git", ["remote", "get-url", "origin"], { cwd: params.repo_path, encoding: "utf8" }).trim();
-      const prs = await listRedPrs(params.repo_path, remote);
-      if (prs.length === 0) return asText({ red_prs: 0, message: "nenhuma PR aberta com check vermelho" });
-      const concurrency = params.concurrency ?? 2;
-      if (!fixQueue) fixQueue = new FixQueue<DelegateInput>(Math.min(Math.max(concurrency, 1), 4), startTask);
-      await fixQueue.enqueue(prs.map((pr) => fixInputFor(pr, params.repo_path, params.model)));
-      return asText({
-        red_prs: prs.map((pr) => ({ number: pr.number, title: pr.title, branch: pr.headRefName, failing: pr.failing })),
-        running_task_ids: fixQueue.runningIds,
-        queued: fixQueue.pendingCount,
-        failed_to_start: fixQueue.failed.map((f) => ({ pr: f.item.role, error: f.error })),
-      });
-    },
-  });
-
-  pi.registerTool({
     name: "orch_close",
     label: "orch close",
-    description:
-      "Fecha a tab de uma tarefa já concluída, falha ou expirada, depois que você validou o resultado. Não apaga relatórios.",
+    description: "Fecha a tab de uma tarefa já concluída, falha ou expirada, depois que o usuário validou o resultado. Não apaga relatórios.",
     parameters: {
       type: "object",
       properties: { task_id: { type: "string" } },
@@ -278,8 +280,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "orch_cancel",
     label: "orch cancel",
-    description:
-      "Cancela uma tarefa ativa fechando somente o pane que o orquestrador criou. Não apaga relatórios nem worktrees.",
+    description: "Cancela uma tarefa ativa fechando somente a tab que o orquestrador criou. Não apaga relatórios.",
     parameters: {
       type: "object",
       properties: { task_id: { type: "string" } },

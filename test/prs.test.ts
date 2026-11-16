@@ -17,16 +17,16 @@ test("parseRedPrs mantém só PRs com check falhando e lista os nomes", () => {
   assert.deepEqual(red[1].failing, ["ci"]);
 });
 
-test("fixInputFor monta intent, spec fixa e modo direct-pr na branch da PR", () => {
+test("fixInputFor monta pedido, objetivo, restrições e modo direct-pr na branch da PR", () => {
   const [pr] = parseRedPrs(sample);
   const input = fixInputFor(pr, "/repo", "claude-bridge/claude-haiku-5-5");
   assert.equal(input.mode, "direct-pr");
   assert.equal(input.branch, "fm/al-issue-63-q1");
   assert.equal(input.model, "claude-bridge/claude-haiku-5-5");
-  assert.match(input.intent, /PR #137/);
-  assert.match(input.intent, /quality/);
-  assert.match(input.spec, /Não atualize baselines/);
-  assert.match(input.spec, /gh pr checks 137/);
+  assert.equal(input.source, pr.url);
+  assert.match(input.request, /PR #137/);
+  assert.match(input.request, /quality/);
+  assert.ok(input.constraints?.some((c) => /baselines/.test(c)));
 });
 
 test("ghEnvFor não usa a credencial pessoal em repositório de outro dono", () => {

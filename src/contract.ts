@@ -7,6 +7,7 @@ export const REPORT_STATUSES = ["done", "blocked", "failed"] as const;
 export type ReportStatus = (typeof REPORT_STATUSES)[number];
 
 export const TASK_STATUSES = [
+  "planned",
   "starting",
   "running",
   "blocked",

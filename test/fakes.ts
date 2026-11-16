@@ -107,6 +107,8 @@ export function makeHarness(): Harness {
     workerExtPath: "/fake/worker-ext.ts",
     now: () => clock.ms,
     newHex: () => (++counter).toString(16).padStart(8, "a"),
+    availableModels: () => ["claude-bridge/claude-haiku-5-5", "openai-codex/gpt-6.1-sol"],
+    dryRun: false,
   });
   return { herdr, orch, stateDir, project, clock };
 }

@@ -103,28 +103,25 @@ export function listRedPrs(repoPath: string, remoteUrl: string): Promise<RedPr[]
   });
 }
 
-/** Input fixo de correção de uma PR: intent com o pedido, spec com os passos, modo direct-pr na branch da PR. */
+/** Input de correção de uma PR: pedido e objetivo montados a partir dos dados da PR, modo direct-pr na branch dela. */
 export function fixInputFor(pr: RedPr, projectPath: string, model?: string): DelegateInput {
-  const repoSlug = pr.url.replace(/^https:\/\/github\.com\//, "").replace(/\/pull\/\d+$/, "");
   return {
     project_path: projectPath,
     role: `fix-pr-${pr.number}`,
-    intent: [
-      `PR #${pr.number} de ${repoSlug}: "${pr.title}" (branch ${pr.headRefName}).`,
-      `Checks vermelhos: ${pr.failing.join(", ")}.`,
-      `URL: ${pr.url}`,
-      "Resolva a causa das falhas para que os checks fiquem verdes. Não é para esconder o erro.",
+    request: [
+      `Corrigir os checks vermelhos da PR #${pr.number} "${pr.title}" (branch ${pr.headRefName}).`,
+      `Checks falhando: ${pr.failing.join(", ")}.`,
+      `Fonte: ${pr.url}`,
     ].join("\n"),
-    spec: [
-      `1. Veja a falha: \`gh pr checks ${pr.number}\` e o log do job que falhou (\`gh run view <run-id> --log-failed\`).`,
-      "2. Reproduza a falha localmente com o mesmo comando do job.",
-      "3. Corrija a causa no código. Não atualize baselines, não desabilite testes nem lint para passar.",
-      "4. Rode o mesmo comando do job e a suíte do projeto até passar.",
-      `5. Commit e push na branch ${pr.headRefName} (é a branch da PR; não abra outra).`,
-      `6. Confirme com \`gh pr checks ${pr.number}\` que os checks ficaram verdes. Se algum falhar por motivo fora do seu código, reporte como blocked com o motivo.`,
-      "7. Use gh com a conta pessoal conforme a skill contas-credenciais: GH_TOKEN só no comando, sem trocar a conta global.",
-    ].join("\n"),
+    objective: `Os checks da PR #${pr.number} ficam verdes, com a causa corrigida no código.`,
     mode: "direct-pr",
+    constraints: [
+      "Não atualize baselines, não desabilite testes nem lint para passar.",
+      `Push somente na branch ${pr.headRefName}; não abra outro PR.`,
+      "Use gh com a conta pessoal conforme a skill contas-credenciais: GH_TOKEN só no comando, sem trocar a conta global.",
+      "Não feche PR e não faça merge.",
+    ],
+    source: pr.url,
     branch: pr.headRefName,
     model,
   };
