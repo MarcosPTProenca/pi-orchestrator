@@ -67,8 +67,12 @@ export interface TaskRecord {
   source?: string | null;
   /** Branch de trabalho pedida. Usada para não lançar duas tarefas ativas na mesma branch. */
   branch?: string | null;
+  /** Verificação determinística da conclusão (ver verify.ts). Separada do relatório do worker. */
+  verification?: { verdict: "approved" | "rejected" | "not_applicable" | "unverified"; reason: string } | null;
   /** Modelo pedido para o worker (ex.: claude-bridge/claude-haiku-5-5). null = padrão do Pi. */
   model: string | null;
+  /** Modo do pedido (report, direct-pr, local-only, design). Define a regra de verificação da conclusão. */
+  mode?: string;
   /** Quantas vezes o brief foi enviado (reenvio se o worker fica ocioso sem relatório). */
   prompt_attempts: number;
   /** true quando o Herdr mostrou o worker trabalhando ao menos uma vez. */

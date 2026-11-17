@@ -217,6 +217,7 @@ export class Orchestrator {
       source: input.source?.trim() || null,
       branch: input.branch?.trim() || null,
       model: model ?? null,
+      mode: input.mode,
       role: input.role,
       worker_id: workerId,
       workspace_id: "",
@@ -393,7 +394,13 @@ export class Orchestrator {
     });
   }
 
-  /** Lembrete enviado ao worker que ficou ocioso: uma linha, sem quebras. */
+  /** Grava o resultado da verificação da conclusão. Não muda o relatório nem o status. */
+  setVerification(taskId: string, v: { verdict: "approved" | "rejected" | "not_applicable" | "unverified"; reason: string }): void {
+    this.update(taskId, (x) => {
+      x.verification = v;
+    });
+  }
+
   /** Reabre o aviso de uma tarefa: volta a ser pendente (usado quando o envio ao orquestrador falha). */
   reopenNotice(taskId: string): void {
     this.update(taskId, (x) => {
