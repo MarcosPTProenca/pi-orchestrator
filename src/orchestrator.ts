@@ -347,6 +347,13 @@ export class Orchestrator {
   }
 
   /** Lembrete enviado ao worker que ficou ocioso: uma linha, sem quebras. */
+  /** Reabre o aviso de uma tarefa: volta a ser pendente (usado quando o envio ao orquestrador falha). */
+  reopenNotice(taskId: string): void {
+    this.update(taskId, (x) => {
+      x.notified = false;
+    });
+  }
+
   /** Devolve o aviso pendente e o marca como entregue. Evita repetir o mesmo evento. */
   takeNotice(taskId: string): boolean {
     const t = this.get(taskId);

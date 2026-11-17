@@ -19,6 +19,7 @@ import { locateProject } from "./locate.ts";
 import { orchestratorAgentName } from "./label.ts";
 import { execFile } from "node:child_process";
 import { Store, defaultStateDir } from "./store.ts";
+import { NoticeBatcher } from "./notices.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -176,6 +177,25 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   let hookHandle: HookHandle | undefined;
 
   /** Entrega o evento ao orquestrador como turno novo. Falha na conferência da PR não pode perder o aviso. */
+  /**
+   * Avisos de worker que chegam juntos viram um turno só. Sem isso, cada conclusão gerava um turno do
+   * orquestrador (e uma releitura do contexto) mesmo quando chegavam com poucos segundos de diferença.
+   */
+  const notices = new NoticeBatcher<{ key: string; text: string; event: WatchEvent }>(
+    Number(process.env.PI_ORCH_NOTICE_WINDOW_MS ?? 5000),
+    (batch) => {
+      pi.sendMessage(
+        { customType: "orch-event", content: batch.map((b) => b.text).join("\n\n---\n\n"), display: false, details: batch.map((b) => b.event) },
+        { triggerTurn: true },
+      );
+    },
+    undefined,
+    3,
+    (item) => {
+      console.error(`pi-orch: aviso ${item.key} não entregue após 3 tentativas`);
+    },
+  );
+
   const announce = async (event: WatchEvent): Promise<void> => {
     let prLine = "";
     if (event.status === "done") {
@@ -193,10 +213,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         }
       }
     }
-    pi.sendMessage(
-      { customType: "orch-event", content: modelMessageFor(event) + prLine, display: false, details: event },
-      { triggerTurn: true },
-    );
+    notices.push({ key: `${event.task_id}:${event.status}`, text: modelMessageFor(event) + prLine, event });
   };
 
   /**
@@ -260,6 +277,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("session_shutdown", () => {
+    // Avisos ainda na janela voltam a ser pendentes: o próximo início os entrega.
+    for (const left of notices.drain()) orch.reopenNotice(left.event.task_id);
     hookHandle?.close();
     hookHandle = undefined;
     if (sweepTimer) clearInterval(sweepTimer);
