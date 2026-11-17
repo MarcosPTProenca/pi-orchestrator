@@ -27,6 +27,8 @@ export interface OrchDeps {
   availableModels: () => string[];
   /** true: valida, monta o brief e registra o plano, sem tocar no Herdr. Usado pelos testes de comportamento. */
   dryRun: boolean;
+  /** Enriquece a entrada com o estado atual da fonte (ex.: PR) no momento do lançamento. */
+  enrichSource?: (input: DelegateInput) => Promise<DelegateInput>;
   /** Escolhe o modelo antes do lançamento: pedido explícito é validado; sem pedido, usa a ordem por cota. */
   chooseModel?: (requested: string | undefined) => Promise<{ model: string | undefined; reason: string }>;
   /** Webhook do orquestrador: o worker faz POST nele ao terminar. Definido quando o servidor sobe. */
@@ -141,7 +143,9 @@ export class Orchestrator {
     buildIntake({ ...input, model: input.model });
   }
 
-  async delegate(input: DelegateInput): Promise<TaskRecord> {
+  async delegate(rawInput: DelegateInput): Promise<TaskRecord> {
+    // Estado da fonte lido agora, não na listagem de minutos atrás.
+    const input = this.d.enrichSource ? await this.d.enrichSource(rawInput) : rawInput;
     // Tudo que pode falhar acontece antes de qualquer efeito: nenhum worker é lançado com entrada inválida.
     const model = this.d.chooseModel
       ? (await this.d.chooseModel(input.model)).model

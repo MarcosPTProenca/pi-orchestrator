@@ -431,3 +431,24 @@ test("ao abrir a sessão só avisa o que é novo: bloqueio já anunciado não vo
   assert.equal((await h.orch.pendingNotices()).length, 0, "não reanuncia na próxima abertura");
   assert.equal(h.orch.get(t.task_id).status, "blocked", "continua bloqueado até resposta");
 });
+
+test("brief de PR: primeiro consultar o estado de merge e resolver conflito antes de editar", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "fix", request: "PR 136", objective: "checks verdes", mode: "direct-pr", source: "https://github.com/o/r/pull/136", branch: "fm/x" });
+  const brief = readFileSync(t.brief_path, "utf8");
+  assert.match(brief, /3\. Antes de editar, consulte o estado de merge da PR/);
+  assert.match(brief, /resolva o conflito no branch da PR primeiro/);
+});
+
+test("enrichSource lê o estado da PR no lançamento (não na listagem)", async () => {
+  const h = makeHarness();
+  const { Orchestrator } = await import("../src/orchestrator.ts");
+  const { Store } = await import("../src/store.ts");
+  const orch = new Orchestrator({
+    herdr: h.herdr, store: new Store(join(h.stateDir, "e.json")), tasksDir: join(h.stateDir, "e-tasks"),
+    workerExtPath: "/x", now: () => h.clock.ms, newHex: () => "fefefefe", availableModels: () => [], dryRun: false,
+    enrichSource: async (i) => ({ ...i, constraints: [...(i.constraints ?? []), "PR com conflito agora"] }),
+  });
+  const t = await orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  assert.match(readFileSync(t.brief_path, "utf8"), /PR com conflito agora/);
+});

@@ -13,7 +13,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { HerdrCli } from "./herdr.ts";
 import { availableModels, resolveModel } from "./models.ts";
 import { Orchestrator, MODES, type DelegateInput, type WatchEvent } from "./orchestrator.ts";
-import { fixInputFor, listRedPrs, prFromUrl, fetchPrState, verificationLine } from "./prs.ts";
+import { fixInputFor, listRedPrs, prFromUrl, fetchPrState, verificationLine, prStateLine } from "./prs.ts";
 import { FixQueue } from "./queue.ts";
 import { locateProject } from "./locate.ts";
 import { orchestratorAgentName } from "./label.ts";
@@ -146,6 +146,25 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     availableModels,
     dryRun,
     chooseModel,
+    enrichSource: async (input: DelegateInput) => {
+      const pr = input.source ? prFromUrl(input.source) : null;
+      if (!pr) return input;
+      try {
+        const remote = execFileSync("git", ["remote", "get-url", "origin"], { cwd: input.project_path, encoding: "utf8" }).trim();
+        const state = await fetchPrState(remote, pr.number, pr.owner, pr.name, input.project_path);
+        const conflict = state.mergeStateStatus === "DIRTY" || state.mergeable === "CONFLICTING";
+        const note = `${prStateLine(state)} Consultado agora, no lançamento.`;
+        return {
+          ...input,
+          constraints: [...(input.constraints ?? []), note, ...(conflict ? [`A PR está com conflito com a base agora: resolva o conflito no branch da PR antes de corrigir os checks.`] : [])],
+        };
+      } catch (e) {
+        return {
+          ...input,
+          constraints: [...(input.constraints ?? []), `Não consegui consultar o estado da PR agora (${String(e).slice(0, 160)}). Consulte o estado de merge antes de editar.`],
+        };
+      }
+    },
     onTerminal: (taskId: string) => {
       void fixQueue?.settle(taskId);
     },
