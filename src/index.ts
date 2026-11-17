@@ -23,6 +23,7 @@ import { execFile } from "node:child_process";
 import { Store, defaultStateDir } from "./store.ts";
 import { NoticeBatcher } from "./notices.ts";
 import { notificationFor, notifyArgs, notifyEnabled } from "./notify.ts";
+import { buildStatus } from "./status.ts";
 import { capError, maxActiveFrom } from "./cap.ts";
 import { isActive } from "./contract.ts";
 import { orphanLeases, releaseLease, type WorktreeOps } from "./worktrees.ts";
@@ -475,21 +476,23 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "orch_status",
     label: "orch status",
-    description: "Lista as tarefas e seus estados a partir do estado local. Não consome LLM nem consulta workers.",
-    parameters: { type: "object", properties: {}, additionalProperties: false },
-    async execute() {
+    description:
+      "Tarefas agrupadas por projeto, com idade, resumo curto, artefatos e verificação. Canceladas e terminais antigas (mais de 24 h) ficam de fora; all=true mostra todas. Não altera estado e não consome LLM.",
+    parameters: {
+      type: "object",
+      properties: { all: { type: "boolean", description: "Incluir canceladas e terminais antigas." } },
+      additionalProperties: false,
+    },
+    async execute(_id: string, params: { all?: boolean }) {
       if (owner) await orch.refreshAll();
+      const groups = buildStatus(orch.list(), Date.now(), {
+        all: params.all === true,
+        oldHours: Number(process.env.PI_ORCH_OLD_HOURS) || undefined,
+      });
       return asText(
-        orch.list().map((t) => ({
-          task_id: t.task_id,
-          project_id: t.project_id,
-          role: t.role,
-          status: t.status,
-          model: t.model,
-          pane_id: t.pane_id,
-          question: t.question,
-          deadline_at: formatBrasilia(t.deadline_at),
-          verification: t.verification ?? null,
+        groups.map((g) => ({
+          project_id: g.project_id,
+          tasks: g.tasks.map((r) => ({ ...r, deadline_at: formatBrasilia(r.deadline_at) })),
         })),
       );
     },
