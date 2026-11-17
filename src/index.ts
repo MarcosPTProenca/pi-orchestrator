@@ -197,7 +197,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     }
     await orch.reconcile();
     // Resultados que chegaram com o orquestrador fechado ficam pendentes: avisa ao abrir, um turno só se houver algo.
-    const pending = await orch.inbox();
+    const pending = await orch.pendingNotices();
     if (pending.length > 0) {
       pi.sendMessage(
         {

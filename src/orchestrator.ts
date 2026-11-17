@@ -358,6 +358,22 @@ export class Orchestrator {
     return items;
   }
 
+  /**
+   * Avisos que ainda não foram entregues: decisões (blocked) e terminais. Ao devolver, marca como entregues.
+   * Usado ao abrir a sessão, para não reanunciar bloqueios que já foram avisados.
+   */
+  async pendingNotices(): Promise<WatchEvent[]> {
+    await this.refreshAll();
+    const out: WatchEvent[] = [];
+    for (const t of this.list()) {
+      const pending = !t.notified && (t.status === "blocked" || (!isActive(t.status) && t.status !== "cancelled"));
+      if (!pending) continue;
+      out.push(this.toEvent(t));
+      this.takeNotice(t.task_id);
+    }
+    return out;
+  }
+
   async answer(taskId: string, text: string): Promise<TaskRecord> {
     const t = this.get(taskId);
     if (t.status !== "blocked") throw new Error(`tarefa ${taskId} não está bloqueada (status: ${t.status})`);

@@ -421,3 +421,13 @@ test("onTerminal avisa a fila quando a tarefa termina", async () => {
   await orch.refresh(t.task_id);
   assert.deepEqual(seen, [t.task_id]);
 });
+
+test("ao abrir a sessão só avisa o que é novo: bloqueio já anunciado não volta", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  writeReport(t.task_dir, t.task_id, { status: "blocked", question: "Qual caminho?" }, "1");
+  await h.orch.refresh(t.task_id);
+  assert.equal((await h.orch.pendingNotices()).length, 1, "bloqueio novo é avisado");
+  assert.equal((await h.orch.pendingNotices()).length, 0, "não reanuncia na próxima abertura");
+  assert.equal(h.orch.get(t.task_id).status, "blocked", "continua bloqueado até resposta");
+});
