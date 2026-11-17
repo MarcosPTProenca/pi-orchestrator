@@ -4,6 +4,8 @@
 export class FixQueue<T> {
   private concurrency: number;
   private readonly onFailed: (f: { item: T; error: string; attempts: number }) => void;
+  /** Só inicia quando há vaga global (teto de workers). Sem isso, a fila respeita só o próprio limite. */
+  private readonly canStart: () => boolean;
   private readonly start: (item: T) => Promise<string>;
   private pending: T[] = [];
   private running = new Set<string>();
@@ -15,7 +17,7 @@ export class FixQueue<T> {
   constructor(
     concurrency: number,
     start: (item: T) => Promise<string>,
-    opts: { maxAttempts?: number; keyOf?: (item: T) => string; onFailed?: (f: { item: T; error: string; attempts: number }) => void } = {},
+    opts: { maxAttempts?: number; keyOf?: (item: T) => string; onFailed?: (f: { item: T; error: string; attempts: number }) => void; canStart?: () => boolean } = {},
   ) {
     if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error("concurrency deve ser inteiro >= 1");
     this.concurrency = concurrency;
@@ -23,6 +25,7 @@ export class FixQueue<T> {
     this.maxAttempts = opts.maxAttempts ?? 2;
     this.keyOf = opts.keyOf ?? ((item) => JSON.stringify(item));
     this.onFailed = opts.onFailed ?? (() => undefined);
+    this.canStart = opts.canStart ?? (() => true);
   }
 
   enqueue(items: T[]): Promise<void> {
@@ -32,7 +35,7 @@ export class FixQueue<T> {
 
   /** Inicia itens até lotar a concorrência. Falha de início vai para `failed` e não trava a fila. */
   async pump(): Promise<void> {
-    while (this.running.size < this.concurrency && this.pending.length > 0) {
+    while (this.running.size < this.concurrency && this.pending.length > 0 && this.canStart()) {
       const item = this.pending.shift() as T;
       const key = this.keyOf(item);
       const n = (this.attempts.get(key) ?? 0) + 1;
