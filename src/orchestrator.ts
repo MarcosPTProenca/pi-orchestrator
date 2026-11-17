@@ -416,7 +416,7 @@ export class Orchestrator {
       if (!u || typeof u.totalTokens !== "number") return;
       const next = { input: u.input ?? 0, output: u.output ?? 0, cacheRead: u.cacheRead ?? 0, cacheWrite: u.cacheWrite ?? 0, totalTokens: u.totalTokens };
       const cur = this.get(taskId).usage;
-      if (cur && cur.totalTokens === next.totalTokens && cur.input === next.input) return;
+      if (cur && JSON.stringify(cur) === JSON.stringify(next)) return;
       this.update(taskId, (x) => {
         x.usage = next;
       });
