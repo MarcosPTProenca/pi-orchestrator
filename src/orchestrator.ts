@@ -3,7 +3,7 @@
  * e reconciliação. Não chama LLM. Recebe o Herdr e o estado por injeção.
  */
 import { resolveModel } from "./models.ts";
-import { workerAgentName } from "./label.ts";
+import { workerAgentName, workerTabName } from "./label.ts";
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join } from "node:path";
 import { clampLines, maskSecrets } from "./logs.ts";
@@ -256,7 +256,7 @@ export class Orchestrator {
       const tab = await this.d.herdr.createTab({
         workspaceId: ws.workspace_id,
         cwd: input.project_path,
-        label: `${input.role}-${taskId.slice(-6)}`,
+        label: workerTabName(input.role, taskId.slice(2)),
         env: {
           PI_ORCH_ROLE: "worker",
           PI_ORCH_TASK_ID: taskId,

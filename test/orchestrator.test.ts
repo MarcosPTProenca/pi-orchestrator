@@ -332,6 +332,14 @@ test("worker recebe nome visível worker-<projeto>-<id>", async () => {
   assert.match(name, /^worker-/);
 });
 
+test("tab do worker tem prefixo worker-, role legível e o mesmo id do pane", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  const tabLabel = (h.herdr.opsOf("createTab")[0].args as { label: string }).label;
+  assert.match(tabLabel, /^worker-a-/);
+  assert.ok(t.worker_id.endsWith(tabLabel.slice(-6)), `tab ${tabLabel} vs pane ${t.worker_id}`);
+});
+
 test("modo design: fluxo grill/plan/spec/tickets, oracle com regra de fatias verticais, tracker no brief", async () => {
   const h = makeHarness();
   const t = await h.orch.delegate({ project_path: h.project, role: "design", request: "Quero o módulo de simulação", objective: "Issues prontas para implementação", mode: "design", tracker: "plane" });
