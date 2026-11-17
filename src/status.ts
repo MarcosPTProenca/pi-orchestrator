@@ -33,6 +33,8 @@ export interface StatusRow {
   verification: TaskRecord["verification"];
   model: string | null;
   deadline_at: string | null;
+  /** Total de tokens do worker, quando já foi medido. */
+  tokens: number | null;
 }
 
 export interface StatusGroup {
@@ -62,6 +64,7 @@ export function buildStatus(tasks: TaskRecord[], now: number, opts: StatusOption
       verification: t.verification ?? null,
       model: t.model,
       deadline_at: t.deadline_at,
+      tokens: t.usage?.totalTokens ?? null,
     };
     const list = byProject.get(t.project_id) ?? [];
     list.push(row);

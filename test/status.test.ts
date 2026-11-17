@@ -40,3 +40,11 @@ test("tarefa ativa nunca some, mesmo antiga", () => {
   const out = buildStatus([ativa], NOW, {});
   assert.equal(out[0].tasks[0].question, "A ou B?");
 });
+
+test("orch_status mostra o total de tokens quando medido, senão null", () => {
+  const withUsage = t({ task_id: "t-u", status: "done", updated_at: "2026-11-17T11:50:00Z", usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 10 } });
+  const without = t({ task_id: "t-n", status: "running" });
+  const rows = buildStatus([withUsage, without], NOW, {}).flatMap((g) => g.tasks);
+  assert.equal(rows.find((r) => r.task_id === "t-u")?.tokens, 10);
+  assert.equal(rows.find((r) => r.task_id === "t-n")?.tokens, null);
+});
