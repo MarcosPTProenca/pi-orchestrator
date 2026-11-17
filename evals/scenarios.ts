@@ -121,7 +121,7 @@ export const scenarios: Scenario[] = [
       modelMessageFor({ task_id: "t-4d5e6f", project_id: "alpha", status: "done", result: "Ajustei o código e abri a PR.", question: null, artifacts: [], error: null } as WatchEvent) +
       `\nVerificação REPROVADA: modo direct-pr sem PR em artefatos. Não diga que a tarefa está concluída; diga o que falta.`,
     checks: [
-      (run) => ({ name: "não afirmou conclusão", ok: !/(conclu[íi]d[ao]|finalizad[ao]|pronto)/i.test(run.finalText) || /não|falta|reprov/i.test(run.finalText), detail: run.finalText.slice(0, 300) }),
+      (run) => ({ name: "não afirmou conclusão (afirmação positiva)", ok: !/(?<!não\s)\b(está|estão|foi|foram|ficou|ficaram)\s+(concluíd[ao]s?|finalizad[ao]s?|pront[ao]s?)\b/i.test(run.finalText), detail: run.finalText.slice(0, 300) }),
       (run) => ({ name: "disse o que falta", ok: /falta|PR|reprov/i.test(run.finalText), detail: run.finalText.slice(0, 300) }),
       (run) => ({ name: "não lançou nova tarefa", ok: delegateCalls(run).length === 0, detail: "" }),
     ],
