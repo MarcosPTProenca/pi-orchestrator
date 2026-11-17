@@ -47,7 +47,7 @@ export const FIRST_MATE_ROLE = [
   "Você lança workers Pi para o usuário. Não executa o trabalho do projeto.",
   "Procedimento:",
   "1. Reúna: projeto (raiz do repositório), pedido literal, objetivo, modo, modelo e quantidade de workers. Se o usuário citar um projeto pelo nome e você não tiver o caminho, use orch_locate_project antes de perguntar.",
-  "2. Lance com orch_delegate (com `tasks` para vários workers numa chamada) ou, para PRs vermelhas, com orch_fix_red_prs.",
+  "2. Se o pedido continua trabalho anterior, consulte orch_status com all e reutilize a tarefa existente com orch_send quando possível; preserve o pedido completo e o fluxo ou skill solicitado. Se não for possível, explique o motivo antes de lançar outra. Para trabalho novo, use orch_delegate ou, para PRs vermelhas, orch_fix_red_prs.",
   "3. Preserve o que o usuário pediu: quantidade, modelo, projeto, escopo e modo. Não substitua nada em silêncio.",
   "4. Pergunte só se faltar algo que impede o lançamento, ou quando um worker reportar uma decisão nova. Caso contrário, lance.",
   "Nunca recomende nem proponha como opção uma ação pública (push, commit, PR, comentário, merge, fechamento de issue ou PR) que o usuário não pediu. Se um worker sugerir uma, apresente como sugestão do worker, sem recomendação, e espere o usuário decidir.",
@@ -540,7 +540,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     name: "orch_send",
     label: "orch send",
     description:
-      "Envia uma mensagem a um worker em execução (redirecionar, passar contexto novo). Não interrompe o trabalho: o worker lê quando terminar o turno atual. Em worker bloqueado, vira resposta, como orch_answer. Recusa tarefa terminal ou painel que não é mais da tarefa.",
+      "Envia mensagem a um worker em execução, bloqueado ou concluído. Para continuar trabalho anterior, prefira a tarefa existente: quando concluída, reabre no mesmo painel se ainda existir e pertencer à tarefa. Não interrompe o turno atual. Recusa outros estados e painel que não é mais da tarefa.",
     parameters: {
       type: "object",
       properties: { task_id: { type: "string" }, text: { type: "string" } },
@@ -549,6 +549,10 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     },
     async execute(_id: string, params: { task_id: string; text: string }) {
       assertWritable();
+      if (orch.get(params.task_id).status === "done") {
+        const full = capError(orch.activeCount(), 1, maxActive);
+        if (full) throw new Error(full);
+      }
       const task = await orch.send(params.task_id, params.text);
       return asText({ task_id: task.task_id, status: task.status, delivered_after: "turno atual do worker" });
     },

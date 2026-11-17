@@ -4,7 +4,7 @@
  */
 import { resolveModel } from "./models.ts";
 import { workerAgentName } from "./label.ts";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join } from "node:path";
 import { clampLines, maskSecrets } from "./logs.ts";
 import { classifyFailure } from "./failure.ts";
@@ -538,13 +538,30 @@ export class Orchestrator {
    */
   async send(taskId: string, text: string): Promise<TaskRecord> {
     const t = this.get(taskId);
-    if (t.status !== "running" && t.status !== "blocked") throw new Error(`tarefa ${taskId} não aceita mensagem (status: ${t.status})`);
+    if (t.status !== "running" && t.status !== "blocked" && t.status !== "done") throw new Error(`tarefa ${taskId} não aceita mensagem (status: ${t.status})`);
     if (text.trim() === "") throw new Error("mensagem vazia");
     // Mesma checagem de dono para os dois estados, antes de qualquer envio.
     const owner = await this.ownership(t);
     if (owner === "missing") throw new Error("o painel da tarefa não existe mais; nada foi enviado");
     if (owner === "mismatch") throw new Error("o painel trocou de agente; nada foi enviado");
     if (t.status === "blocked") return this.answer(taskId, text);
+    if (t.status === "done") {
+      const pane = (await this.d.herdr.panes()).find((p) => p.pane_id === t.pane_id && p.terminal_id === t.terminal_id);
+      if (!pane || pane.agent !== "pi" || pane.agent_status !== "idle") throw new Error("o worker não está disponível e ocioso; nada foi enviado");
+      if (t.delegate_input) this.assertNotActive(t.delegate_input as unknown as DelegateInput);
+      const report = this.reportPath(t);
+      const previous = join(t.task_dir, `report-${this.d.newHex()}.json`);
+      if (existsSync(report)) renameSync(report, previous);
+      this.update(taskId, (x) => { x.status = "running"; x.notified = true; x.question = null; });
+      try {
+        await this.d.herdr.prompt(t.pane_id, text);
+      } catch (err) {
+        if (existsSync(previous) && !existsSync(report)) renameSync(previous, report);
+        this.update(taskId, (x) => { x.status = "done"; x.notified = t.notified; });
+        throw err;
+      }
+      return this.get(taskId);
+    }
     await this.d.herdr.prompt(t.pane_id, text);
     return t;
   }
