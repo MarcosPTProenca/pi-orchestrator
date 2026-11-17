@@ -4,11 +4,20 @@
  */
 import { basename } from "node:path";
 
-/** Nome visível do worker: worker-<projeto>-<id curto>, no padrão aceito pelo Herdr (≤32 caracteres). */
+/** Nome visível do worker (pane): worker-<projeto>-<id curto>, no padrão aceito pelo Herdr (≤32 caracteres). */
 export function workerAgentName(projectPath: string, taskSuffix: string): string {
   const folder = slug(basename(projectPath), 14) || "projeto";
-  const id = taskSuffix.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 6) || "x";
-  return `worker-${folder}-${id}`;
+  return `worker-${folder}-${shortTaskId(taskSuffix)}`;
+}
+
+/** Nome da tab do worker: worker-<role>-<id curto>. Usa o mesmo id do pane, para casar os dois no painel. */
+export function workerTabName(role: string, taskSuffix: string): string {
+  const roleSlug = slug(role, 16) || "tarefa";
+  return `worker-${roleSlug}-${shortTaskId(taskSuffix)}`;
+}
+
+function shortTaskId(taskSuffix: string): string {
+  return taskSuffix.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 6) || "x";
 }
 
 function slug(text: string, max: number): string {
