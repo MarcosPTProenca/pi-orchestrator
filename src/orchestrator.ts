@@ -487,12 +487,12 @@ export class Orchestrator {
       throw new Error(`pane ${t.pane_id} não corresponde mais à tarefa ${taskId}; nada foi encerrado`);
     }
     if (owner === "owned") await this.d.herdr.closeTab(t.tab_id);
-    const cancelled = this.update(taskId, (x) => {
+    this.update(taskId, (x) => {
       x.status = "cancelled";
       x.notified = true;
     });
     this.noteWorktree(taskId);
-    return this.get(taskId) ?? cancelled;
+    return this.get(taskId);
   }
 
   /** Tenta devolver a worktree da tarefa e grava a nota. Nunca lança. */

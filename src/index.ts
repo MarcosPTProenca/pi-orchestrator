@@ -22,6 +22,7 @@ import { Store, defaultStateDir } from "./store.ts";
 import { NoticeBatcher } from "./notices.ts";
 import { isActive } from "./contract.ts";
 import { orphanLeases, releaseLease, type WorktreeOps } from "./worktrees.ts";
+import { acquireOwnership, releaseOwnership } from "./lock.ts";
 
 /** Treehouse real: `treehouse status` no repositório, `git` na worktree e `treehouse return` sem --force. */
 const treehouseOps: WorktreeOps = {
@@ -31,7 +32,6 @@ const treehouseOps: WorktreeOps = {
     execFileSync("treehouse", ["return", path], { encoding: "utf8", timeout: 60_000 });
   },
 };
-import { acquireOwnership, releaseOwnership } from "./lock.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
