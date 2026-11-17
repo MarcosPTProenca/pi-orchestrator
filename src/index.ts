@@ -23,6 +23,7 @@ import { execFile } from "node:child_process";
 import { Store, defaultStateDir } from "./store.ts";
 import { NoticeBatcher } from "./notices.ts";
 import { notificationFor, notifyArgs, notifyEnabled } from "./notify.ts";
+import { capError, maxActiveFrom } from "./cap.ts";
 import { isActive } from "./contract.ts";
 import { orphanLeases, releaseLease, type WorktreeOps } from "./worktrees.ts";
 import { acquireOwnership, releaseOwnership } from "./lock.ts";
@@ -131,6 +132,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   const stateDir = defaultStateDir();
   const dryRun = process.env.PI_ORCH_DRY_RUN === "1";
   let quotaCache: { at: number; quotas: ProviderQuota[] } | undefined;
+  /** Teto global de workers ativos, somando orch_delegate e orch_fix_red_prs. */
+  const maxActive = maxActiveFrom(process.env.PI_ORCH_MAX_ACTIVE);
   // Dona do estado. Simulação (dryRun) não grava no Herdr nem disputa o diretório, então é sempre dona.
   let owner = dryRun;
   let ownerPid: number | undefined;
@@ -190,7 +193,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       }
     },
     onTerminal: (taskId: string) => {
-      void fixQueue?.settle(taskId);
+      // Qualquer tarefa terminal libera vaga do teto, inclusive as que não vieram da fila.
+      void fixQueue?.settle(taskId).then(() => fixQueue?.pump());
     },
   });
 
@@ -374,6 +378,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         input.model = choice.model;
         choices.push(choice.reason);
       }
+      const full = capError(orch.activeCount(), inputs.length, maxActive);
+      if (full) throw new Error(full);
       orch.checkBatch(inputs);
       const started = [];
       // Sequencial de propósito: a criação do workspace do projeto não pode correr em paralelo.
@@ -418,6 +424,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       const concurrency = Math.min(Math.max(params.concurrency ?? 2, 1), 4);
       if (!fixQueue) {
         fixQueue = new FixQueue<DelegateInput>(concurrency, startTask, {
+          canStart: () => orch.activeCount() < maxActive,
           onFailed: (f) => {
             pi.sendMessage(
               { customType: "orch-event", content: `Fila de PRs: não consegui iniciar a correção de ${f.item.role} após ${f.attempts} tentativas. Erro: ${f.error.slice(0, 300)}`, display: true },
@@ -440,6 +447,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         skipped_already_active: skipped,
         running_task_ids: fixQueue.runningIds,
         queued: fixQueue.pendingCount,
+        max_active_workers: maxActive,
+        active_workers_now: orch.activeCount(),
         failed_to_start: fixQueue.failedSince(failedMark).map((f) => ({ pr: f.item.role, error: f.error })),
       });
     },
@@ -578,7 +587,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     async execute(_id: string, params: { task_id: string }) {
       assertWritable();
       const task = await orch.cancel(params.task_id);
-      void fixQueue?.settle(params.task_id);
+      void fixQueue?.settle(params.task_id).then(() => fixQueue?.pump());
       return asText({ task_id: task.task_id, status: task.status });
     },
   });

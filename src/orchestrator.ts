@@ -114,6 +114,11 @@ export class Orchestrator {
     return t;
   }
 
+  /** Quantas tarefas ocupam vaga agora (starting, running, blocked). */
+  activeCount(): number {
+    return this.list().filter((t) => isActive(t.status)).length;
+  }
+
   list(): TaskRecord[] {
     return Object.values(this.d.store.load().tasks).sort((a, b) => a.created_at.localeCompare(b.created_at));
   }
