@@ -61,6 +61,7 @@ uma vez no fim, com `done`, `failed` ou `blocked`.
   Um worker que falhou por erro transitório do modelo e seguiu depois não fica preso em `failed`.
 - **Worktrees:** ao cancelar ou perder uma tarefa, a worktree arrendada por ela volta ao pool só se a árvore estiver limpa e o HEAD existir em algum remoto. Caso contrário fica no lugar, e a nota diz o caminho e o motivo (`worktree_note`). Nunca usa `--force`. Ao abrir, lista as worktrees que ainda estão arrendadas por tarefas terminais, sem devolver nada.
 - **Conclusão verificada:** o relatório `done` do worker é conferido sem LLM antes de ser apresentado como concluído. `direct-pr`: precisa de PR em `artifacts`, verificada no GitHub (mergeável, checks verdes). `local-only`: precisa de SHA de commit que existe no repositório. `report`: artefatos com caminho absoluto têm de existir. O resultado fica em `verification` (aprovada, reprovada, não aplicável ou não verificada), separado do relatório. Falha ao conferir nunca vira aprovada.
+- **Notificação do Herdr:** bloqueio, conclusão e falha disparam `herdr notification show`, uma vez por evento. `PI_ORCH_NOTIFY=0` desliga. Falha ao notificar não afeta o orquestrador.
 - **Prazo:** só existe se você passar `timeout_minutes`; ao vencer, a tarefa vira `timeout` e o worker segue rodando.
 - **Lançamento:** assíncrono. O comando `pi` é digitado no pane e o orquestrador segue sem esperar o agente subir.
 - **Dono:** o orquestrador só fecha panes cujo `pane_id` e `terminal_id` batem com o
