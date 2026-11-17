@@ -479,6 +479,22 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
+    name: "orch_logs",
+    label: "orch logs",
+    description:
+      "Mostra as últimas linhas do terminal de um worker (padrão 40, máximo 200), para acompanhar sem abrir a tab. Só lê se o painel ainda for da tarefa. Não consome LLM e não altera o estado.",
+    parameters: {
+      type: "object",
+      properties: { task_id: { type: "string" }, lines: { type: "number", description: "Linhas, de 1 a 200. Padrão 40." } },
+      required: ["task_id"],
+      additionalProperties: false,
+    },
+    async execute(_id: string, params: { task_id: string; lines?: number }) {
+      return asText({ task_id: params.task_id, text: await orch.logs(params.task_id, params.lines) });
+    },
+  });
+
+  pi.registerTool({
     name: "orch_answer",
     label: "orch answer",
     description: "Envia a resposta do usuário a uma tarefa bloqueada. O worker recebe como nova mensagem e continua.",
