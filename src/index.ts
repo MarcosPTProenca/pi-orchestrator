@@ -307,7 +307,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         input.model = choice.model;
         choices.push(choice.reason);
       }
-      for (const input of inputs) orch.checkDelegate(input);
+      orch.checkBatch(inputs);
       const started = [];
       // Sequencial de propósito: a criação do workspace do projeto não pode correr em paralelo.
       for (const input of inputs) {
@@ -350,10 +350,14 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       const concurrency = params.concurrency ?? 2;
       if (!fixQueue) fixQueue = new FixQueue<DelegateInput>(Math.min(Math.max(concurrency, 1), 4), startTask);
       const inputs = prs.map((pr) => fixInputFor(pr, params.repo_path, params.model));
-      for (const input of inputs) orch.checkDelegate(input);
-      await fixQueue.enqueue(inputs);
+      const fresh = inputs.filter((input) => {
+        try { orch.checkDelegate(input); return true; } catch { return false; }
+      });
+      const skipped = inputs.length - fresh.length;
+      await fixQueue.enqueue(fresh);
       return asText({
         red_prs: prs.map((pr) => ({ number: pr.number, title: pr.title, branch: pr.headRefName, failing: pr.failing })),
+        skipped_already_active: skipped,
         running_task_ids: fixQueue.runningIds,
         queued: fixQueue.pendingCount,
         failed_to_start: fixQueue.failed.map((f) => ({ pr: f.item.role, error: f.error })),

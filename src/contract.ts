@@ -61,6 +61,10 @@ export interface TaskRecord {
   /** false quando há um aviso ainda não entregue ao usuário. */
   notified: boolean;
   error: string | null;
+  /** Fonte da tarefa (URL de PR ou issue). Usada para não lançar duas tarefas ativas para a mesma PR. */
+  source?: string | null;
+  /** Branch de trabalho pedida. Usada para não lançar duas tarefas ativas na mesma branch. */
+  branch?: string | null;
   /** Modelo pedido para o worker (ex.: claude-bridge/claude-haiku-5-5). null = padrão do Pi. */
   model: string | null;
   /** Quantas vezes o brief foi enviado (reenvio se o worker fica ocioso sem relatório). */

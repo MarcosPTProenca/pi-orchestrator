@@ -520,3 +520,38 @@ test("brief de modo design: a instrução de oracle e o que o worker pode usar n
   assert.match(brief, /subagent `oracle`/);
   assert.doesNotMatch(brief, /não delegue/);
 });
+
+const PR = "https://github.com/o/r/pull/9";
+
+test("não lança segundo worker para a mesma PR enquanto a primeira está ativa", async () => {
+  const h = makeHarness();
+  const a = await h.orch.delegate({ project_path: h.project, role: "fix-pr-9", request: "x", objective: "y", mode: "direct-pr", source: PR });
+  assert.throws(() => h.orch.checkDelegate({ project_path: h.project, role: "fix-pr-9", request: "x", objective: "y", mode: "direct-pr", source: PR }), new RegExp(a.task_id));
+  await assert.rejects(h.orch.delegate({ project_path: h.project, role: "fix-pr-9", request: "x", objective: "y", mode: "direct-pr", source: PR }), new RegExp(a.task_id));
+  assert.equal(h.herdr.opsOf("createTab").length, 1, "nenhum segundo pane criado");
+});
+
+test("mesma branch no mesmo projeto também bloqueia; outro projeto não", async () => {
+  const h = makeHarness();
+  await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "local-only", branch: "fm/x" });
+  assert.throws(() => h.orch.checkDelegate({ project_path: h.project, role: "b", request: "x", objective: "y", mode: "local-only", branch: "fm/x" }), /fm\/x/);
+  const other = h.project + "-outro";
+  mkdirSync(join(other, ".git"), { recursive: true });
+  assert.doesNotThrow(() => h.orch.checkDelegate({ project_path: other, role: "b", request: "x", objective: "y", mode: "local-only", branch: "fm/x" }));
+});
+
+test("lote com o mesmo item duas vezes é recusado inteiro, antes de lançar", async () => {
+  const h = makeHarness();
+  const item = { project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" as const, source: PR };
+  assert.throws(() => h.orch.checkBatch([item, { ...item, role: "b" }]), /mesma PR/);
+  assert.equal(h.orch.list().length, 0);
+});
+
+test("tarefa terminal ou cancelada não bloqueia novo lançamento para a mesma PR", async () => {
+  const h = makeHarness();
+  const a = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "direct-pr", source: PR });
+  writeReport(a.task_dir, a.task_id, { status: "failed", result: "não deu" });
+  await h.orch.refresh(a.task_id);
+  assert.doesNotThrow(() => h.orch.checkDelegate({ project_path: h.project, role: "b", request: "x", objective: "y", mode: "direct-pr", source: PR }));
+  await h.orch.cancel(a.task_id).catch(() => undefined);
+});
