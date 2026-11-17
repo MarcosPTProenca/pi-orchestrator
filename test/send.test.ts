@@ -48,3 +48,14 @@ test("worker bloqueado: envio vira resposta (reabre a tarefa)", async () => {
   assert.equal(h.orch.get(t.task_id).status, "running");
   assert.equal(h.herdr.opsOf("prompt")[0].args && (h.herdr.opsOf("prompt")[0].args as { text: string }).text, "use A");
 });
+
+test("worker bloqueado com painel trocado: recusa e não envia (mesma checagem de dono)", async () => {
+  const h = makeHarness();
+  const t = await running(h);
+  writeReport(t.task_dir, t.task_id, { status: "blocked", question: "A ou B?" }, "1");
+  await h.orch.refresh(t.task_id);
+  h.herdr.panesList = h.herdr.panesList.map((p) => (p.pane_id === t.pane_id ? { ...p, terminal_id: "outro" } : p));
+  await assert.rejects(h.orch.send(t.task_id, "use A"), /trocou de agente/);
+  assert.equal(h.herdr.opsOf("prompt").length, 0);
+  assert.equal(h.orch.get(t.task_id).status, "blocked");
+});
