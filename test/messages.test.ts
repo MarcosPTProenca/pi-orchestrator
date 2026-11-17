@@ -88,3 +88,8 @@ test("prazo explícito: refresh marca timeout quando o usuário pediu", async ()
   assert.equal(ev?.status, "timeout");
   assert.match(ev?.error ?? "", /prazo definido por você/);
 });
+
+test("papel proíbe recomendar ação pública que o usuário não pediu", () => {
+  assert.match(FIRST_MATE_ROLE, /Nunca recomende nem proponha como opção uma ação pública/);
+  assert.match(FIRST_MATE_ROLE, /quando um worker reportar uma decisão nova/);
+});
