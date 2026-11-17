@@ -409,8 +409,20 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       const remote = execFileSync("git", ["remote", "get-url", "origin"], { cwd: params.repo_path, encoding: "utf8" }).trim();
       const prs = await listRedPrs(params.repo_path, remote);
       if (prs.length === 0) return asText({ red_prs: 0, message: "nenhuma PR aberta com check vermelho" });
-      const concurrency = params.concurrency ?? 2;
-      if (!fixQueue) fixQueue = new FixQueue<DelegateInput>(Math.min(Math.max(concurrency, 1), 4), startTask);
+      const concurrency = Math.min(Math.max(params.concurrency ?? 2, 1), 4);
+      if (!fixQueue) {
+        fixQueue = new FixQueue<DelegateInput>(concurrency, startTask, {
+          onFailed: (f) => {
+            pi.sendMessage(
+              { customType: "orch-event", content: `Fila de PRs: não consegui iniciar a correção de ${f.item.role} após ${f.attempts} tentativas. Erro: ${f.error.slice(0, 300)}`, display: true },
+              { triggerTurn: true },
+            );
+          },
+        });
+      } else if (params.concurrency !== undefined) {
+        // Chamada seguinte: o concurrency pedido vale (antes era ignorado em silêncio).
+        await fixQueue.setConcurrency(concurrency);
+      }
       const inputs = prs.map((pr) => fixInputFor(pr, params.repo_path, params.model));
       // Pula só as PRs com tarefa ativa; outros erros de validação seguem para enqueue e aparecem em failed_to_start.
       const fresh = inputs.filter((input) => !orch.activeConflict(input));
