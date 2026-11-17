@@ -237,8 +237,6 @@ export class Orchestrator {
       last_report_key: null,
       notified: true,
       error: null,
-      prompt_attempts: 1,
-      worker_started: false,
     };
     const state = this.d.store.load();
     state.tasks[taskId] = record;

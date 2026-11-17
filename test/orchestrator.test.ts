@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validateReport, reportKey } from "../src/contract.ts";
@@ -588,4 +588,24 @@ test("resultado da verificação fica no registro da tarefa, separado do relató
   assert.equal(got.status, "done", "o relatório do worker não muda");
   assert.equal(got.result, "feito");
   assert.deepEqual(got.verification, { verdict: "rejected", reason: "modo direct-pr sem PR em artefatos" });
+});
+
+test("registro de tarefa não tem campos mortos; estado antigo com eles carrega e é regravado sem eles", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  const file = join(h.stateDir, "state.json");
+  assert.equal(readFileSync(file, "utf8").includes("worker_started"), false, "tarefa nova não grava o campo");
+  // Estado antigo: o campo existe no arquivo.
+  const old = JSON.parse(readFileSync(file, "utf8"));
+  old.tasks[t.task_id].worker_started = true;
+  old.tasks[t.task_id].prompt_attempts = 1;
+  writeFileSync(file, JSON.stringify(old));
+  const reopened = new Orchestrator({
+    herdr: h.herdr, store: new Store(file), tasksDir: join(h.stateDir, "tasks"),
+    workerExtPath: "/x", now: () => h.clock.ms, newHex: () => "eeeeeeee", availableModels: () => ["claude-bridge/claude-haiku-5-5"], dryRun: false,
+  });
+  assert.equal(reopened.get(t.task_id).task_id, t.task_id, "carrega sem erro");
+  reopened.setVerification(t.task_id, { verdict: "not_applicable", reason: "x" });
+  assert.equal(readFileSync(file, "utf8").includes("worker_started"), false, "regravado sem o campo");
+  assert.equal(readFileSync(file, "utf8").includes("prompt_attempts"), false);
 });

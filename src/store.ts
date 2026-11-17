@@ -32,6 +32,12 @@ export class Store {
     if (!existsSync(this.file)) return { version: 1, tasks: {}, workspaces: {} };
     const parsed = JSON.parse(readFileSync(this.file, "utf8")) as State;
     if (parsed.version !== 1) throw new Error(`versão de estado não suportada: ${String(parsed.version)}`);
+    // Campos mortos de versões antigas saem ao carregar: a próxima gravação já não os leva.
+    for (const t of Object.values(parsed.tasks ?? {})) {
+      const legacy = t as unknown as Record<string, unknown>;
+      delete legacy.worker_started;
+      delete legacy.prompt_attempts;
+    }
     return { ...parsed, workspaces: parsed.workspaces ?? {} };
   }
 

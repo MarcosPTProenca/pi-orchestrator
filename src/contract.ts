@@ -73,10 +73,6 @@ export interface TaskRecord {
   model: string | null;
   /** Modo do pedido (report, direct-pr, local-only, design). Define a regra de verificação da conclusão. */
   mode?: string;
-  /** Quantas vezes o brief foi enviado (reenvio se o worker fica ocioso sem relatório). */
-  prompt_attempts: number;
-  /** true quando o Herdr mostrou o worker trabalhando ao menos uma vez. */
-  worker_started: boolean;
 }
 
 export function validateReport(input: unknown, taskId: string): Report {
