@@ -66,6 +66,7 @@ uma vez no fim, com `done`, `failed` ou `blocked`.
 ## Estado e arquivos
 
 - Estado: `~/.pi/orchestrator/state.json` (troque com `PI_ORCH_STATE_DIR`).
+- Posse: `owner.json` no diretório de estado. Uma sessão do orquestrador por diretório; a segunda sessão viva fica em modo somente leitura (consulta sim, lança/responde/cancela/avisa não). Posse de processo morto é retomada.
 - Tarefas: `~/.pi/orchestrator/tasks/<task_id>/` com `brief.md` e `report.json`.
 - Sem limite de tarefas simultâneas. Cada tarefa tem sua tab no workspace do projeto.
 
