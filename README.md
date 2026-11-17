@@ -40,6 +40,7 @@ O launcher recusa rodar fora do Herdr (`HERDR_ENV=1` e `HERDR_PANE_ID` obrigató
 | `orch_inbox()` | Decisões abertas (`blocked`) e conclusões ou falhas ainda não avisadas. | Não |
 | `orch_answer(task_id, answer)` | Envia a resposta ao worker bloqueado, que continua. | Só o worker |
 | `orch_fix_red_prs(repo_path, concurrency?)` | Lista PRs com CI vermelho e lança correções com no máximo N workers ao mesmo tempo. | Não |
+| `orch_logs(task_id, lines?)` | Últimas linhas do terminal do worker (padrão 40, máximo 200). Só lê se o painel ainda for da tarefa; mascara segredos óbvios. | Não |
 | `orch_cancel(task_id)` | Fecha a tab da tarefa, se ela ainda for do orquestrador. | Não |
 
 O worker recebe a tool `orch_report(status, result, question?, artifacts?)`. Ele a chama

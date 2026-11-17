@@ -6,6 +6,7 @@ import { resolveModel } from "./models.ts";
 import { workerAgentName } from "./label.ts";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join } from "node:path";
+import { clampLines, maskSecrets } from "./logs.ts";
 import {
   isActive,
   reportKey,
@@ -464,6 +465,15 @@ export class Orchestrator {
    */
   async pendingNotices(): Promise<WatchEvent[]> {
     return this.sweep();
+  }
+
+  /** Últimas linhas do painel da tarefa. Só lê se o painel ainda for da tarefa; não altera estado. */
+  async logs(taskId: string, lines?: number): Promise<string> {
+    const t = this.get(taskId);
+    const owner = await this.ownership(t);
+    if (owner === "missing") throw new Error("o painel da tarefa não existe mais; nada foi lido");
+    if (owner === "mismatch") throw new Error("o painel trocou de agente; nada foi lido");
+    return maskSecrets(await this.d.herdr.readRecent(t.pane_id, clampLines(lines)));
   }
 
   async answer(taskId: string, text: string): Promise<TaskRecord> {
