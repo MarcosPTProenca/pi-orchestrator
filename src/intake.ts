@@ -151,7 +151,7 @@ export function renderBrief(taskId: string, pack: IntakePack, reportPath: string
     "",
     "## Restrições",
     ...(pack.constraints.length ? pack.constraints.map((c, i) => `${i + 1}. ${c}`) : ["(nenhuma adicional)"]),
-    "1. Não lance outros workers e não delegue sub-tarefas. Você executa o pedido sozinho.",
+    "1. Não use orch_delegate nem orch_fix_red_prs: não lance outros workers do orquestrador. Subagents internos do Pi e skills são permitidos quando o modo ou o projeto pedirem.",
     "2. Não faça levantamento além do necessário para cumprir o objetivo.",
     "",
     "## Instruções do projeto",

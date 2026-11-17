@@ -223,7 +223,7 @@ test("brief traz pedido literal, objetivo, fonte, restrições, critérios e esp
   assert.match(brief, /Não tocar em outros arquivos/);
   assert.match(brief, /## Especificação de construção\n1\. Rodar pnpm quality:lint/);
   assert.match(brief, /## Critérios de conclusão/);
-  assert.match(brief, /Não lance outros workers/);
+  assert.match(brief, /Não use orch_delegate nem orch_fix_red_prs/);
 });
 
 test("brief sem spec não tem seção de especificação, mas mantém o contrato", async () => {
@@ -500,4 +500,23 @@ test("sweep acha sozinho conclusões sem webhook, inclusive de tarefa que estava
   const got = (await h.orch.sweep()).map((e) => `${e.task_id}:${e.status}`).sort();
   assert.deepEqual(got, [`${a.task_id}:done`, `${b.task_id}:done`].sort());
   assert.deepEqual(await h.orch.sweep(), [], "nada novo, nada avisado");
+});
+
+test("brief não proíbe subagents e skills internos do Pi, em nenhum modo", async () => {
+  const { buildIntake, renderBrief, MODES } = await import("../src/intake.ts");
+  const h = makeHarness();
+  for (const mode of MODES) {
+    const brief = renderBrief("t-x", buildIntake({ project_path: h.project, role: "a", request: "x", objective: "y", mode }), "/r.json");
+    assert.doesNotMatch(brief, /não delegue sub-tarefas/, `modo ${mode}`);
+    assert.match(brief, /subagents internos do Pi e skills são permitidos/i, `modo ${mode}`);
+    assert.match(brief, /não use orch_delegate/i, `modo ${mode}: continua sem poder lançar workers`);
+  }
+});
+
+test("brief de modo design: a instrução de oracle e o que o worker pode usar não se contradizem", async () => {
+  const { buildIntake, renderBrief } = await import("../src/intake.ts");
+  const h = makeHarness();
+  const brief = renderBrief("t-x", buildIntake({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "design" }), "/r.json");
+  assert.match(brief, /subagent `oracle`/);
+  assert.doesNotMatch(brief, /não delegue/);
 });
