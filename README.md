@@ -57,6 +57,7 @@ uma vez no fim, com `done`, `failed` ou `blocked`.
 - **Sem duplicidade:** não há duas tarefas ativas para a mesma PR (`source`) ou a mesma branch no mesmo projeto. Um lote com item repetido é recusado inteiro; `orch_fix_red_prs` pula as PRs que já têm tarefa ativa e informa quantas pulou.
 - **Relatório tardio:** um relatório novo atualiza a tarefa em qualquer estado, exceto `cancelled`.
   Um worker que falhou por erro transitório do modelo e seguiu depois não fica preso em `failed`.
+- **Worktrees:** ao cancelar ou perder uma tarefa, a worktree arrendada por ela volta ao pool só se a árvore estiver limpa e o HEAD existir em algum remoto. Caso contrário fica no lugar, e a nota diz o caminho e o motivo (`worktree_note`). Nunca usa `--force`. Ao abrir, lista as worktrees que ainda estão arrendadas por tarefas terminais, sem devolver nada.
 - **Prazo:** só existe se você passar `timeout_minutes`; ao vencer, a tarefa vira `timeout` e o worker segue rodando.
 - **Lançamento:** assíncrono. O comando `pi` é digitado no pane e o orquestrador segue sem esperar o agente subir.
 - **Dono:** o orquestrador só fecha panes cujo `pane_id` e `terminal_id` batem com o

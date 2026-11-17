@@ -17,6 +17,8 @@ import type { HerdrPort } from "./herdr.ts";
 import type { Store } from "./store.ts";
 
 export interface OrchDeps {
+  /** Devolve a worktree da tarefa ao pool, se seguro, e devolve a nota para o usuário. */
+  releaseWorktree?: (task: TaskRecord) => string;
   herdr: HerdrPort;
   store: Store;
   tasksDir: string;
@@ -356,6 +358,7 @@ export class Orchestrator {
     }
     const owner = await this.ownership(t);
     if (owner !== "owned") {
+      this.noteWorktree(taskId);
       return this.setTerminal(taskId, "lost", `pane ${owner === "missing" ? "não existe mais" : "trocou de agente"}`);
     }
     return null;
@@ -484,10 +487,24 @@ export class Orchestrator {
       throw new Error(`pane ${t.pane_id} não corresponde mais à tarefa ${taskId}; nada foi encerrado`);
     }
     if (owner === "owned") await this.d.herdr.closeTab(t.tab_id);
-    return this.update(taskId, (x) => {
+    this.update(taskId, (x) => {
       x.status = "cancelled";
       x.notified = true;
     });
+    this.noteWorktree(taskId);
+    return this.get(taskId);
+  }
+
+  /** Tenta devolver a worktree da tarefa e grava a nota. Nunca lança. */
+  private noteWorktree(taskId: string): void {
+    const t = this.get(taskId);
+    let note: string | null = null;
+    try {
+      note = this.d.releaseWorktree?.(t) ?? null;
+    } catch (err) {
+      note = `falha ao devolver a worktree: ${String(err).slice(0, 160)}`;
+    }
+    if (note !== null) this.update(taskId, (x) => { x.worktree_note = note; });
   }
 
   /** Ao iniciar: atualiza as tarefas ativas a partir do disco e do Herdr. */
