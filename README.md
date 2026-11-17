@@ -39,6 +39,7 @@ O launcher recusa rodar fora do Herdr (`HERDR_ENV=1` e `HERDR_PANE_ID` obrigató
 | `orch_status()` | Lista tarefas e estados do estado local. | Não |
 | `orch_inbox()` | Decisões abertas (`blocked`) e conclusões ou falhas ainda não avisadas. | Não |
 | `orch_answer(task_id, answer)` | Envia a resposta ao worker bloqueado, que continua. | Só o worker |
+| `orch_fix_red_prs(repo_path, concurrency?)` | Lista PRs com CI vermelho e lança correções com no máximo N workers ao mesmo tempo. | Não |
 | `orch_cancel(task_id)` | Fecha a tab da tarefa, se ela ainda for do orquestrador. | Não |
 
 O worker recebe a tool `orch_report(status, result, question?, artifacts?)`. Ele a chama
@@ -49,12 +50,14 @@ uma vez no fim, com `done`, `failed` ou `blocked`.
 - **Layout:** um workspace Herdr por projeto (rótulo = nome do diretório). Cada tarefa
   é uma tab nesse workspace. A tab criada junto com o workspace fica como âncora, para o
   agrupamento não sumir.
-- **Acompanhamento:** `herdr agent wait` em blocos, sem LLM. Antes de aceitar `idle`,
-  espera `working` por até 20 s, para não ler o estado anterior ao início.
-- **Conclusão:** `done` fecha a tab do worker. O relatório `report.json` e a sessão Pi
-  continuam em disco.
-- **Reenvio:** se o worker ficar ocioso sem nunca ter trabalhado, o brief é reenviado uma vez. Depois disso, falha.
-- **Bloqueio:** `blocked` aparece no inbox e fica até você responder.
+- **Aviso de conclusão (sem LLM):** o worker grava `report.json` e faz POST no webhook local do
+  orquestrador. Como o webhook só vale com a sessão aberta e pode se perder (reinício, endereço velho),
+  há também uma varredura a cada 20 s (`PI_ORCH_SWEEP_MS`) que lê os relatórios em disco. Os dois usam
+  o mesmo caminho (`noticeFor`), então cada resultado é avisado uma vez, como turno novo do orquestrador.
+- **Relatório tardio:** um relatório novo atualiza a tarefa em qualquer estado, exceto `cancelled`.
+  Um worker que falhou por erro transitório do modelo e seguiu depois não fica preso em `failed`.
+- **Prazo:** só existe se você passar `timeout_minutes`; ao vencer, a tarefa vira `timeout` e o worker segue rodando.
+- **Lançamento:** assíncrono. O comando `pi` é digitado no pane e o orquestrador segue sem esperar o agente subir.
 - **Dono:** o orquestrador só fecha panes cujo `pane_id` e `terminal_id` batem com o
   registro. Se não baterem, não fecha nada.
 - **Reinício:** `reconcile` confere as tarefas ativas com o Herdr e os relatórios em disco.

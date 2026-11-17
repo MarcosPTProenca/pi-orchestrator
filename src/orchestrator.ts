@@ -303,8 +303,10 @@ export class Orchestrator {
    */
   async refresh(taskId: string): Promise<WatchEvent | null> {
     const t = this.get(taskId);
+    // Relatório novo vale em qualquer estado, menos cancelled (decisão do usuário): um worker que falhou por erro
+    // transitório do modelo e seguiu depois não pode ficar preso em failed/timeout/lost.
+    if (t.status !== "cancelled" && t.status !== "planned" && this.collect(taskId)) return this.toEvent(this.get(taskId));
     if (!isActive(t.status) || t.status === "blocked") return null;
-    if (this.collect(taskId)) return this.toEvent(this.get(taskId));
     if (t.deadline_at !== null && this.d.now() >= Date.parse(t.deadline_at)) {
       return this.setTerminal(taskId, "timeout", `prazo definido por você (${t.deadline_at}) foi atingido; o worker segue rodando`);
     }
@@ -324,7 +326,7 @@ export class Orchestrator {
   /** Atualiza todas as tarefas ativas. Chamado por inbox, status e ao iniciar. */
   async refreshAll(): Promise<void> {
     for (const t of this.list()) {
-      if (isActive(t.status)) await this.refresh(t.task_id).catch(() => null);
+      if (t.status !== "cancelled") await this.refresh(t.task_id).catch(() => null);
     }
   }
 
@@ -369,20 +371,38 @@ export class Orchestrator {
     return items;
   }
 
+  /** Aviso pendente desta tarefa (decisão ou terminal ainda não entregue). Devolve o evento e o marca como entregue. */
+  private takePending(taskId: string): WatchEvent | null {
+    const t = this.get(taskId);
+    const pending = !t.notified && (t.status === "blocked" || (!isActive(t.status) && t.status !== "cancelled" && t.status !== "planned"));
+    if (!pending) return null;
+    this.takeNotice(taskId);
+    return this.toEvent(t);
+  }
+
+  /** Atualiza a tarefa e entrega o aviso pendente, se houver, uma única vez (webhook e varredura usam isto). */
+  async noticeFor(taskId: string): Promise<WatchEvent | null> {
+    await this.refresh(taskId).catch(() => null);
+    return this.takePending(taskId);
+  }
+
+  /** Varre todas as tarefas (menos canceladas) e devolve os avisos novos. Sem LLM: só disco e Herdr. */
+  async sweep(): Promise<WatchEvent[]> {
+    const out: WatchEvent[] = [];
+    for (const t of this.list()) {
+      if (t.status === "cancelled") continue;
+      const ev = await this.noticeFor(t.task_id);
+      if (ev) out.push(ev);
+    }
+    return out;
+  }
+
   /**
    * Avisos que ainda não foram entregues: decisões (blocked) e terminais. Ao devolver, marca como entregues.
    * Usado ao abrir a sessão, para não reanunciar bloqueios que já foram avisados.
    */
   async pendingNotices(): Promise<WatchEvent[]> {
-    await this.refreshAll();
-    const out: WatchEvent[] = [];
-    for (const t of this.list()) {
-      const pending = !t.notified && (t.status === "blocked" || (!isActive(t.status) && t.status !== "cancelled"));
-      if (!pending) continue;
-      out.push(this.toEvent(t));
-      this.takeNotice(t.task_id);
-    }
-    return out;
+    return this.sweep();
   }
 
   async answer(taskId: string, text: string): Promise<TaskRecord> {
