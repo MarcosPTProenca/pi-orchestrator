@@ -609,3 +609,12 @@ test("registro de tarefa não tem campos mortos; estado antigo com eles carrega 
   assert.equal(readFileSync(file, "utf8").includes("worker_started"), false, "regravado sem o campo");
   assert.equal(readFileSync(file, "utf8").includes("prompt_attempts"), false);
 });
+
+test("uso de tokens do worker (usage.json) entra no registro da tarefa ao atualizar", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  assert.equal(h.orch.get(t.task_id).usage ?? null, null);
+  writeFileSync(join(t.task_dir, "usage.json"), JSON.stringify({ total: { input: 10, output: 5, cacheRead: 100, cacheWrite: 20, totalTokens: 135 }, counted: [1] }));
+  await h.orch.refresh(t.task_id);
+  assert.equal(h.orch.get(t.task_id).usage?.totalTokens, 135);
+});

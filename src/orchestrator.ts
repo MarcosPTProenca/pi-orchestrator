@@ -353,6 +353,7 @@ export class Orchestrator {
    * O worker avisa o orquestrador ao terminar; esta leitura só confirma o estado e detecta perda ou prazo.
    */
   async refresh(taskId: string): Promise<WatchEvent | null> {
+    this.syncUsage(taskId);
     const t = this.get(taskId);
     // Relatório novo vale em qualquer estado, menos cancelled (decisão do usuário): um worker que falhou por erro
     // transitório do modelo e seguiu depois não pode ficar preso em failed/timeout/lost.
@@ -403,6 +404,25 @@ export class Orchestrator {
     this.update(taskId, (x) => {
       x.verification = v;
     });
+  }
+
+  /** Copia o uso de tokens que o worker gravou em usage.json para o registro (sem LLM, sem efeito se ausente). */
+  private syncUsage(taskId: string): void {
+    const file = join(this.get(taskId).task_dir, "usage.json");
+    if (!existsSync(file)) return;
+    try {
+      const parsed = JSON.parse(readFileSync(file, "utf8")) as { total?: Record<string, number> };
+      const u = parsed.total;
+      if (!u || typeof u.totalTokens !== "number") return;
+      const next = { input: u.input ?? 0, output: u.output ?? 0, cacheRead: u.cacheRead ?? 0, cacheWrite: u.cacheWrite ?? 0, totalTokens: u.totalTokens };
+      const cur = this.get(taskId).usage;
+      if (cur && JSON.stringify(cur) === JSON.stringify(next)) return;
+      this.update(taskId, (x) => {
+        x.usage = next;
+      });
+    } catch {
+      // usage.json ilegível não derruba a atualização da tarefa.
+    }
   }
 
   /** Reabre o aviso de uma tarefa: volta a ser pendente (usado quando o envio ao orquestrador falha). */
