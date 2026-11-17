@@ -394,7 +394,6 @@ export class Orchestrator {
     });
   }
 
-  /** Lembrete enviado ao worker que ficou ocioso: uma linha, sem quebras. */
   /** Grava o resultado da verificação da conclusão. Não muda o relatório nem o status. */
   setVerification(taskId: string, v: { verdict: "approved" | "rejected" | "not_applicable" | "unverified"; reason: string }): void {
     this.update(taskId, (x) => {
