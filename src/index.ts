@@ -20,6 +20,17 @@ import { orchestratorAgentName } from "./label.ts";
 import { execFile } from "node:child_process";
 import { Store, defaultStateDir } from "./store.ts";
 import { NoticeBatcher } from "./notices.ts";
+import { isActive } from "./contract.ts";
+import { orphanLeases, releaseLease, type WorktreeOps } from "./worktrees.ts";
+
+/** Treehouse real: `treehouse status` no repositório, `git` na worktree e `treehouse return` sem --force. */
+const treehouseOps: WorktreeOps = {
+  status: (repo) => execFileSync("treehouse", ["status"], { cwd: repo, encoding: "utf8", timeout: 30_000 }),
+  git: (path, args) => execFileSync("git", ["-C", path, ...args], { encoding: "utf8", timeout: 30_000 }),
+  returnTree: (path) => {
+    execFileSync("treehouse", ["return", path], { encoding: "utf8", timeout: 60_000 });
+  },
+};
 import { acquireOwnership, releaseOwnership } from "./lock.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -146,6 +157,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   };
 
   const orch = new Orchestrator({
+    releaseWorktree: (t) => releaseLease(treehouseOps, t.project_path, t.task_id).message,
     herdr: new HerdrCli(),
     store: new Store(join(stateDir, "state.json")),
     tasksDir: join(stateDir, "tasks"),
@@ -266,6 +278,20 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         { triggerTurn: false },
       );
       return;
+    }
+    // Arrendamentos de tarefas já terminais: só listados, nunca devolvidos sozinhos.
+    try {
+      const terminal = new Set(orch.list().filter((t) => !isActive(t.status)).map((t) => t.task_id));
+      const projects = [...new Set(orch.list().map((t) => t.project_path))];
+      const orphans = projects.flatMap((p) => orphanLeases(treehouseOps, p, terminal));
+      if (orphans.length > 0) {
+        pi.sendMessage(
+          { customType: "orch-event", content: `Worktrees ainda arrendadas por tarefas terminais (não foram devolvidas): ${orphans.map((o) => `${o.path} (${o.holder})`).join("; ")}`, display: true },
+          { triggerTurn: false },
+        );
+      }
+    } catch {
+      // Listagem é informativa: falha do treehouse não impede o orquestrador de subir.
     }
     await startHook();
     startSweep();

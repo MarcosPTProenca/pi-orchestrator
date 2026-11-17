@@ -555,3 +555,25 @@ test("tarefa terminal ou cancelada não bloqueia novo lançamento para a mesma P
   assert.doesNotThrow(() => h.orch.checkDelegate({ project_path: h.project, role: "b", request: "x", objective: "y", mode: "direct-pr", source: PR }));
   await h.orch.cancel(a.task_id).catch(() => undefined);
 });
+
+test("cancelar registra a nota de devolução da worktree; perder o pane também", async () => {
+  const h = makeHarness();
+  const notes: string[] = [];
+  const orch = new Orchestrator({
+    herdr: h.herdr, store: new Store(join(h.stateDir, "wt.json")), tasksDir: join(h.stateDir, "wt-tasks"),
+    workerExtPath: "/x", now: () => h.clock.ms, newHex: () => "dddddddd", availableModels: () => ["claude-bridge/claude-haiku-5-5"], dryRun: false,
+    releaseWorktree: (t) => {
+      notes.push(t.task_id);
+      return `mantida: ${t.task_id}`;
+    },
+  });
+  const a = await orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  const c = await orch.cancel(a.task_id);
+  assert.equal(c.worktree_note, `mantida: ${a.task_id}`);
+  const b = await orch.delegate({ project_path: h.project, role: "b", request: "x", objective: "y", mode: "report" });
+  h.herdr.panesList = h.herdr.panesList.filter((p) => p.pane_id !== b.pane_id);
+  await orch.refresh(b.task_id);
+  assert.equal(orch.get(b.task_id).status, "lost");
+  assert.equal(orch.get(b.task_id).worktree_note, `mantida: ${b.task_id}`);
+  assert.deepEqual(notes.sort(), [a.task_id, b.task_id].sort());
+});
