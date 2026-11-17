@@ -9,6 +9,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { REPORT_STATUSES, validateReport } from "./contract.ts";
 import { fallbackReportFor } from "./fallback.ts";
 import { postToHook } from "./hook.ts";
+import { addNewUsage, newUsage, type Usage } from "./usage.ts";
 
 /** Preâmbulo do worker (equivalente ao do FirstMate): quem lançou, e o que é autoridade e o que não é. */
 export const WORKER_PREAMBLE = [
@@ -37,6 +38,18 @@ export default function workerExtension(pi: ExtensionAPI): void {
   // Webhook: ao terminar o turno, o worker garante o relatório e avisa o orquestrador por POST.
   // Sem relatório, grava um de falha com o motivo (cota ou erro do modelo). Se o POST falhar, o relatório segue em disco.
   pi.on("agent_end", async (event) => {
+    // Uso de tokens do turno: soma só as mensagens novas e grava o acumulado para o orquestrador ler.
+    const usageFile = join(taskDir, "usage.json");
+    let prev: { total: Usage; counted: number[] } = { total: newUsage(), counted: [] };
+    try {
+      if (existsSync(usageFile)) prev = JSON.parse(readFileSync(usageFile, "utf8")) as { total: Usage; counted: number[] };
+    } catch {
+      // Arquivo ilegível: recomeça a soma; o relatório não depende disso.
+    }
+    const acc = addNewUsage(prev.total, (event as { messages?: unknown[] }).messages ?? [], prev.counted ?? []);
+    writeFileSync(`${usageFile}.tmp`, JSON.stringify(acc));
+    renameSync(`${usageFile}.tmp`, usageFile);
+
     const file = join(taskDir, "report.json");
     if (!existsSync(file)) {
       const report = fallbackReportFor(taskId, (event as { messages?: unknown[] }).messages ?? [], new Date().toISOString());
