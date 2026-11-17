@@ -20,6 +20,7 @@ import { orchestratorAgentName } from "./label.ts";
 import { execFile } from "node:child_process";
 import { Store, defaultStateDir } from "./store.ts";
 import { NoticeBatcher } from "./notices.ts";
+import { acquireOwnership, releaseOwnership } from "./lock.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -116,6 +117,13 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   const stateDir = defaultStateDir();
   const dryRun = process.env.PI_ORCH_DRY_RUN === "1";
   let quotaCache: { at: number; quotas: ProviderQuota[] } | undefined;
+  // Dona do estado. Simulação (dryRun) não grava no Herdr nem disputa o diretório, então é sempre dona.
+  let owner = dryRun;
+  let ownerPid: number | undefined;
+  /** Só a dona do estado escreve: lança, responde, cancela, fecha ou avisa. */
+  const assertWritable = (): void => {
+    if (!owner) throw new Error(`sessão somente leitura: a sessão do orquestrador (pid ${ownerPid ?? "?"}) é a dona de ${stateDir}`);
+  };
 
   /** Cota com cache de 60 s, para não chamar o quota-axi a cada item de um lote. */
   const quotas = async (): Promise<ProviderQuota[]> => {
@@ -248,6 +256,17 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 
   pi.on("session_start", async (_event, ctx) => {
     if (dryRun) return;
+    const own = acquireOwnership(stateDir);
+    owner = own.owner;
+    ownerPid = own.holder?.pid;
+    if (!owner) {
+      // Segunda sessão viva: consulta só. Sem webhook, varredura, reconciliação nem avisos.
+      pi.sendMessage(
+        { customType: "orch-event", content: `Outra sessão do orquestrador (pid ${ownerPid}) já usa ${stateDir}. Esta sessão está em modo somente leitura: consulta sim; não lança, não responde, não cancela e não avisa.`, display: true },
+        { triggerTurn: false },
+      );
+      return;
+    }
     await startHook();
     startSweep();
     // Nome visível no painel do Herdr: mostra que é o orquestrador e em qual pasta. Falha é ignorada.
@@ -279,6 +298,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   pi.on("session_shutdown", () => {
     // Avisos ainda na janela voltam a ser pendentes: o próximo início os entrega.
     for (const left of notices.drain()) orch.reopenNotice(left.event.task_id);
+    if (owner && !dryRun) releaseOwnership(stateDir);
     hookHandle?.close();
     hookHandle = undefined;
     if (sweepTimer) clearInterval(sweepTimer);
@@ -299,6 +319,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       additionalProperties: false,
     },
     async execute(_id: string, params: { tasks: Array<Record<string, unknown>> }) {
+      assertWritable();
       const inputs = params.tasks as unknown as DelegateInput[];
       // Antes de lançar qualquer item: escolhe e valida o modelo de todos (falha de cota não deixa lote pela metade).
       const choices = [];
@@ -343,6 +364,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       additionalProperties: false,
     },
     async execute(_id: string, params: { repo_path: string; model?: string; concurrency?: number }) {
+      assertWritable();
       resolveModel(params.model, availableModels());
       const remote = execFileSync("git", ["remote", "get-url", "origin"], { cwd: params.repo_path, encoding: "utf8" }).trim();
       const prs = await listRedPrs(params.repo_path, remote);
@@ -385,7 +407,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     description: "Lista as tarefas e seus estados a partir do estado local. Não consome LLM nem consulta workers.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
     async execute() {
-      await orch.refreshAll();
+      if (owner) await orch.refreshAll();
       return asText(
         orch.list().map((t) => ({
           task_id: t.task_id,
@@ -407,6 +429,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     description: "Mostra decisões abertas (bloqueadas) e tarefas concluídas, falhas ou expiradas ainda não avisadas. Cada aviso terminal aparece uma vez.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
     async execute() {
+      assertWritable();
       return asText(await orch.inbox());
     },
   });
@@ -422,6 +445,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       additionalProperties: false,
     },
     async execute(_id: string, params: { task_id: string; answer: string }) {
+      assertWritable();
       const task = await orch.answer(params.task_id, params.answer);
       return asText({ task_id: task.task_id, status: task.status });
     },
@@ -438,6 +462,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       additionalProperties: false,
     },
     async execute(_id: string, params: { task_id: string }) {
+      assertWritable();
       const task = await orch.close(params.task_id);
       return asText({ task_id: task.task_id, status: task.status, tab_closed: true });
     },
@@ -454,6 +479,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       additionalProperties: false,
     },
     async execute(_id: string, params: { task_id: string }) {
+      assertWritable();
       const task = await orch.cancel(params.task_id);
       void fixQueue?.settle(params.task_id);
       return asText({ task_id: task.task_id, status: task.status });
