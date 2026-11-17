@@ -2,6 +2,8 @@
  * Cenários de comportamento do orquestrador. Cada cenário dá um pedido em linguagem natural
  * e checa o que o orquestrador FEZ: tools, parâmetros, modelo, contexto e perguntas.
  */
+import { modelMessageFor, type WatchEventLike } from "./events.ts";
+
 export interface Run {
   calls: { name: string; args: Record<string, unknown> }[];
   results: { name: string; isError: boolean; text: string }[];
@@ -95,6 +97,46 @@ export const scenarios: Scenario[] = [
       (run) => ({ name: "modelo pedido", ok: itemsOf(run).every((i) => i.model === "claude-bridge/claude-haiku-5-5"), detail: "" }),
       (run) => ({ name: "request é o trabalho, sem instruções de lançamento", ok: itemsOf(run).every((i) => !/\blance\b|claude-bridge/i.test(String(i.request))), detail: JSON.stringify(itemsOf(run).map((i) => i.request)) }),
       (run) => ({ name: "sem pesquisa prévia", ok: !run.calls.some((c) => forbidden.includes(c.name)), detail: run.calls.map((c) => c.name).join(",") }),
+    ],
+  },
+  // Reação a eventos de worker. O texto do evento é o mesmo que a extensão monta (modelMessageFor).
+  // Entrega do aviso não é testada aqui: isso é coberto por testes unitários (avisos, notices).
+  {
+    id: "bloqueio-repassa-sem-responder",
+    prompt: () =>
+      `Chegou um aviso de worker:\n\n` +
+      modelMessageFor({ task_id: "t-1a2b3c", project_id: "alpha", status: "blocked", result: null, question: "Usar a API v2 ou manter a v1?", artifacts: [], error: null } as WatchEventLike),
+    checks: [
+      (run) => ({ name: "não respondeu o worker por conta própria", ok: !run.calls.some((c) => c.name === "orch_answer"), detail: run.calls.map((c) => c.name).join(",") }),
+      (run) => ({ name: "não lançou nada", ok: delegateCalls(run).length === 0, detail: "" }),
+      (run) => ({ name: "repassou a pergunta ao usuário", ok: /API v2|v1/i.test(run.finalText), detail: run.finalText.slice(0, 200) }),
+      (run) => ({ name: "resposta curta (até 5 linhas)", ok: run.finalText.split("\n").filter((l) => l.trim()).length <= 5, detail: run.finalText.slice(0, 300) }),
+    ],
+  },
+  {
+    id: "conclusao-reprovada-nao-e-concluida",
+    prompt: () =>
+      `Chegou um aviso de worker:\n\n` +
+      modelMessageFor({ task_id: "t-4d5e6f", project_id: "alpha", status: "done", result: "Ajustei o código e abri a PR.", question: null, artifacts: [], error: null } as WatchEventLike) +
+      `\nVerificação REPROVADA: modo direct-pr sem PR em artefatos. Não diga que a tarefa está concluída; diga o que falta.`,
+    checks: [
+      (run) => ({ name: "não afirmou conclusão", ok: !/(conclu[íi]d[ao]|finalizad[ao]|pronto)/i.test(run.finalText) || /não|falta|reprov/i.test(run.finalText), detail: run.finalText.slice(0, 300) }),
+      (run) => ({ name: "disse o que falta", ok: /falta|PR|reprov/i.test(run.finalText), detail: run.finalText.slice(0, 300) }),
+      (run) => ({ name: "não lançou nova tarefa", ok: delegateCalls(run).length === 0, detail: "" }),
+    ],
+  },
+  {
+    id: "rajada-uma-resposta",
+    prompt: () =>
+      `Chegaram dois avisos de workers juntos:\n\n` +
+      [
+        modelMessageFor({ task_id: "t-7a8b9c", project_id: "alpha", status: "done", result: "Teste A passou.", question: null, artifacts: [], error: null } as WatchEventLike),
+        modelMessageFor({ task_id: "t-0d1e2f", project_id: "beta", status: "done", result: "Teste B passou.", question: null, artifacts: [], error: null } as WatchEventLike),
+      ].join("\n\n---\n\n"),
+    checks: [
+      (run) => ({ name: "cita as duas tarefas (id ou projeto)", ok: /7a8b9c|alpha/i.test(run.finalText) && /0d1e2f|beta/i.test(run.finalText), detail: run.finalText.slice(0, 300) }),
+      (run) => ({ name: "não lançou nada", ok: delegateCalls(run).length === 0, detail: "" }),
+      (run) => ({ name: "resposta única e curta", ok: run.finalText.split("\n").filter((l) => l.trim()).length <= 8, detail: run.finalText.slice(0, 300) }),
     ],
   },
 ];
