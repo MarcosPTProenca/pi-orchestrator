@@ -38,9 +38,10 @@ export async function judgeDone(mode: string, status: string, artifacts: string[
     if (mode === "local-only") {
       const shas = artifacts.flatMap((a) => a.match(SHA_RE) ?? []);
       if (shas.length === 0) return { verdict: "rejected", reason: "modo local-only sem commit informado em artefatos" };
-      const missing = shas.filter((s) => !env.commitExists(s));
-      if (missing.length > 0) return { verdict: "rejected", reason: `commit não encontrado no repositório: ${missing.join(", ")}` };
-      return { verdict: "approved", reason: `commit(s) presentes no repositório: ${shas.join(", ")}` };
+      // Basta um SHA real: palavras hexadecimais em prosa não podem reprovar uma tarefa com commit válido.
+      const found = shas.filter((s) => env.commitExists(s));
+      if (found.length === 0) return { verdict: "rejected", reason: `nenhum commit encontrado no repositório entre: ${shas.join(", ")}` };
+      return { verdict: "approved", reason: `commit(s) presentes no repositório: ${found.join(", ")}` };
     }
     if (mode === "report") {
       const files = artifacts.filter((a) => a.startsWith("/"));

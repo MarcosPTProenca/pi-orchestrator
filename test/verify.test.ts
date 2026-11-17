@@ -58,3 +58,14 @@ test("report: artefato de caminho que não existe reprova; sem artefato não se 
 test("design não tem verificação determinística", async () => {
   assert.equal((await judgeDone("design", "done", [], env())).verdict, "not_applicable");
 });
+
+test("local-only: palavra hexadecimal na prosa não reprova se um commit real está citado", async () => {
+  const exists = (s: string) => s === "3b4ac36";
+  const v = await judgeDone("local-only", "done", ["Ajustado em 3b4ac36; cache deadbeef na nota"], env({ commitExists: exists }));
+  assert.equal(v.verdict, "approved");
+});
+
+test("local-only: nenhum SHA existe é reprovado mesmo com várias palavras hexadecimais", async () => {
+  const v = await judgeDone("local-only", "done", ["deadbeef cafebabe"], env({ commitExists: () => false }));
+  assert.equal(v.verdict, "rejected");
+});
