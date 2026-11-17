@@ -7,6 +7,7 @@ import { workerAgentName } from "./label.ts";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join } from "node:path";
 import { clampLines, maskSecrets } from "./logs.ts";
+import { classifyFailure } from "./failure.ts";
 import {
   isActive,
   reportKey,
@@ -224,6 +225,7 @@ export class Orchestrator {
       branch: input.branch?.trim() || null,
       model: model ?? null,
       mode: input.mode,
+      delegate_input: rawInput as unknown as Record<string, unknown>,
       role: input.role,
       worker_id: workerId,
       workspace_id: "",
@@ -423,6 +425,37 @@ export class Orchestrator {
     } catch {
       // usage.json ilegível não derruba a atualização da tarefa.
     }
+  }
+
+  /**
+   * Relança uma tarefa que falhou. Nunca automático: quem chama decide o modelo.
+   * Cota esgotada: exige modelo diferente do que esgotou. Outras falhas: mesmo modelo, se não informado.
+   * A tarefa anterior não muda nem perde a worktree (o novo worker arrenda a sua).
+   */
+  async relaunch(taskId: string, model?: string): Promise<TaskRecord> {
+    const old = this.get(taskId);
+    if (isActive(old.status)) throw new Error(`tarefa ${taskId} ainda está ativa; cancele antes de relançar`);
+    if (old.status !== "failed") throw new Error(`só relança tarefa falha (status: ${old.status})`);
+    if (!old.delegate_input) throw new Error(`tarefa ${taskId} não tem o pedido guardado; lance de novo com orch_delegate`);
+    const reason = old.result ?? old.error ?? "";
+    const kind = classifyFailure(reason);
+    if (kind === "quota") {
+      if (!model) throw new Error(`falha por cota em ${old.model ?? "modelo padrão"}: informe o modelo do relançamento`);
+      if (model === old.model) throw new Error(`o modelo ${model} esgotou a cota; escolha outro`);
+    }
+    const input = {
+      ...(old.delegate_input as unknown as DelegateInput),
+      model: model ?? old.model ?? undefined,
+      constraints: [
+        ...(((old.delegate_input as unknown as DelegateInput).constraints) ?? []),
+        `Tentativa anterior (${taskId}) falhou: ${reason.slice(0, 300) || "sem detalhe"}. Confira o que já existe antes de refazer.`,
+      ],
+    };
+    const task = await this.delegate(input);
+    this.update(task.task_id, (x) => {
+      x.relaunched_from = taskId;
+    });
+    return this.get(task.task_id);
   }
 
   /** Reabre o aviso de uma tarefa: volta a ser pendente (usado quando o envio ao orquestrador falha). */

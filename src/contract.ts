@@ -75,6 +75,10 @@ export interface TaskRecord {
   model: string | null;
   /** Modo do pedido (report, direct-pr, local-only, design). Define a regra de verificação da conclusão. */
   mode?: string;
+  /** Pedido original (como foi lançado), guardado para permitir relançar a tarefa sem reabrir o pedido. */
+  delegate_input?: Record<string, unknown> | null;
+  /** Tarefa anterior de que esta é um relançamento. */
+  relaunched_from?: string | null;
 }
 
 export function validateReport(input: unknown, taskId: string): Report {
