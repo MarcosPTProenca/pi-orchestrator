@@ -13,7 +13,9 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { HerdrCli } from "./herdr.ts";
 import { availableModels, resolveModel } from "./models.ts";
 import { Orchestrator, MODES, type DelegateInput, type WatchEvent } from "./orchestrator.ts";
-import { fixInputFor, listRedPrs, prFromUrl, fetchPrState, verificationLine, prStateLine } from "./prs.ts";
+import { fixInputFor, listRedPrs, prFromUrl, fetchPrState, verificationLine, verifyPr, prStateLine } from "./prs.ts";
+import { judgeDone, type VerifyEnv } from "./verify.ts";
+import { existsSync } from "node:fs";
 import { FixQueue } from "./queue.ts";
 import { locateProject } from "./locate.ts";
 import { orchestratorAgentName } from "./label.ts";
@@ -219,19 +221,31 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   const announce = async (event: WatchEvent): Promise<void> => {
     let prLine = "";
     if (event.status === "done") {
-      // Antes de dar uma PR como pronta, confere o estado atual dela no GitHub (conflito, mergeabilidade).
+      // Conclusão do worker é conferida de forma determinística antes de ser apresentada como concluída.
       const task = orch.get(event.task_id);
-      for (const url of event.artifacts) {
-        const pr = prFromUrl(url);
-        if (!pr) continue;
-        try {
+      const env: VerifyEnv = {
+        prCheck: async (url) => {
+          const pr = prFromUrl(url);
+          if (!pr) return { ok: false, line: `${url} não é PR` };
           const remote = execFileSync("git", ["remote", "get-url", "origin"], { cwd: task.project_path, encoding: "utf8" }).trim();
           const state = await fetchPrState(remote, pr.number, pr.owner, pr.name, task.project_path);
-          prLine += "\n" + verificationLine(state);
-        } catch (e) {
-          prLine += `\nNão consegui verificar a PR #${pr.number}: ${String(e).slice(0, 160)}. Não dê a tarefa por concluída.`;
-        }
-      }
+          return { ok: state.state === "MERGED" || verifyPr(state).length === 0, line: verificationLine(state) };
+        },
+        commitExists: (sha) => {
+          try {
+            execFileSync("git", ["-C", task.project_path, "cat-file", "-e", `${sha}^{commit}`], { stdio: "ignore" });
+            return true;
+          } catch {
+            return false;
+          }
+        },
+        pathExists: (path) => existsSync(path),
+      };
+      const v = await judgeDone(task.mode ?? "", event.status, event.artifacts, env);
+      orch.setVerification(event.task_id, v);
+      if (v.verdict === "rejected") prLine = `\nVerificação REPROVADA: ${v.reason}. Não diga que a tarefa está concluída; diga o que falta.`;
+      else if (v.verdict === "unverified") prLine = `\nVerificação não concluída: ${v.reason}. Não dê a tarefa por concluída.`;
+      else if (v.verdict === "approved") prLine = `\nVerificação aprovada: ${v.reason}`;
     }
     notices.push({ key: `${event.task_id}:${event.status}`, text: modelMessageFor(event) + prLine, event });
   };
@@ -447,6 +461,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
           pane_id: t.pane_id,
           question: t.question,
           deadline_at: formatBrasilia(t.deadline_at),
+          verification: t.verification ?? null,
         })),
       );
     },

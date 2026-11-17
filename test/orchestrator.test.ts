@@ -577,3 +577,15 @@ test("cancelar registra a nota de devolução da worktree; perder o pane também
   assert.equal(orch.get(b.task_id).worktree_note, `mantida: ${b.task_id}`);
   assert.deepEqual(notes.sort(), [a.task_id, b.task_id].sort());
 });
+
+test("resultado da verificação fica no registro da tarefa, separado do relatório", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "direct-pr", source: PR });
+  writeReport(t.task_dir, t.task_id, { status: "done", result: "feito", artifacts: [] });
+  await h.orch.refresh(t.task_id);
+  h.orch.setVerification(t.task_id, { verdict: "rejected", reason: "modo direct-pr sem PR em artefatos" });
+  const got = h.orch.get(t.task_id);
+  assert.equal(got.status, "done", "o relatório do worker não muda");
+  assert.equal(got.result, "feito");
+  assert.deepEqual(got.verification, { verdict: "rejected", reason: "modo direct-pr sem PR em artefatos" });
+});
