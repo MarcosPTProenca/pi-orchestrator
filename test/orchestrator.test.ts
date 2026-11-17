@@ -53,10 +53,10 @@ test("delegate cria workspace do projeto, tab da tarefa e inicia o worker na tab
   assert.equal(tabArgs.env.PI_ORCH_ROLE, "worker");
   assert.equal(tabArgs.env.PI_ORCH_TASK_ID, t.task_id);
   assert.equal(t.tab_id.startsWith(`${t.workspace_id}:`), true);
-  const start = h.herdr.opsOf("startAgent")[0].args as { paneId: string; piArgs: string[] };
-  assert.equal(start.paneId, t.pane_id);
-  assert.deepEqual(start.piArgs.slice(0, 2), ["-e", "/fake/worker-ext.ts"]);
-  assert.match(start.piArgs.at(-1) as string, /chame orch_report/);
+  const run = h.herdr.opsOf("runInPane")[0].args as { paneId: string; command: string };
+  assert.equal(run.paneId, t.pane_id);
+  assert.match(run.command, /^pi -e \/fake\/worker-ext\.ts /);
+  assert.match(run.command, /chame orch_report\.'?$/);
   assert.match(readFileSync(t.brief_path, "utf8"), /## Pedido do usuário/);
   assert.match(readFileSync(t.brief_path, "utf8"), /Analise o login/);
   assert.match(readFileSync(t.brief_path, "utf8"), /orch_report/);
@@ -101,7 +101,7 @@ test("delegate rejeita caminho relativo", async () => {
 test("falha ao iniciar o worker fecha só a tab da tarefa e marca failed", async () => {
   const h = makeHarness();
   h.herdr.failStart = true;
-  await assert.rejects(h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report" }), /start falhou/);
+  await assert.rejects(h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report" }), /falhou \(simulado\)/);
   const closes = h.herdr.opsOf("closeTab").map((o) => o.args);
   const failed = h.orch.list()[0];
   assert.equal(closes.at(-1), failed.tab_id);
@@ -136,16 +136,16 @@ test("brief manda o worker arrendar a própria worktree; o orquestrador não arr
 test("delegate passa o modelo pedido ao pi e registra na tarefa", async () => {
   const h = makeHarness();
   const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report", model: "claude-bridge/claude-haiku-5-5" });
-  const start = h.herdr.opsOf("startAgent")[0].args as { piArgs: string[] };
-  assert.deepEqual(start.piArgs.slice(0, 4), ["-e", "/fake/worker-ext.ts", "--model", "claude-bridge/claude-haiku-5-5"]);
+  const run = (h.herdr.opsOf("runInPane")[0].args as { command: string }).command;
+  assert.match(run, /--model claude-bridge\/claude-haiku-5-5/);
   assert.equal(t.model, "claude-bridge/claude-haiku-5-5");
 });
 
 test("delegate sem model não passa --model (padrão do Pi)", async () => {
   const h = makeHarness();
   await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report" });
-  const start = h.herdr.opsOf("startAgent")[0].args as { piArgs: string[] };
-  assert.equal(start.piArgs.includes("--model"), false);
+  const run = (h.herdr.opsOf("runInPane")[0].args as { command: string }).command;
+  assert.equal(run.includes("--model"), false);
 });
 
 test("delegate recusa project_path que não é raiz de repositório git (ex.: diretório pai)", async () => {
@@ -273,8 +273,8 @@ test("modelo pedido disponível vai para o pi e fica registrado", async () => {
   const h = makeHarness();
   const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report", model: "claude-bridge/claude-haiku-5-5" });
   assert.equal(t.model, "claude-bridge/claude-haiku-5-5");
-  const start = h.herdr.opsOf("startAgent")[0].args as { piArgs: string[] };
-  assert.deepEqual(start.piArgs.slice(2, 4), ["--model", "claude-bridge/claude-haiku-5-5"]);
+  const run = (h.herdr.opsOf("runInPane")[0].args as { command: string }).command;
+  assert.match(run, /--model claude-bridge\/claude-haiku-5-5/);
 });
 
 test("modo simulação (dryRun): valida, monta o brief e não toca no Herdr", async () => {
@@ -312,8 +312,8 @@ test("o brief vai ao worker pela extensão (contexto), e o argumento de lançame
   const sent = readFileSync(t.brief_path, "utf8");
   assert.match(sent, /## Pedido do usuário \(literal\)\nPedido único XYZ/);
   assert.match(sent, /## Critérios de conclusão/);
-  const launch = (h.herdr.opsOf("startAgent")[0].args as { piArgs: string[] }).piArgs.at(-1) as string;
-  assert.doesNotMatch(launch, /\n/, "argumento de lançamento sem quebras de linha");
+  const launch = (h.herdr.opsOf("runInPane")[0].args as { command: string }).command;
+  assert.doesNotMatch(launch, /\n/, "comando de lançamento sem quebras de linha");
 });
 
 test("brief manda devolver a worktree só quando não há trabalho pendente", async () => {
@@ -327,7 +327,7 @@ test("brief manda devolver a worktree só quando não há trabalho pendente", as
 test("worker recebe nome visível worker-<projeto>-<id>", async () => {
   const h = makeHarness();
   const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
-  const name = (h.herdr.opsOf("startAgent")[0].args as { name: string }).name;
+  const name = (h.herdr.opsOf("renamePane")[0].args as { label: string }).label;
   assert.equal(t.worker_id, name);
   assert.match(name, /^worker-/);
 });

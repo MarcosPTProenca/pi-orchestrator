@@ -57,7 +57,7 @@ test("FixQueue: falha ao iniciar um item não trava a fila", async () => {
   const q = new FixQueue<string>(2, async (item) => {
     if (item === "bad") throw new Error("delegação recusada");
     return `t-${item}`;
-  });
+  }, { maxAttempts: 1 });
   await q.enqueue(["bad", "a", "b"]);
   assert.equal(q.failed.length, 1);
   assert.deepEqual(q.runningIds.sort(), ["t-a", "t-b"]);
@@ -132,4 +132,19 @@ test("verificação: PR fechada ou sem checks não é verificada", () => {
 test("verificação: PR já mesclada conta como verificada", () => {
   assert.deepEqual(verifyPr({ ...base, state: "MERGED", mergeable: "UNKNOWN", checks: [] }), []);
   assert.match(verificationLine({ ...base, state: "MERGED", checks: [] }), /já mesclada/);
+});
+
+test("FixQueue tenta de novo um início que falhou e só desiste depois do limite", async () => {
+  const calls: string[] = [];
+  const q = new FixQueue<string>(2, async (item) => {
+    calls.push(item);
+    if (item === "flaky" && calls.filter((c) => c === "flaky").length === 1) throw new Error("timeout de inicialização");
+    if (item === "dead") throw new Error("sempre falha");
+    return `t-${item}`;
+  }, { maxAttempts: 2 });
+  await q.enqueue(["flaky", "dead", "a"]);
+  assert.deepEqual(q.runningIds.sort(), ["t-a", "t-flaky"].sort(), "flaky entrou na segunda tentativa");
+  await q.settle("t-a");
+  assert.equal(q.failed.length, 1, "dead desistiu após o limite");
+  assert.equal(q.failed[0].attempts, 2);
 });

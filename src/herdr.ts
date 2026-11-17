@@ -34,6 +34,10 @@ export interface HerdrPort {
   workspaceIds(): Promise<string[]>;
   createTab(a: { workspaceId: string; cwd: string; label: string; env: Record<string, string> }): Promise<TabResult>;
   closeTab(tabId: string): Promise<void>;
+  /** Digita o comando no pane de shell e segue sem esperar o agente aparecer (como o FirstMate). */
+  runInPane(paneId: string, command: string): Promise<void>;
+  /** Rótulo visível do pane. */
+  renamePane(paneId: string, label: string): Promise<void>;
   startAgent(args: { name: string; paneId: string; piArgs: string[]; timeoutMs: number }): Promise<void>;
   prompt(target: string, text: string): Promise<void>;
   waitAgent(
@@ -150,6 +154,14 @@ export class HerdrCli implements HerdrPort {
 
   async closeTab(tabId: string): Promise<void> {
     await this.runOk(["tab", "close", tabId]);
+  }
+
+  async runInPane(paneId: string, command: string): Promise<void> {
+    await this.runOk(["pane", "run", paneId, command]);
+  }
+
+  async renamePane(paneId: string, label: string): Promise<void> {
+    await this.runOk(["pane", "rename", paneId, label]);
   }
 
   async startAgent(a: { name: string; paneId: string; piArgs: string[]; timeoutMs: number }): Promise<void> {

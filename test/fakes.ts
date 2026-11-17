@@ -54,6 +54,15 @@ export class FakeHerdr implements HerdrPort {
     if (![...this.panesList].some((p) => p.pane_id.startsWith(`${wsId}:`))) this.workspaces.delete(wsId);
   }
 
+  async runInPane(paneId: string, command: string): Promise<void> {
+    this.calls.push({ op: "runInPane", args: { paneId, command } });
+    if (this.failStart) throw new Error("runInPane falhou (simulado)");
+  }
+
+  async renamePane(paneId: string, label: string): Promise<void> {
+    this.calls.push({ op: "renamePane", args: { paneId, label } });
+  }
+
   async startAgent(a: { name: string; paneId: string; piArgs: string[]; timeoutMs: number }): Promise<void> {
     this.calls.push({ op: "startAgent", args: a });
     if (this.failStart) throw new Error("start falhou (simulado)");

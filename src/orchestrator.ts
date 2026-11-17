@@ -67,6 +67,10 @@ export interface WatchEvent {
   error: string | null;
 }
 
+/** Aspas simples seguras para o shell do pane: o comando é digitado no shell do Herdr. */
+export function shellQuote(arg: string): string {
+  return /^[A-Za-z0-9_./:=@%+-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, `'\\''`)}'`;
+}
 const LAUNCH_MESSAGE = "Execute a tarefa do brief que voce recebeu no contexto. Ao terminar, chame orch_report.";
 /** Teto para o worker começar a trabalhar após o prompt. Evita ler `idle` anterior ao início. */
 
@@ -215,7 +219,10 @@ export class Orchestrator {
       const piArgs = ["-e", this.d.workerExtPath];
       if (model) piArgs.push("--model", model);
       piArgs.push(LAUNCH_MESSAGE);
-      await this.d.herdr.startAgent({ name: workerId, paneId: tab.pane_id, piArgs, timeoutMs: 60_000 });
+      // Assíncrono, como o FirstMate: digita o comando no pane e segue. O Herdr reconhece o agente depois,
+      // e o webhook do worker é quem avisa o fim. Não há espera bloqueante pelo agente subir.
+      await this.d.herdr.runInPane(tab.pane_id, ["pi", ...piArgs].map(shellQuote).join(" "));
+      await this.d.herdr.renamePane(tab.pane_id, workerId).catch(() => undefined);
       return this.update(taskId, (t) => {
         t.status = "running";
       });
@@ -378,7 +385,8 @@ export class Orchestrator {
     const t = this.get(taskId);
     if (t.status !== "blocked") throw new Error(`tarefa ${taskId} não está bloqueada (status: ${t.status})`);
     if (text.trim() === "") throw new Error("resposta vazia");
-    await this.d.herdr.prompt(t.worker_id, text);
+    // Fala com o worker pelo pane: o nome do agente só existe depois que o Herdr o reconhece.
+    await this.d.herdr.prompt(t.pane_id, text);
     return this.update(taskId, (x) => {
       x.status = "running";
       x.question = null;
