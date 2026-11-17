@@ -2,7 +2,8 @@
  * Cenários de comportamento do orquestrador. Cada cenário dá um pedido em linguagem natural
  * e checa o que o orquestrador FEZ: tools, parâmetros, modelo, contexto e perguntas.
  */
-import { modelMessageFor, type WatchEventLike } from "./events.ts";
+import { modelMessageFor } from "../src/index.ts";
+import type { WatchEvent } from "../src/orchestrator.ts";
 
 export interface Run {
   calls: { name: string; args: Record<string, unknown> }[];
@@ -105,7 +106,7 @@ export const scenarios: Scenario[] = [
     id: "bloqueio-repassa-sem-responder",
     prompt: () =>
       `Chegou um aviso de worker:\n\n` +
-      modelMessageFor({ task_id: "t-1a2b3c", project_id: "alpha", status: "blocked", result: null, question: "Usar a API v2 ou manter a v1?", artifacts: [], error: null } as WatchEventLike),
+      modelMessageFor({ task_id: "t-1a2b3c", project_id: "alpha", status: "blocked", result: null, question: "Usar a API v2 ou manter a v1?", artifacts: [], error: null } as WatchEvent),
     checks: [
       (run) => ({ name: "não respondeu o worker por conta própria", ok: !run.calls.some((c) => c.name === "orch_answer"), detail: run.calls.map((c) => c.name).join(",") }),
       (run) => ({ name: "não lançou nada", ok: delegateCalls(run).length === 0, detail: "" }),
@@ -117,7 +118,7 @@ export const scenarios: Scenario[] = [
     id: "conclusao-reprovada-nao-e-concluida",
     prompt: () =>
       `Chegou um aviso de worker:\n\n` +
-      modelMessageFor({ task_id: "t-4d5e6f", project_id: "alpha", status: "done", result: "Ajustei o código e abri a PR.", question: null, artifacts: [], error: null } as WatchEventLike) +
+      modelMessageFor({ task_id: "t-4d5e6f", project_id: "alpha", status: "done", result: "Ajustei o código e abri a PR.", question: null, artifacts: [], error: null } as WatchEvent) +
       `\nVerificação REPROVADA: modo direct-pr sem PR em artefatos. Não diga que a tarefa está concluída; diga o que falta.`,
     checks: [
       (run) => ({ name: "não afirmou conclusão", ok: !/(conclu[íi]d[ao]|finalizad[ao]|pronto)/i.test(run.finalText) || /não|falta|reprov/i.test(run.finalText), detail: run.finalText.slice(0, 300) }),
@@ -130,8 +131,8 @@ export const scenarios: Scenario[] = [
     prompt: () =>
       `Chegaram dois avisos de workers juntos:\n\n` +
       [
-        modelMessageFor({ task_id: "t-7a8b9c", project_id: "alpha", status: "done", result: "Teste A passou.", question: null, artifacts: [], error: null } as WatchEventLike),
-        modelMessageFor({ task_id: "t-0d1e2f", project_id: "beta", status: "done", result: "Teste B passou.", question: null, artifacts: [], error: null } as WatchEventLike),
+        modelMessageFor({ task_id: "t-7a8b9c", project_id: "alpha", status: "done", result: "Teste A passou.", question: null, artifacts: [], error: null } as WatchEvent),
+        modelMessageFor({ task_id: "t-0d1e2f", project_id: "beta", status: "done", result: "Teste B passou.", question: null, artifacts: [], error: null } as WatchEvent),
       ].join("\n\n---\n\n"),
     checks: [
       (run) => ({ name: "cita as duas tarefas (id ou projeto)", ok: /7a8b9c|alpha/i.test(run.finalText) && /0d1e2f|beta/i.test(run.finalText), detail: run.finalText.slice(0, 300) }),
