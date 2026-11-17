@@ -22,6 +22,7 @@ import { orchestratorAgentName } from "./label.ts";
 import { execFile } from "node:child_process";
 import { Store, defaultStateDir } from "./store.ts";
 import { NoticeBatcher } from "./notices.ts";
+import { notificationFor, notifyArgs, notifyEnabled } from "./notify.ts";
 import { isActive } from "./contract.ts";
 import { orphanLeases, releaseLease, type WorktreeOps } from "./worktrees.ts";
 import { acquireOwnership, releaseOwnership } from "./lock.ts";
@@ -246,6 +247,11 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       if (v.verdict === "rejected") prLine = `\nVerificação REPROVADA: ${v.reason}. Não diga que a tarefa está concluída; diga o que falta.`;
       else if (v.verdict === "unverified") prLine = `\nVerificação não concluída: ${v.reason}. Não dê a tarefa por concluída.`;
       else if (v.verdict === "approved") prLine = `\nVerificação aprovada: ${v.reason}`;
+    }
+    // Notificação do Herdr: best effort, sem esperar, e só para bloqueio, conclusão e falha.
+    if (notifyEnabled(process.env)) {
+      const n = notificationFor(event);
+      if (n) execFile("herdr", notifyArgs(n), { timeout: 10_000 }, () => undefined);
     }
     notices.push({ key: `${event.task_id}:${event.status}`, text: modelMessageFor(event) + prLine, event });
   };
