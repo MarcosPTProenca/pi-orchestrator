@@ -476,6 +476,22 @@ export class Orchestrator {
     return maskSecrets(await this.d.herdr.readRecent(t.pane_id, clampLines(lines)));
   }
 
+  /**
+   * Mensagem a um worker em execução. Não interrompe: o Pi entrega como próximo turno, depois do turno
+   * atual (medido com herdr agent prompt em worker ocupado). Bloqueado: vira resposta, como orch_answer.
+   */
+  async send(taskId: string, text: string): Promise<TaskRecord> {
+    const t = this.get(taskId);
+    if (t.status === "blocked") return this.answer(taskId, text);
+    if (t.status !== "running") throw new Error(`tarefa ${taskId} não aceita mensagem (status: ${t.status})`);
+    if (text.trim() === "") throw new Error("mensagem vazia");
+    const owner = await this.ownership(t);
+    if (owner === "missing") throw new Error("o painel da tarefa não existe mais; nada foi enviado");
+    if (owner === "mismatch") throw new Error("o painel trocou de agente; nada foi enviado");
+    await this.d.herdr.prompt(t.pane_id, text);
+    return t;
+  }
+
   async answer(taskId: string, text: string): Promise<TaskRecord> {
     const t = this.get(taskId);
     if (t.status !== "blocked") throw new Error(`tarefa ${taskId} não está bloqueada (status: ${t.status})`);
