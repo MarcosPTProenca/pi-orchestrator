@@ -7,6 +7,13 @@ import { isActive, type TaskRecord } from "./contract.ts";
 export const DEFAULT_OLD_HOURS = 24;
 const RESULT_MAX = 200;
 
+/** Lê PI_ORCH_OLD_HOURS. 0 é válido (esconde todas as terminais); vazio, inválido ou negativo vira undefined (padrão). */
+export function oldHoursFrom(env: string | undefined): number | undefined {
+  if (env === undefined || env.trim() === "") return undefined;
+  const n = Number(env);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
 export function ageText(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
   if (s < 60) return `${s} s`;

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ageText, buildStatus, DEFAULT_OLD_HOURS } from "../src/status.ts";
+import { ageText, buildStatus, DEFAULT_OLD_HOURS, oldHoursFrom } from "../src/status.ts";
 import type { TaskRecord } from "../src/contract.ts";
 
 const NOW = Date.parse("2026-11-17T12:00:00Z");
@@ -47,4 +47,21 @@ test("orch_status mostra o total de tokens quando medido, senão null", () => {
   const rows = buildStatus([withUsage, without], NOW, {}).flatMap((g) => g.tasks);
   assert.equal(rows.find((r) => r.task_id === "t-u")?.tokens, 10);
   assert.equal(rows.find((r) => r.task_id === "t-n")?.tokens, null);
+});
+
+test("PI_ORCH_OLD_HOURS: 0 vale (esconde todas as terminais); valor inválido vira padrão, não zero", () => {
+  assert.equal(oldHoursFrom("0"), 0);
+  assert.equal(oldHoursFrom("12"), 12);
+  assert.equal(oldHoursFrom("2.5"), 2.5);
+  assert.equal(oldHoursFrom(undefined), undefined);
+  assert.equal(oldHoursFrom(""), undefined);
+  assert.equal(oldHoursFrom("abc"), undefined);
+  assert.equal(oldHoursFrom("-1"), undefined);
+});
+
+test("com 0 horas, terminais somem da listagem e ativas continuam", () => {
+  const done = t({ task_id: "t-d", status: "done", updated_at: "2026-11-17T11:59:59Z" });
+  const running = t({ task_id: "t-r", status: "running" });
+  const ids = buildStatus([done, running], NOW, { oldHours: 0 }).flatMap((g) => g.tasks.map((x) => x.task_id));
+  assert.deepEqual(ids, ["t-r"]);
 });
