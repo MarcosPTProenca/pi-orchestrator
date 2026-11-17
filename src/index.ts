@@ -23,7 +23,7 @@ import { execFile } from "node:child_process";
 import { Store, defaultStateDir } from "./store.ts";
 import { NoticeBatcher } from "./notices.ts";
 import { notificationFor, notifyArgs, notifyEnabled } from "./notify.ts";
-import { buildStatus } from "./status.ts";
+import { buildStatus, oldHoursFrom } from "./status.ts";
 import { classifyFailure, suggestModel } from "./failure.ts";
 import { capError, maxActiveFrom } from "./cap.ts";
 import { isActive } from "./contract.ts";
@@ -498,7 +498,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       if (owner) await orch.refreshAll();
       const groups = buildStatus(orch.list(), Date.now(), {
         all: params.all === true,
-        oldHours: Number(process.env.PI_ORCH_OLD_HOURS) || undefined,
+        oldHours: oldHoursFrom(process.env.PI_ORCH_OLD_HOURS),
       });
       return asText(
         groups.map((g) => ({

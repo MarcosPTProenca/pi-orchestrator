@@ -36,7 +36,7 @@ O launcher recusa rodar fora do Herdr (`HERDR_ENV=1` e `HERDR_PANE_ID` obrigató
 | Tool | Função | Usa LLM? |
 |---|---|---|
 | `orch_delegate(project_path, role, brief, timeout_minutes?)` | Cria (ou reutiliza) o workspace do projeto, abre uma tab para a tarefa e inicia um worker Pi com o brief. | Não |
-| `orch_status(all?)` | Tarefas agrupadas por projeto, com idade, resumo curto, artefatos e verificação e total de tokens. Canceladas e terminais antigas (mais de 24 h, `PI_ORCH_OLD_HOURS`) ficam de fora; `all=true` mostra tudo. | Não |
+| `orch_status(all?)` | Tarefas agrupadas por projeto, com idade, resumo curto, artefatos e verificação e total de tokens. Canceladas e terminais antigas (mais de 24 h; `PI_ORCH_OLD_HOURS` muda o limite, e `0` esconde todas as terminais na hora) ficam de fora; `all=true` mostra tudo. | Não |
 | `orch_inbox()` | Decisões abertas (`blocked`) e conclusões ou falhas ainda não avisadas. | Não |
 | `orch_send(task_id, text)` | Mensagem a um worker em execução. Não interrompe: ele lê quando terminar o turno atual. Em worker bloqueado, vira resposta. | Só o worker |
 | `orch_answer(task_id, answer)` | Envia a resposta ao worker bloqueado, que continua. | Só o worker |
