@@ -54,6 +54,7 @@ uma vez no fim, com `done`, `failed` ou `blocked`.
   orquestrador. Como o webhook só vale com a sessão aberta e pode se perder (reinício, endereço velho),
   há também uma varredura a cada 20 s (`PI_ORCH_SWEEP_MS`) que lê os relatórios em disco. Os dois usam
   o mesmo caminho (`noticeFor`), então cada resultado é avisado uma vez, como turno novo do orquestrador. Avisos que chegam dentro de uma janela de 5 s (`PI_ORCH_NOTICE_WINDOW_MS`) viram um turno só, com um bloco por tarefa.
+- **Sem duplicidade:** não há duas tarefas ativas para a mesma PR (`source`) ou a mesma branch no mesmo projeto. Um lote com item repetido é recusado inteiro; `orch_fix_red_prs` pula as PRs que já têm tarefa ativa e informa quantas pulou.
 - **Relatório tardio:** um relatório novo atualiza a tarefa em qualquer estado, exceto `cancelled`.
   Um worker que falhou por erro transitório do modelo e seguiu depois não fica preso em `failed`.
 - **Prazo:** só existe se você passar `timeout_minutes`; ao vencer, a tarefa vira `timeout` e o worker segue rodando.

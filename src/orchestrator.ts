@@ -59,6 +59,16 @@ export interface DelegateInput {
   timeout_minutes?: number;
 }
 
+/** Mesmo trabalho: mesma PR (source) ou mesma branch no mesmo projeto. Devolve o rótulo do conflito, ou null. */
+function sameWork(a: DelegateInput, b: DelegateInput): string | null {
+  if (a.project_path !== b.project_path) return null;
+  const sa = a.source?.trim();
+  if (sa && sa === b.source?.trim()) return `PR (${sa})`;
+  const ba = a.branch?.trim();
+  if (ba && ba === b.branch?.trim()) return `branch ${ba}`;
+  return null;
+}
+
 export interface WatchEvent {
   task_id: string;
   project_id: string;
@@ -141,11 +151,43 @@ export class Orchestrator {
   checkDelegate(input: DelegateInput): void {
     resolveModel(input.model, this.d.availableModels());
     buildIntake({ ...input, model: input.model });
+    this.assertNotActive(input);
+  }
+
+  /** Valida um lote inteiro antes de lançar qualquer item: recusa também duplicado dentro do próprio lote. */
+  checkBatch(inputs: DelegateInput[]): void {
+    const seen: DelegateInput[] = [];
+    for (const input of inputs) {
+      this.checkDelegate(input);
+      for (const earlier of seen) {
+        const dup = sameWork(earlier, input);
+        if (dup) throw new Error(`o lote traz duas tarefas para a mesma ${dup}; nada foi lançado`);
+      }
+      seen.push(input);
+    }
+  }
+
+  /** Tarefa ativa no mesmo projeto para a mesma PR ou branch, ou null. Não lança. */
+  activeConflict(input: DelegateInput): { task: TaskRecord; label: string } | null {
+    const projectId = basename(input.project_path);
+    for (const t of this.list()) {
+      if (!isActive(t.status) || t.project_id !== projectId) continue;
+      const dup = sameWork({ ...input, source: t.source ?? undefined, branch: t.branch ?? undefined, project_path: t.project_path }, input);
+      if (dup) return { task: t, label: dup };
+    }
+    return null;
+  }
+
+  /** Recusa lançar se já existe tarefa ativa para a mesma PR ou branch no mesmo projeto. */
+  private assertNotActive(input: DelegateInput): void {
+    const c = this.activeConflict(input);
+    if (c) throw new Error(`já existe a tarefa ${c.task.task_id} ativa para a mesma ${c.label} (${c.task.status}); aguarde ou cancele antes de lançar outra`);
   }
 
   async delegate(rawInput: DelegateInput): Promise<TaskRecord> {
     // Estado da fonte lido agora, não na listagem de minutos atrás.
     const input = this.d.enrichSource ? await this.d.enrichSource(rawInput) : rawInput;
+    this.assertNotActive(input);
     // Tudo que pode falhar acontece antes de qualquer efeito: nenhum worker é lançado com entrada inválida.
     const model = this.d.chooseModel
       ? (await this.d.chooseModel(input.model)).model
@@ -170,6 +212,8 @@ export class Orchestrator {
       task_id: taskId,
       project_id: projectId,
       project_path: input.project_path,
+      source: input.source?.trim() || null,
+      branch: input.branch?.trim() || null,
       model: model ?? null,
       role: input.role,
       worker_id: workerId,
