@@ -15,8 +15,13 @@ import { scenarios, type Scenario, type Run, type Check } from "./scenarios.ts";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const EXCLUDED = "";
 const args = process.argv.slice(2);
-const model = args[args.indexOf("--model") + 1] ?? "openai-codex/gpt-6.1-sol";
-const only = args.includes("--only") ? args[args.indexOf("--only") + 1] : undefined;
+/** Valor de uma flag `--nome valor`. Sem a flag (indexOf = -1) devolve undefined, não o argumento anterior. */
+export function flagValue(argv: string[], name: string): string | undefined {
+  const i = argv.indexOf(name);
+  return i >= 0 ? argv[i + 1] : undefined;
+}
+const model = flagValue(args, "--model") ?? "openai-codex/gpt-6.1-sol";
+const only = flagValue(args, "--only");
 
 /** Cria projetos git descartáveis com README e AGENTS.md. Retorna caminhos por nome. */
 export function makeFixtures(): Record<string, string> {
