@@ -427,13 +427,14 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       // Pula só as PRs com tarefa ativa; outros erros de validação seguem para enqueue e aparecem em failed_to_start.
       const fresh = inputs.filter((input) => !orch.activeConflict(input));
       const skipped = inputs.length - fresh.length;
+      const failedMark = fixQueue.failedCount;
       await fixQueue.enqueue(fresh);
       return asText({
         red_prs: prs.map((pr) => ({ number: pr.number, title: pr.title, branch: pr.headRefName, failing: pr.failing })),
         skipped_already_active: skipped,
         running_task_ids: fixQueue.runningIds,
         queued: fixQueue.pendingCount,
-        failed_to_start: fixQueue.failed.map((f) => ({ pr: f.item.role, error: f.error })),
+        failed_to_start: fixQueue.failedSince(failedMark).map((f) => ({ pr: f.item.role, error: f.error })),
       });
     },
   });

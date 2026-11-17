@@ -52,6 +52,15 @@ export class FixQueue<T> {
     }
   }
 
+  get failedCount(): number {
+    return this.failed.length;
+  }
+
+  /** Falhas definitivas ocorridas depois de uma contagem anterior (failedCount). */
+  failedSince(mark: number): { item: T; error: string; attempts: number }[] {
+    return this.failed.slice(mark);
+  }
+
   /** Muda o limite de paralelismo (1 a 4). Aumentar começa os pendentes; reduzir não cancela os em execução. */
   async setConcurrency(n: number): Promise<void> {
     if (!Number.isInteger(n) || n < 1 || n > 4) throw new Error("concurrency deve estar entre 1 a 4");

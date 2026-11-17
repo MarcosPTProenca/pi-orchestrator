@@ -30,3 +30,15 @@ test("setConcurrency fora do intervalo 1..4 é recusado", async () => {
   await assert.rejects(q.setConcurrency(0), /1 a 4/);
   await assert.rejects(q.setConcurrency(5), /1 a 4/);
 });
+
+test("failedSince devolve só as falhas depois de um ponto; chamadas seguintes não repetem falhas antigas", async () => {
+  const q = new FixQueue<string>(1, async (item) => {
+    if (item.startsWith("ruim")) throw new Error(`falhou ${item}`);
+    return `t-${item}`;
+  }, { maxAttempts: 1 });
+  await q.enqueue(["ruim1"]);
+  const mark = q.failedCount;
+  assert.equal(mark, 1);
+  await q.enqueue(["ruim2"]);
+  assert.deepEqual(q.failedSince(mark).map((f) => f.item), ["ruim2"]);
+});
