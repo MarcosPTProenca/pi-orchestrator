@@ -495,6 +495,24 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
+    name: "orch_send",
+    label: "orch send",
+    description:
+      "Envia uma mensagem a um worker em execução (redirecionar, passar contexto novo). Não interrompe o trabalho: o worker lê quando terminar o turno atual. Em worker bloqueado, vira resposta, como orch_answer. Recusa tarefa terminal ou painel que não é mais da tarefa.",
+    parameters: {
+      type: "object",
+      properties: { task_id: { type: "string" }, text: { type: "string" } },
+      required: ["task_id", "text"],
+      additionalProperties: false,
+    },
+    async execute(_id: string, params: { task_id: string; text: string }) {
+      assertWritable();
+      const task = await orch.send(params.task_id, params.text);
+      return asText({ task_id: task.task_id, status: task.status, delivered_after: "turno atual do worker" });
+    },
+  });
+
+  pi.registerTool({
     name: "orch_answer",
     label: "orch answer",
     description: "Envia a resposta do usuário a uma tarefa bloqueada. O worker recebe como nova mensagem e continua.",

@@ -38,6 +38,7 @@ O launcher recusa rodar fora do Herdr (`HERDR_ENV=1` e `HERDR_PANE_ID` obrigató
 | `orch_delegate(project_path, role, brief, timeout_minutes?)` | Cria (ou reutiliza) o workspace do projeto, abre uma tab para a tarefa e inicia um worker Pi com o brief. | Não |
 | `orch_status()` | Lista tarefas e estados do estado local. | Não |
 | `orch_inbox()` | Decisões abertas (`blocked`) e conclusões ou falhas ainda não avisadas. | Não |
+| `orch_send(task_id, text)` | Mensagem a um worker em execução. Não interrompe: ele lê quando terminar o turno atual. Em worker bloqueado, vira resposta. | Só o worker |
 | `orch_answer(task_id, answer)` | Envia a resposta ao worker bloqueado, que continua. | Só o worker |
 | `orch_fix_red_prs(repo_path, concurrency?)` | Lista PRs com CI vermelho e lança correções com no máximo N workers ao mesmo tempo. | Não |
 | `orch_logs(task_id, lines?)` | Últimas linhas do terminal do worker (padrão 40, máximo 200). Só lê se o painel ainda for da tarefa; mascara segredos óbvios. | Não |
