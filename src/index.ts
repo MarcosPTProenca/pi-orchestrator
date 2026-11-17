@@ -175,29 +175,51 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   const hookToken = randomBytes(24).toString("hex");
   let hookHandle: HookHandle | undefined;
 
+  /** Entrega o evento ao orquestrador como turno novo. Falha na conferência da PR não pode perder o aviso. */
+  const announce = async (event: WatchEvent): Promise<void> => {
+    let prLine = "";
+    if (event.status === "done") {
+      // Antes de dar uma PR como pronta, confere o estado atual dela no GitHub (conflito, mergeabilidade).
+      const task = orch.get(event.task_id);
+      for (const url of event.artifacts) {
+        const pr = prFromUrl(url);
+        if (!pr) continue;
+        try {
+          const remote = execFileSync("git", ["remote", "get-url", "origin"], { cwd: task.project_path, encoding: "utf8" }).trim();
+          const state = await fetchPrState(remote, pr.number, pr.owner, pr.name, task.project_path);
+          prLine += "\n" + verificationLine(state);
+        } catch (e) {
+          prLine += `\nNão consegui verificar a PR #${pr.number}: ${String(e).slice(0, 160)}. Não dê a tarefa por concluída.`;
+        }
+      }
+    }
+    pi.sendMessage(
+      { customType: "orch-event", content: modelMessageFor(event) + prLine, display: false, details: event },
+      { triggerTurn: true },
+    );
+  };
+
+  /**
+   * Varredura sem LLM: o webhook é só um atalho. Cobre webhook perdido (reinício, endereço velho) e relatório tardio.
+   */
+  let sweepTimer: ReturnType<typeof setInterval> | undefined;
+  let sweeping = false;
+  const startSweep = (): void => {
+    if (dryRun || sweepTimer) return;
+    sweepTimer = setInterval(() => {
+      if (sweeping) return;
+      sweeping = true;
+      orch.sweep().then(async (events) => { for (const e of events) await announce(e); }).catch(() => undefined).finally(() => { sweeping = false; });
+    }, Number(process.env.PI_ORCH_SWEEP_MS ?? 20_000));
+    sweepTimer.unref();
+  };
+
   /** Webhook: o worker faz POST ao terminar. Só diz qual tarefa terminou; o estado vem do relatório em disco. */
   const startHook = async (): Promise<void> => {
     if (dryRun || hookHandle) return;
     hookHandle = await startHook0(hookToken, async (taskId) => {
-      const event = await orch.refresh(taskId);
-      if (event && orch.takeNotice(taskId)) {
-        // Antes de dar uma PR como pronta, confere o estado atual dela no GitHub (conflito, mergeabilidade).
-        let prLine = "";
-        if (event.status === "done") {
-          const task = orch.get(taskId);
-          for (const url of event.artifacts) {
-            const pr = prFromUrl(url);
-            if (!pr) continue;
-            const remote = execFileSync("git", ["remote", "get-url", "origin"], { cwd: task.project_path, encoding: "utf8" }).trim();
-            const state = await fetchPrState(remote, pr.number, pr.owner, pr.name, task.project_path).catch((e) => ({ error: String(e) }));
-            prLine += "\n" + ("error" in state ? `Não consegui verificar a PR #${pr.number}: ${state.error}. Não dê a tarefa por concluída.` : verificationLine(state));
-          }
-        }
-        pi.sendMessage(
-          { customType: "orch-event", content: modelMessageFor(event) + prLine, display: false, details: event },
-          { triggerTurn: true },
-        );
-      }
+      const event = await orch.noticeFor(taskId);
+      if (event) await announce(event);
     }, Number(process.env.PI_ORCH_HOOK_PORT ?? 0));
     orch.setHook(hookHandle.url, hookToken);
   };
@@ -210,6 +232,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
     if (dryRun) return;
     await startHook();
+    startSweep();
     // Nome visível no painel do Herdr: mostra que é o orquestrador e em qual pasta. Falha é ignorada.
     const pane = process.env.HERDR_PANE_ID;
     if (pane) {
@@ -239,6 +262,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   pi.on("session_shutdown", () => {
     hookHandle?.close();
     hookHandle = undefined;
+    if (sweepTimer) clearInterval(sweepTimer);
+    sweepTimer = undefined;
   });
 
   pi.registerTool({

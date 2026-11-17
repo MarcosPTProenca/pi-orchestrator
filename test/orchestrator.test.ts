@@ -452,3 +452,52 @@ test("enrichSource lê o estado da PR no lançamento (não na listagem)", async 
   const t = await orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
   assert.match(readFileSync(t.brief_path, "utf8"), /PR com conflito agora/);
 });
+
+test("relatório tardio reabre tarefa failed/timeout/lost: o estado segue o último relatório", async () => {
+  for (const first of ["failed", "timeout", "lost"] as const) {
+    const h = makeHarness();
+    const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report", timeout_minutes: first === "timeout" ? 1 : undefined });
+    if (first === "failed") writeReport(t.task_dir, t.task_id, { status: "failed", result: "erro 500 do modelo" }, "1");
+    if (first === "lost") h.herdr.panesList = [];
+    if (first === "timeout") h.clock.ms += 2 * 60_000;
+    await h.orch.refresh(t.task_id);
+    assert.equal(h.orch.get(t.task_id).status, first);
+    h.orch.takeNotice(t.task_id);
+    writeReport(t.task_dir, t.task_id, { status: "done", result: "feito depois" }, "2");
+    const ev = await h.orch.refresh(t.task_id);
+    assert.equal(ev?.status, "done", `${first} -> done`);
+    assert.equal(h.orch.get(t.task_id).notified, false, "volta a ter aviso pendente");
+  }
+});
+
+test("tarefa cancelada não é reaberta por relatório tardio", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  await h.orch.cancel(t.task_id);
+  writeReport(t.task_dir, t.task_id, { status: "done", result: "tarde" });
+  assert.equal(await h.orch.refresh(t.task_id), null);
+  assert.equal(h.orch.get(t.task_id).status, "cancelled");
+});
+
+test("noticeFor avisa uma vez, mesmo que outro refresh já tenha aplicado o relatório", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  writeReport(t.task_dir, t.task_id, { status: "done", result: "ok" });
+  await h.orch.refresh(t.task_id); // ex.: o LLM chamou orch_status antes do webhook chegar
+  const ev = await h.orch.noticeFor(t.task_id);
+  assert.equal(ev?.status, "done");
+  assert.equal(await h.orch.noticeFor(t.task_id), null, "não repete");
+});
+
+test("sweep acha sozinho conclusões sem webhook, inclusive de tarefa que estava failed", async () => {
+  const h = makeHarness();
+  const a = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  const b = await h.orch.delegate({ project_path: h.project, role: "b", request: "x", objective: "y", mode: "report" });
+  writeReport(b.task_dir, b.task_id, { status: "failed", result: "500" }, "1");
+  assert.deepEqual((await h.orch.sweep()).map((e) => e.task_id), [b.task_id]);
+  writeReport(a.task_dir, a.task_id, { status: "done", result: "ok" });
+  writeReport(b.task_dir, b.task_id, { status: "done", result: "depois" }, "2");
+  const got = (await h.orch.sweep()).map((e) => `${e.task_id}:${e.status}`).sort();
+  assert.deepEqual(got, [`${a.task_id}:done`, `${b.task_id}:done`].sort());
+  assert.deepEqual(await h.orch.sweep(), [], "nada novo, nada avisado");
+});
