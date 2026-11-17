@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { formatEvent, modelMessageFor, FIRST_MATE_ROLE } from "../src/index.ts";
@@ -29,10 +29,15 @@ test("papel do orquestrador: não executa trabalho de projeto e lança pelas too
   assert.match(FIRST_MATE_ROLE, /orch_locate_project antes de perguntar/);
 });
 
-test("launcher não exclui ferramentas: subagents de pesquisa ficam disponíveis; worker está desabilitado no settings", () => {
+test("launcher não exclui ferramentas: subagents de pesquisa ficam disponíveis", () => {
   const bin = readFileSync(join(process.cwd(), "bin", "pi-orch"), "utf8");
   assert.doesNotMatch(bin, /--exclude-tools/);
-  const settings = JSON.parse(readFileSync(join(homedir(), ".pi", "agent", "settings.json"), "utf8"));
+});
+
+// Depende do settings.json pessoal do usuário: ausente no CI, então só roda onde o arquivo existe.
+const userSettings = join(homedir(), ".pi", "agent", "settings.json");
+test("worker do pi-subagents está desabilitado no settings do usuário", { skip: !existsSync(userSettings) && "settings.json do usuário ausente" }, () => {
+  const settings = JSON.parse(readFileSync(userSettings, "utf8"));
   assert.equal(settings.subagents.agentOverrides.worker.disabled, true);
 });
 
