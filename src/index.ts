@@ -24,6 +24,7 @@ import { Store, defaultStateDir } from "./store.ts";
 import { NoticeBatcher } from "./notices.ts";
 import { notificationFor, notifyArgs, notifyEnabled } from "./notify.ts";
 import { buildStatus } from "./status.ts";
+import { classifyFailure, suggestModel } from "./failure.ts";
 import { capError, maxActiveFrom } from "./cap.ts";
 import { isActive } from "./contract.ts";
 import { orphanLeases, releaseLease, type WorktreeOps } from "./worktrees.ts";
@@ -257,6 +258,16 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     if (notifyEnabled(process.env)) {
       const n = notificationFor(event);
       if (n) execFile("herdr", notifyArgs(n), { timeout: 10_000 }, () => undefined);
+    }
+    if (event.status === "failed") {
+      // Só cota sugere outro modelo. Erro 500 ou de credencial não se resolve trocando de modelo.
+      const task = orch.get(event.task_id);
+      if (classifyFailure(event.result ?? event.error ?? "") === "quota") {
+        const next = suggestModel(task.model ?? "", DEFAULT_PRIORITY);
+        prLine += next
+          ? `\nCota esgotada em ${task.model}. Para relançar com outro modelo: orch_relaunch(task_id="${event.task_id}", model="${next}").`
+          : `\nCota esgotada em ${task.model}, e não há outro modelo na ordem de prioridade.`;
+      }
     }
     notices.push({ key: `${event.task_id}:${event.status}`, text: modelMessageFor(event) + prLine, event });
   };
@@ -540,6 +551,24 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       assertWritable();
       const task = await orch.send(params.task_id, params.text);
       return asText({ task_id: task.task_id, status: task.status, delivered_after: "turno atual do worker" });
+    },
+  });
+
+  pi.registerTool({
+    name: "orch_relaunch",
+    label: "orch relaunch",
+    description:
+      "Relança uma tarefa que falhou, como tarefa nova ligada à anterior. Falha por cota exige um modelo diferente do que esgotou; outras falhas mantêm o modelo. Nunca roda sozinho: só quando o usuário pede. A tarefa anterior e a sua worktree não mudam.",
+    parameters: {
+      type: "object",
+      properties: { task_id: { type: "string" }, model: { type: "string", description: "Modelo exato do relançamento. Obrigatório após falha por cota." } },
+      required: ["task_id"],
+      additionalProperties: false,
+    },
+    async execute(_id: string, params: { task_id: string; model?: string }) {
+      assertWritable();
+      const task = await orch.relaunch(params.task_id, params.model);
+      return asText({ task_id: task.task_id, relaunched_from: task.relaunched_from ?? null, status: task.status, model: task.model });
     },
   });
 
