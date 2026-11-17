@@ -350,9 +350,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       const concurrency = params.concurrency ?? 2;
       if (!fixQueue) fixQueue = new FixQueue<DelegateInput>(Math.min(Math.max(concurrency, 1), 4), startTask);
       const inputs = prs.map((pr) => fixInputFor(pr, params.repo_path, params.model));
-      const fresh = inputs.filter((input) => {
-        try { orch.checkDelegate(input); return true; } catch { return false; }
-      });
+      // Pula só as PRs com tarefa ativa; outros erros de validação seguem para enqueue e aparecem em failed_to_start.
+      const fresh = inputs.filter((input) => !orch.activeConflict(input));
       const skipped = inputs.length - fresh.length;
       await fixQueue.enqueue(fresh);
       return asText({

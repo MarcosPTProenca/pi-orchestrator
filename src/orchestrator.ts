@@ -167,14 +167,21 @@ export class Orchestrator {
     }
   }
 
-  /** Recusa lançar se já existe tarefa ativa para a mesma PR ou branca no mesmo projeto. */
-  private assertNotActive(input: DelegateInput): void {
+  /** Tarefa ativa no mesmo projeto para a mesma PR ou branch, ou null. Não lança. */
+  activeConflict(input: DelegateInput): { task: TaskRecord; label: string } | null {
     const projectId = basename(input.project_path);
     for (const t of this.list()) {
       if (!isActive(t.status) || t.project_id !== projectId) continue;
       const dup = sameWork({ ...input, source: t.source ?? undefined, branch: t.branch ?? undefined, project_path: t.project_path }, input);
-      if (dup) throw new Error(`já existe a tarefa ${t.task_id} ativa para a mesma ${dup} (${t.status}); aguarde ou cancele antes de lançar outra`);
+      if (dup) return { task: t, label: dup };
     }
+    return null;
+  }
+
+  /** Recusa lançar se já existe tarefa ativa para a mesma PR ou branch no mesmo projeto. */
+  private assertNotActive(input: DelegateInput): void {
+    const c = this.activeConflict(input);
+    if (c) throw new Error(`já existe a tarefa ${c.task.task_id} ativa para a mesma ${c.label} (${c.task.status}); aguarde ou cancele antes de lançar outra`);
   }
 
   async delegate(rawInput: DelegateInput): Promise<TaskRecord> {
