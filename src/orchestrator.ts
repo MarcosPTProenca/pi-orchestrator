@@ -16,13 +16,15 @@ import {
   type TaskRecord,
   type TaskStatus,
 } from "./contract.ts";
-import type { HerdrPort } from "./herdr.ts";
+import { belowFloor, PRESENTATION_FLOOR, type HerdrPort, type TabResult } from "./herdr.ts";
 import type { Store } from "./store.ts";
 
 export interface OrchDeps {
   /** Devolve a worktree da tarefa ao pool, se seguro, e devolve a nota para o usuário. */
   releaseWorktree?: (task: TaskRecord) => string;
   herdr: HerdrPort;
+  /** Um workspace Herdr por tarefa, em vez de uma tab no workspace do projeto. Padrão: false (flat). */
+  presentationSpaces?: boolean;
   store: Store;
   tasksDir: string;
   workerExtPath: string;
@@ -157,6 +159,20 @@ export class Orchestrator {
     return record;
   }
 
+  /** Fecha o que a tarefa abriu: o workspace próprio se projetada; senão só a tab, que fica no workspace do projeto. */
+  private async closeSurface(t: TaskRecord): Promise<void> {
+    if (t.projected) await this.d.herdr.closeWorkspace(t.workspace_id);
+    else await this.d.herdr.closeTab(t.tab_id);
+  }
+
+  /** Modo por tarefa exige Herdr 0.8.0 ou mais. Falha antes de qualquer efeito. */
+  private async assertSpacesFloor(): Promise<void> {
+    const v = await this.d.herdr.clientVersion();
+    if (belowFloor(v)) {
+      throw new Error(`workspace por tarefa (PI_ORCH_PRESENTATION_SPACES=1) exige Herdr ${PRESENTATION_FLOOR} ou mais; encontrado: ${v ?? "desconhecido"}. Nada foi lançado.`);
+    }
+  }
+
   /** Valida uma delegação sem efeitos: modelo, projeto, pedido, objetivo e modo. Lança erro explícito. */
   checkDelegate(input: DelegateInput): void {
     resolveModel(input.model, this.d.availableModels());
@@ -204,6 +220,8 @@ export class Orchestrator {
       : resolveModel(input.model, this.d.availableModels());
     const projectId = basename(input.project_path);
     const intake = buildIntake({ ...input, model });
+    const projected = this.d.presentationSpaces === true && !this.d.dryRun;
+    if (projected) await this.assertSpacesFloor();
 
     const taskId = `t-${this.d.newHex()}`;
     const workerId = workerAgentName(input.project_path, taskId.slice(2));
@@ -230,6 +248,7 @@ export class Orchestrator {
       role: input.role,
       worker_id: workerId,
       workspace_id: "",
+      projected,
       tab_id: "",
       pane_id: "",
       terminal_id: "",
@@ -252,19 +271,30 @@ export class Orchestrator {
     if (this.d.dryRun) return record;
 
     let tabId: string | undefined;
+    let spaceId: string | undefined;
     try {
-      const ws = await this.ensureWorkspace(input.project_path, projectId);
-      const tab = await this.d.herdr.createTab({
-        workspaceId: ws.workspace_id,
-        cwd: input.project_path,
-        label: workerTabName(input.role, taskId.slice(2)),
-        env: {
-          PI_ORCH_ROLE: "worker",
-          PI_ORCH_TASK_ID: taskId,
-          PI_ORCH_TASK_DIR: taskDir,
-          ...(this.d.hookUrl && this.d.hookToken ? { PI_ORCH_HOOK_URL: this.d.hookUrl, PI_ORCH_HOOK_TOKEN: this.d.hookToken } : {}),
-        },
-      });
+      let ws: { workspace_id: string };
+      let tab: TabResult;
+      if (projected) {
+        // Workspace próprio: o pane raiz é o do worker. createWorkspace não aceita env (ver launch abaixo).
+        const space = await this.d.herdr.createWorkspace({ cwd: input.project_path, label: workerTabName(input.role, taskId.slice(2)) });
+        spaceId = space.workspace_id;
+        ws = space;
+        tab = { tab_id: space.seeded_tab_id, pane_id: space.pane_id, terminal_id: space.terminal_id };
+      } else {
+        ws = await this.ensureWorkspace(input.project_path, projectId);
+        tab = await this.d.herdr.createTab({
+          workspaceId: ws.workspace_id,
+          cwd: input.project_path,
+          label: workerTabName(input.role, taskId.slice(2)),
+          env: {
+            PI_ORCH_ROLE: "worker",
+            PI_ORCH_TASK_ID: taskId,
+            PI_ORCH_TASK_DIR: taskDir,
+            ...(this.d.hookUrl && this.d.hookToken ? { PI_ORCH_HOOK_URL: this.d.hookUrl, PI_ORCH_HOOK_TOKEN: this.d.hookToken } : {}),
+          },
+        });
+      }
       tabId = tab.tab_id;
       this.update(taskId, (t) => {
         t.workspace_id = ws.workspace_id;
@@ -281,13 +311,18 @@ export class Orchestrator {
       piArgs.push(LAUNCH_MESSAGE);
       // Assíncrono, como o FirstMate: digita o comando no pane e segue. O Herdr reconhece o agente depois,
       // e o webhook do worker é quem avisa o fim. Não há espera bloqueante pelo agente subir.
-      await this.d.herdr.runInPane(tab.pane_id, ["pi", ...piArgs].map(shellQuote).join(" "));
+      const launch = ["pi", ...piArgs];
+      // Sem env no workspace próprio: as variáveis de papel vão no comando. O token do webhook fica de fora
+      // (não entra no pane); sem ele o worker não faz POST e a varredura de 20 s avisa a conclusão.
+      if (projected) launch.unshift("env", "PI_ORCH_ROLE=worker", `PI_ORCH_TASK_ID=${taskId}`, `PI_ORCH_TASK_DIR=${taskDir}`);
+      await this.d.herdr.runInPane(tab.pane_id, launch.map(shellQuote).join(" "));
       await this.d.herdr.renamePane(tab.pane_id, workerId).catch(() => undefined);
       return this.update(taskId, (t) => {
         t.status = "running";
       });
     } catch (err) {
-      if (tabId) await this.d.herdr.closeTab(tabId).catch(() => undefined);
+      if (spaceId) await this.d.herdr.closeWorkspace(spaceId).catch(() => undefined);
+      else if (tabId) await this.d.herdr.closeTab(tabId).catch(() => undefined);
       this.update(taskId, (t) => {
         t.status = "failed";
         t.error = errorMessage(err);
@@ -398,7 +433,7 @@ export class Orchestrator {
     if (owner === "mismatch") {
       throw new Error(`tab ${t.tab_id} não corresponde mais à tarefa ${taskId}; nada foi fechado`);
     }
-    if (owner === "owned") await this.d.herdr.closeTab(t.tab_id);
+    if (owner === "owned") await this.closeSurface(t);
     return this.update(taskId, (x) => {
       x.notified = true;
     });
@@ -603,7 +638,7 @@ export class Orchestrator {
     if (owner === "mismatch") {
       throw new Error(`pane ${t.pane_id} não corresponde mais à tarefa ${taskId}; nada foi encerrado`);
     }
-    if (owner === "owned") await this.d.herdr.closeTab(t.tab_id);
+    if (owner === "owned") await this.closeSurface(t);
     this.update(taskId, (x) => {
       x.status = "cancelled";
       x.notified = true;

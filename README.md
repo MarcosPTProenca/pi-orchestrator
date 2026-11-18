@@ -53,6 +53,12 @@ uma vez no fim, com `done`, `failed` ou `blocked`.
 - **Layout:** um workspace Herdr por projeto (rótulo = nome do diretório). Cada tarefa
   é uma tab nesse workspace. A tab criada junto com o workspace fica como âncora, para o
   agrupamento não sumir.
+- **Modo opcional, workspace por tarefa (`PI_ORCH_PRESENTATION_SPACES=1`):** cada tarefa ganha um workspace
+  Herdr próprio, como os presentation spaces do FirstMate, e não uma tab no workspace do projeto. Padrão desligado.
+  Exige Herdr 0.8.0 ou mais (`herdr --version`); abaixo disso a tarefa não é lançada. Cancelar ou fechar a tarefa
+  fecha o workspace inteiro. Como o workspace não recebe variáveis de ambiente, o worker não recebe o token do
+  webhook: o aviso de conclusão chega pela varredura de 20 s, não na hora. Tarefa perdida (pane fechado fora do
+  orquestrador) não fecha o workspace sozinha.
 - **Aviso de conclusão (sem LLM):** o worker grava `report.json` e faz POST no webhook local do
   orquestrador. Como o webhook só vale com a sessão aberta e pode se perder (reinício, endereço velho),
   há também uma varredura a cada 20 s (`PI_ORCH_SWEEP_MS`) que lê os relatórios em disco. Os dois usam
@@ -77,13 +83,19 @@ uma vez no fim, com `done`, `failed` ou `blocked`.
   registro. Se não baterem, não fecha nada.
 - **Reinício:** `reconcile` confere as tarefas ativas com o Herdr e os relatórios em disco.
 
+## Quem abre issues e PRs
+
+- **Orquestrador:** abre issue de processo ou relato (por exemplo, uma regra que o worker não seguiu) diretamente, com `gh`, sem lançar worker para isso.
+- **Worker:** só comenta ou publica em issue/PR quando o pedido do usuário disser isso para aquela tarefa (regra 6 do brief, `src/intake.ts`).
+- **Exceção:** o orquestrador delega a abertura de issue a um worker só quando o usuário pede explicitamente *e* a issue exige investigação de código que o orquestrador não tem contexto para fazer (por exemplo, localizar o `arquivo:linha` da causa raiz).
+
 ## Estado e arquivos
 
 - Estado: `~/.pi/orchestrator/state.json` (troque com `PI_ORCH_STATE_DIR`).
 - Posse: `owner.json` no diretório de estado. Uma sessão do orquestrador por diretório; a segunda sessão viva fica em modo somente leitura (consulta sim, lança/responde/cancela/avisa não). Posse de processo morto é retomada.
 - Tarefas: `~/.pi/orchestrator/tasks/<task_id>/` com `brief.md` e `report.json`.
 - Arquivamento de tarefas antigas: adiado. O estado de 25 tarefas (43 KB) carrega em cerca de 0,1 ms; reavaliar quando passar de ~500 tarefas.
-- Sem limite de tarefas simultâneas. Cada tarefa tem sua tab no workspace do projeto.
+- Sem limite de tarefas simultâneas. No modo padrão, cada tarefa tem sua tab no workspace do projeto; no modo opcional, seu próprio workspace.
 
 ## Smoke test real
 
