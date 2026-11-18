@@ -92,7 +92,9 @@ uma vez no fim, com `done`, `failed` ou `blocked`.
 ## Estado e arquivos
 
 - Estado: `~/.pi/orchestrator/state.json` (troque com `PI_ORCH_STATE_DIR`).
-- Posse: `owner.json` no diretório de estado. Uma sessão do orquestrador por diretório; a segunda sessão viva fica em modo somente leitura (consulta sim, lança/responde/cancela/avisa não). Posse de processo morto é retomada.
+- Posse: uma sessão do orquestrador por projeto (raiz do repositório git, ou o próprio diretório fora de git), em `owners/<chave>/owner.json` dentro do diretório de estado. Projetos diferentes rodam ao mesmo tempo; a segunda sessão viva do mesmo projeto fica em modo somente leitura (consulta sim, lança/responde/cancela/avisa não). Posse de processo morto é retomada.
+- Tarefas: cada tarefa guarda `owner_key` (escopo de quem a lançou). Cada sessão avisa, varre e altera só as próprias; tarefas legadas sem dono são adotadas pela sessão do projeto delas ao iniciar. O teto `PI_ORCH_MAX_ACTIVE` continua global, somando todos os escopos.
+- Escrita: `state.json` é gravado sob trava de diretório (`state.json.lock`), para que duas sessões não percam atualizações uma da outra. Trava abandonada há mais de 10 s é removida.
 - Tarefas: `~/.pi/orchestrator/tasks/<task_id>/` com `brief.md` e `report.json`.
 - Arquivamento de tarefas antigas: adiado. O estado de 25 tarefas (43 KB) carrega em cerca de 0,1 ms; reavaliar quando passar de ~500 tarefas.
 - Sem limite de tarefas simultâneas. No modo padrão, cada tarefa tem sua tab no workspace do projeto; no modo opcional, seu próprio workspace.

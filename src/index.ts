@@ -29,7 +29,7 @@ import { capError, maxActiveFrom } from "./cap.ts";
 import { isActive } from "./contract.ts";
 import { orphanLeases, releaseLease, type WorktreeOps } from "./worktrees.ts";
 import { idleSurfaces } from "./idle.ts";
-import { acquireOwnership, releaseOwnership } from "./lock.ts";
+import { acquireOwnership, releaseOwnership, scopeKey, scopeOwnerDir } from "./lock.ts";
 
 /** Treehouse real: `treehouse status` no repositório, `git` na worktree e `treehouse return` sem --force. */
 const treehouseOps: WorktreeOps = {
@@ -142,9 +142,11 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   // Dona do estado. Simulação (dryRun) não grava no Herdr nem disputa o diretório, então é sempre dona.
   let owner = dryRun;
   let ownerPid: number | undefined;
-  /** Só a dona do estado escreve: lança, responde, cancela, fecha ou avisa. */
+  /** Diretório de posse deste projeto. Indefinido até a sessão começar. */
+  let ownerDir: string | undefined;
+  /** Só a dona do projeto escreve: lança, responde, cancela, fecha ou avisa. */
   const assertWritable = (): void => {
-    if (!owner) throw new Error(`sessão somente leitura: a sessão do orquestrador (pid ${ownerPid ?? "?"}) é a dona de ${stateDir}`);
+    if (!owner) throw new Error(`sessão somente leitura: a sessão do orquestrador (pid ${ownerPid ?? "?"}) já cuida deste projeto`);
   };
 
   /** Cota com cache de 60 s, para não chamar o quota-axi a cada item de um lote. */
@@ -308,21 +310,27 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 
   pi.on("session_start", async (_event, ctx) => {
     if (dryRun) return;
-    const own = acquireOwnership(stateDir);
+    // Posse por projeto: sessões de projetos diferentes rodam juntas; só a segunda sessão do mesmo projeto fica somente leitura.
+    const key = scopeKey(ctx.cwd);
+    ownerDir = scopeOwnerDir(stateDir, key);
+    const own = acquireOwnership(ownerDir);
     owner = own.owner;
     ownerPid = own.holder?.pid;
     if (!owner) {
-      // Segunda sessão viva: consulta só. Sem webhook, varredura, reconciliação nem avisos.
+      // Segunda sessão viva do mesmo projeto: consulta só. Sem webhook, varredura, reconciliação nem avisos.
       pi.sendMessage(
-        { customType: "orch-event", content: `Outra sessão do orquestrador (pid ${ownerPid}) já usa ${stateDir}. Esta sessão está em modo somente leitura: consulta sim; não lança, não responde, não cancela e não avisa.`, display: true },
+        { customType: "orch-event", content: `Outra sessão do orquestrador (pid ${ownerPid}) já cuida deste projeto (${ctx.cwd}). Esta sessão está em modo somente leitura: consulta sim; não lança, não responde, não cancela e não avisa.`, display: true },
         { triggerTurn: false },
       );
       return;
     }
+    orch.setScope(key);
+    // Tarefas legadas (de antes do escopo por projeto) deste projeto passam a ser desta sessão.
+    orch.adoptUnowned((p) => scopeKey(p) === key);
     // Arrendamentos de tarefas já terminais: só listados, nunca devolvidos sozinhos.
     try {
-      const terminal = new Set(orch.list().filter((t) => !isActive(t.status)).map((t) => t.task_id));
-      const projects = [...new Set(orch.list().map((t) => t.project_path))];
+      const terminal = new Set(orch.owned().filter((t) => !isActive(t.status)).map((t) => t.task_id));
+      const projects = [...new Set(orch.owned().map((t) => t.project_path))];
       const orphans = projects.flatMap((p) => orphanLeases(treehouseOps, p, terminal));
       if (orphans.length > 0) {
         pi.sendMessage(
@@ -338,7 +346,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     try {
       const herdr = new HerdrCli();
       const live = { tabIds: await herdr.tabIds(), panes: await herdr.panes() };
-      const idle = idleSurfaces(orch.list(), live);
+      const idle = idleSurfaces(orch.owned(), live);
       if (idle.length > 0) {
         pi.sendMessage(
           { customType: "orch-event", content: `Superfícies ociosas de tarefas concluídas e entregues (${idle.length}), ainda abertas: ${idle.map((s) => s.task_id).join(", ")}. Fechar com orch_close.`, display: true },
@@ -379,7 +387,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   pi.on("session_shutdown", () => {
     // Avisos ainda na janela voltam a ser pendentes: o próximo início os entrega.
     for (const left of notices.drain()) orch.reopenNotice(left.event.task_id);
-    if (owner && !dryRun) releaseOwnership(stateDir);
+    if (owner && !dryRun && ownerDir) releaseOwnership(ownerDir);
     hookHandle?.close();
     hookHandle = undefined;
     if (sweepTimer) clearInterval(sweepTimer);

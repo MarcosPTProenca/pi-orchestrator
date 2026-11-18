@@ -46,6 +46,8 @@ export interface TaskRecord {
   workspace_id: string;
   /** true quando a tarefa tem workspace próprio (PI_ORCH_PRESENTATION_SPACES=1): o cancelamento fecha o workspace. */
   projected?: boolean;
+  /** Escopo (projeto) da sessão do orquestrador que lançou e cuida da tarefa. Ausente: tarefa legada, ainda não adotada. */
+  owner_key?: string;
   tab_id: string;
   pane_id: string;
   terminal_id: string;
