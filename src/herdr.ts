@@ -122,6 +122,13 @@ export function parseWorkspaceIds(json: unknown): string[] {
   return list.map((w) => String((w as Obj).workspace_id));
 }
 
+/** Interpreta `herdr tab list` e devolve os tab_id listados. */
+export function parseTabIds(json: unknown): Set<string> {
+  const list = (json as { result?: { tabs?: unknown[] } })?.result?.tabs;
+  if (!Array.isArray(list)) throw new Error("resposta de tab list sem tabs");
+  return new Set(list.map((t) => String((t as Obj).tab_id)));
+}
+
 /** Interpreta `herdr api snapshot` e devolve os panes. */
 export function parsePanes(json: unknown): PaneInfo[] {
   const panes = (json as { result?: { snapshot?: { panes?: unknown[] } } })?.result?.snapshot?.panes;
@@ -230,6 +237,11 @@ export class HerdrCli implements HerdrPort {
 
   async panes(): Promise<PaneInfo[]> {
     return parsePanes(JSON.parse(await this.runOk(["api", "snapshot"])));
+  }
+
+  /** tab_id de todas as tabs abertas agora. */
+  async tabIds(): Promise<Set<string>> {
+    return parseTabIds(JSON.parse(await this.runOk(["tab", "list"])));
   }
 }
 
