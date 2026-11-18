@@ -7,6 +7,22 @@ if [ "${HERDR_ENV:-}" != "1" ] || [ -z "${HERDR_PANE_ID:-}" ]; then
   echo "pi-orch: rode dentro de um pane do Herdr (HERDR_ENV=1 e HERDR_PANE_ID definidos)" >&2
   exit 1
 fi
+# Sincroniza com a master antes de subir, só avança (ff-only). Se não der (rede, branch
+# diferente, mudanças locais, histórico divergente), segue com a cópia atual sem bloquear.
+# PI_ORCH_NO_SYNC=1 desliga.
+if [ "${PI_ORCH_NO_SYNC:-}" != "1" ] && [ "$(git -C "$HERE" symbolic-ref --short -q HEAD 2>/dev/null)" = "master" ]; then
+  if git -C "$HERE" diff --quiet && git -C "$HERE" diff --cached --quiet; then
+    before="$(git -C "$HERE" rev-parse HEAD)"
+    if GIT_TERMINAL_PROMPT=0 timeout 15 git -C "$HERE" pull --ff-only --quiet origin master >/dev/null 2>&1; then
+      after="$(git -C "$HERE" rev-parse HEAD)"
+      [ "$before" = "$after" ] || echo "pi-orch: atualizado com master (${before:0:7} -> ${after:0:7})" >&2
+    else
+      echo "pi-orch: sync com master não aplicado (rede ou histórico divergente); seguindo com a cópia atual" >&2
+    fi
+  else
+    echo "pi-orch: mudanças locais em arquivos rastreados; sync com master pulado" >&2
+  fi
+fi
 export PI_ORCH_WORKER_EXT="$HERE/src/worker-ext.ts"
 # Orquestrador = agente Pi normal, com todas as ferramentas (inclusive subagents de pesquisa). O agente worker do pi-subagents está desabilitado em settings.json.
 exec pi -e "$HERE/src/index.ts" "$@"
