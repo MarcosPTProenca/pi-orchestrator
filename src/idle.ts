@@ -10,7 +10,7 @@
  * Só conta o que o Herdr confirma agora: o registro guarda ids posicionais (`w1Y:t1`) que podem
  * ser reutilizados. Vale a tab listada e o pane/terminal iguais aos do registro (mesmo dono de `orch_close`).
  */
-import { isActive, type TaskRecord } from "./contract.ts";
+import type { TaskRecord } from "./contract.ts";
 import type { PaneInfo } from "./herdr.ts";
 
 export interface IdleSurface {
@@ -33,7 +33,7 @@ export function confirmedInHerdr(t: TaskRecord, live: LiveSurfaces): boolean {
 
 export function idleSurfaces(tasks: TaskRecord[], live: LiveSurfaces): IdleSurface[] {
   return tasks
-    .filter((t) => !isActive(t.status) && t.status === "done" && t.notified && !!t.tab_id && confirmedInHerdr(t, live))
+    .filter((t) => t.status === "done" && t.notified && !!t.tab_id && confirmedInHerdr(t, live))
     .map((t) => ({ task_id: t.task_id, project_id: t.project_id, updated_at: t.updated_at, projected: t.projected === true }))
     .sort((a, b) => a.updated_at.localeCompare(b.updated_at));
 }
