@@ -15,6 +15,7 @@ export class FakeHerdr implements HerdrPort {
   tabOf = new Map<string, string>();
   nextId = 1;
   failStart = false;
+  version = "0.9.1";
   waitImpl: WaitFn = async () => ({ timeout: true });
 
   private newPane(cwd: string, tabId: string): { pane_id: string; terminal_id: string } {
@@ -52,6 +53,16 @@ export class FakeHerdr implements HerdrPort {
     this.panesList = this.panesList.filter((p) => !paneIds.includes(p.pane_id));
     const wsId = tabId.split(":")[0];
     if (![...this.panesList].some((p) => p.pane_id.startsWith(`${wsId}:`))) this.workspaces.delete(wsId);
+  }
+
+  async closeWorkspace(workspaceId: string): Promise<void> {
+    this.calls.push({ op: "closeWorkspace", args: workspaceId });
+    this.panesList = this.panesList.filter((p) => !p.pane_id.startsWith(`${workspaceId}:`));
+    this.workspaces.delete(workspaceId);
+  }
+
+  async clientVersion(): Promise<string | null> {
+    return this.version;
   }
 
   async runInPane(paneId: string, command: string): Promise<void> {
@@ -102,11 +113,12 @@ export interface Harness {
   clock: { ms: number };
 }
 
-export function makeHarness(): Harness {
+export function makeHarness(opts: { presentationSpaces?: boolean; herdrVersion?: string } = {}): Harness {
   const stateDir = mkdtempSync(join(tmpdir(), "orch-state-"));
   const project = mkdtempSync(join(tmpdir(), "orch-proj-"));
   mkdirSync(join(project, ".git"));
   const herdr = new FakeHerdr();
+  herdr.version = opts.herdrVersion ?? "0.9.1";
   const clock = { ms: Date.parse("2026-11-16T12:00:00Z") };
   let counter = 0;
   const orch = new Orchestrator({
@@ -118,6 +130,7 @@ export function makeHarness(): Harness {
     newHex: () => (++counter).toString(16).padStart(8, "a"),
     availableModels: () => ["claude-bridge/claude-haiku-5-5", "openai-codex/gpt-6.1-sol"],
     dryRun: false,
+    presentationSpaces: opts.presentationSpaces,
   });
   return { herdr, orch, stateDir, project, clock };
 }
