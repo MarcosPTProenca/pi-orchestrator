@@ -98,3 +98,15 @@ test("papel proíbe recomendar ação pública que o usuário não pediu", () =>
   assert.match(FIRST_MATE_ROLE, /Nunca recomende nem proponha como opção uma ação pública/);
   assert.match(FIRST_MATE_ROLE, /quando um worker reportar uma decisão nova/);
 });
+
+test("papel aciona subagents para pesquisa e levantamento, sem pesquisar sozinho", () => {
+  assert.match(FIRST_MATE_ROLE, /Pesquisa e levantamento não são seus/);
+  assert.match(FIRST_MATE_ROLE, /`researcher`/);
+  assert.match(FIRST_MATE_ROLE, /`log-researcher`/);
+  assert.match(FIRST_MATE_ROLE, /Nunca pesquise ou levante sozinho/);
+});
+
+test("papel executa pedido claro e relata o erro quando falha", () => {
+  assert.match(FIRST_MATE_ROLE, /Pedido claro dentro do seu papel/);
+  assert.match(FIRST_MATE_ROLE, /diga a tentativa e o erro exato/);
+});
