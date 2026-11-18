@@ -34,6 +34,10 @@ export interface HerdrPort {
   workspaceIds(): Promise<string[]>;
   createTab(a: { workspaceId: string; cwd: string; label: string; env: Record<string, string> }): Promise<TabResult>;
   closeTab(tabId: string): Promise<void>;
+  /** Fecha o workspace inteiro (modo por tarefa). */
+  closeWorkspace(workspaceId: string): Promise<void>;
+  /** Versão do cliente Herdr (ex.: 0.9.1), ou null se não der para ler. */
+  clientVersion(): Promise<string | null>;
   /** Digita o comando no pane de shell e segue sem esperar o agente aparecer (como o FirstMate). */
   runInPane(paneId: string, command: string): Promise<void>;
   /** Rótulo visível do pane. */
@@ -55,6 +59,28 @@ export class HerdrError extends Error {
   constructor(args: string[], detail: string) {
     super(`herdr ${args.slice(0, 2).join(" ")} falhou: ${detail.trim()}`);
   }
+}
+
+/** Piso do modo por tarefa: workspaces descartáveis exigem Herdr 0.8.0 (defeito de foco nas versões anteriores). */
+export const PRESENTATION_FLOOR = "0.8.0";
+
+/** Extrai X.Y.Z da saída de `herdr --version` (ex.: "herdr 0.9.1"). */
+export function parseVersion(text: string): string | null {
+  const m = /\b(\d+\.\d+\.\d+)\b/.exec(text);
+  return m ? m[1] : null;
+}
+
+/** true se a versão está abaixo do piso, ou se não é conhecida (desconhecida conta como abaixo). */
+export function belowFloor(version: string | null, floor = PRESENTATION_FLOOR): boolean {
+  if (version === null) return true;
+  const a = version.split(".").map(Number);
+  const b = floor.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    const x = a[i] ?? 0;
+    const y = b[i] ?? 0;
+    if (x !== y) return x < y;
+  }
+  return false;
 }
 
 type Obj = Record<string, unknown>;
@@ -154,6 +180,14 @@ export class HerdrCli implements HerdrPort {
 
   async closeTab(tabId: string): Promise<void> {
     await this.runOk(["tab", "close", tabId]);
+  }
+
+  async closeWorkspace(workspaceId: string): Promise<void> {
+    await this.runOk(["workspace", "close", workspaceId]);
+  }
+
+  async clientVersion(): Promise<string | null> {
+    return parseVersion(await this.runOk(["--version"]));
   }
 
   async runInPane(paneId: string, command: string): Promise<void> {

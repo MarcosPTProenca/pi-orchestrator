@@ -167,6 +167,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   const orch = new Orchestrator({
     releaseWorktree: (t) => releaseLease(treehouseOps, t.project_path, t.task_id).message,
     herdr: new HerdrCli(),
+    presentationSpaces: process.env.PI_ORCH_PRESENTATION_SPACES === "1",
     store: new Store(join(stateDir, "state.json")),
     tasksDir: join(stateDir, "tasks"),
     workerExtPath: process.env.PI_ORCH_WORKER_EXT ?? resolve(here, "worker-ext.ts"),
