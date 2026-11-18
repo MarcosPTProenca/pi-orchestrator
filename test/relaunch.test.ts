@@ -47,4 +47,42 @@ test("tarefa ainda ativa não relança; tarefa não falha não relança", async 
   await assert.rejects(h.orch.relaunch(t.task_id, LUNA), /ainda está ativa/);
 });
 
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+test("relançamento passa o relatório completo da tentativa anterior, sem cortar em 300 caracteres", async () => {
+  const h = makeHarness();
+  const longResult = `${"x".repeat(800)} FIM-DO-RELATORIO`;
+  const old = await failed(h, longResult, HAIKU);
+  const neu = await h.orch.relaunch(old.task_id);
+  const brief = readFileSync(neu.brief_path, "utf8");
+  assert.match(brief, /FIM-DO-RELATORIO/);
+});
+
+test("com a sessão da tentativa anterior em disco: o relançamento faz fork dela (--fork), sem alterar a original", async () => {
+  const h = makeHarness();
+  const old = await failed(h, "Encerrou com erro do modelo. Erro: 500", HAIKU);
+  const dir = mkdtempSync(join(tmpdir(), "orch-sess-"));
+  const session = join(dir, "prev.jsonl");
+  try {
+    writeFileSync(session, "{}\n");
+    writeFileSync(join(old.task_dir, "session.txt"), session);
+    const neu = await h.orch.relaunch(old.task_id);
+    const cmd = (h.herdr.opsOf("runInPane").at(-1)!.args as { command: string }).command;
+    assert.match(cmd, new RegExp(`--fork '?${session.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}'?`));
+    assert.match(readFileSync(neu.brief_path, "utf8"), /copiada para esta sessão/);
+    assert.equal(readFileSync(session, "utf8"), "{}\n", "a sessão original não muda");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("sem sessão gravada (ou arquivo sumido): relança em sessão nova, sem --fork", async () => {
+  const h = makeHarness();
+  const old = await failed(h, "Encerrou com erro do modelo. Erro: 500", HAIKU);
+  writeFileSync(join(old.task_dir, "session.txt"), "/nao/existe/sessao.jsonl");
+  await h.orch.relaunch(old.task_id);
+  const cmd = (h.herdr.opsOf("runInPane").at(-1)!.args as { command: string }).command;
+  assert.doesNotMatch(cmd, /--fork/);
+});

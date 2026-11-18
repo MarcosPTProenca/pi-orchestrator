@@ -2,6 +2,7 @@
  * Núcleo do orquestrador: delegação, acompanhamento, respostas, cancelamento
  * e reconciliação. Não chama LLM. Recebe o Herdr e o estado por injeção.
  */
+import { workerSessionFile } from "./session-file.ts";
 import { resolveModel } from "./models.ts";
 import { workerAgentName, workerTabName } from "./label.ts";
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
@@ -193,7 +194,7 @@ export class Orchestrator {
     if (c) throw new Error(`já existe a tarefa ${c.task.task_id} ativa para a mesma ${c.label} (${c.task.status}); aguarde ou cancele antes de lançar outra`);
   }
 
-  async delegate(rawInput: DelegateInput): Promise<TaskRecord> {
+  async delegate(rawInput: DelegateInput, opts: { forkSession?: string } = {}): Promise<TaskRecord> {
     // Estado da fonte lido agora, não na listagem de minutos atrás.
     const input = this.d.enrichSource ? await this.d.enrichSource(rawInput) : rawInput;
     this.assertNotActive(input);
@@ -274,6 +275,8 @@ export class Orchestrator {
       // Argumento inicial curto e seguro para o shell. O brief completo chega pela extensão do worker,
       // que o injeta como contexto antes do primeiro turno (o Herdr recusa texto multilinha em argumento).
       const piArgs = ["-e", this.d.workerExtPath];
+      // Relançamento: fork da sessão da tentativa anterior (o arquivo original não muda).
+      if (opts.forkSession) piArgs.push("--fork", opts.forkSession);
       if (model) piArgs.push("--model", model);
       piArgs.push(LAUNCH_MESSAGE);
       // Assíncrono, como o FirstMate: digita o comando no pane e segue. O Herdr reconhece o agente depois,
@@ -439,6 +442,9 @@ export class Orchestrator {
     if (!old.delegate_input) throw new Error(`tarefa ${taskId} não tem o pedido guardado; lance de novo com orch_delegate`);
     const reason = old.result ?? old.error ?? "";
     const kind = classifyFailure(reason);
+    // Relatório inteiro (resultado e erro): o novo worker precisa saber tudo o que já foi tentado.
+    const report = [old.result, old.error].filter((s): s is string => !!s && s.trim() !== "").join("\n");
+    const previous = workerSessionFile(old.task_dir);
     if (kind === "quota") {
       if (!model) throw new Error(`falha por cota em ${old.model ?? "modelo padrão"}: informe o modelo do relançamento`);
       if (model === old.model) throw new Error(`o modelo ${model} esgotou a cota; escolha outro`);
@@ -448,10 +454,14 @@ export class Orchestrator {
       model: model ?? old.model ?? undefined,
       constraints: [
         ...(((old.delegate_input as unknown as DelegateInput).constraints) ?? []),
-        `Tentativa anterior (${taskId}) falhou: ${reason.slice(0, 300) || "sem detalhe"}. Confira o que já existe antes de refazer.`,
+        `Tentativa anterior (${taskId}) falhou. Relatório completo:\n${report || "sem detalhe"}\n${
+          previous
+            ? "A conversa da tentativa anterior foi copiada para esta sessão: leia o histórico antes de refazer. Confira o que já existe antes de refazer."
+            : "Sem conversa da tentativa anterior disponível. Confira o que já existe antes de refazer."
+        }`,
       ],
     };
-    const task = await this.delegate(input);
+    const task = await this.delegate(input, { forkSession: previous ?? undefined });
     this.update(task.task_id, (x) => {
       x.relaunched_from = taskId;
     });

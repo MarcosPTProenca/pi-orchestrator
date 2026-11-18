@@ -11,6 +11,7 @@ import { fallbackReportFor } from "./fallback.ts";
 import { postToHook } from "./hook.ts";
 import { addNewUsage, newUsage, type Usage } from "./usage.ts";
 import { maskSecrets } from "./logs.ts";
+import { SESSION_POINTER } from "./session-file.ts";
 
 /** Preâmbulo do worker (equivalente ao do FirstMate): quem lançou, e o que é autoridade e o que não é. */
 export const WORKER_PREAMBLE = [
@@ -35,6 +36,12 @@ export default function workerExtension(pi: ExtensionAPI): void {
   const taskId = process.env.PI_ORCH_TASK_ID;
   const taskDir = process.env.PI_ORCH_TASK_DIR;
   if (!taskId || !taskDir) return;
+
+  // Ponteiro para a sessão Pi desta tentativa: o relançamento faz fork dela (ver orchestrator.relaunch).
+  pi.on("session_start", (_event, ctx) => {
+    const file = ctx.sessionManager.getSessionFile();
+    if (file) writeFileSync(join(taskDir, SESSION_POINTER), file);
+  });
 
   // Webhook: ao terminar o turno, o worker garante o relatório e avisa o orquestrador por POST.
   // Sem relatório, grava um de falha com o motivo (cota ou erro do modelo). Se o POST falhar, o relatório segue em disco.

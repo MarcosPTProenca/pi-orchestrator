@@ -562,7 +562,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     name: "orch_relaunch",
     label: "orch relaunch",
     description:
-      "Relança uma tarefa que falhou, como tarefa nova ligada à anterior. Falha por cota exige um modelo diferente do que esgotou; outras falhas mantêm o modelo. Nunca roda sozinho: só quando o usuário pede. A tarefa anterior e a sua worktree não mudam.",
+      "Relança uma tarefa que falhou, como tarefa nova ligada à anterior. Falha por cota exige um modelo diferente do que esgotou; outras falhas mantêm o modelo. Nunca roda sozinho: só quando o usuário pede. O novo worker recebe o relatório completo da anterior e, se a sessão dela ainda estiver em disco, uma cópia (fork) da conversa. A tarefa anterior e a sua worktree não mudam.",
     parameters: {
       type: "object",
       properties: { task_id: { type: "string" }, model: { type: "string", description: "Modelo exato do relançamento. Obrigatório após falha por cota." } },
