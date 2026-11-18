@@ -77,6 +77,12 @@ uma vez no fim, com `done`, `failed` ou `blocked`.
   registro. Se não baterem, não fecha nada.
 - **Reinício:** `reconcile` confere as tarefas ativas com o Herdr e os relatórios em disco.
 
+## Quem abre issues e PRs
+
+- **Orquestrador:** abre issue de processo ou relato (por exemplo, uma regra que o worker não seguiu) diretamente, com `gh`, sem lançar worker para isso.
+- **Worker:** só comenta ou publica em issue/PR quando o pedido do usuário disser isso para aquela tarefa (regra 6 do brief, `src/intake.ts`).
+- **Exceção:** o orquestrador delega a abertura de issue a um worker só quando o usuário pede explicitamente *e* a issue exige investigação de código que o orquestrador não tem contexto para fazer (por exemplo, localizar o `arquivo:linha` da causa raiz).
+
 ## Estado e arquivos
 
 - Estado: `~/.pi/orchestrator/state.json` (troque com `PI_ORCH_STATE_DIR`).
