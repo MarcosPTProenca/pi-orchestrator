@@ -42,7 +42,7 @@ O launcher recusa rodar fora do Herdr (`HERDR_ENV=1` e `HERDR_PANE_ID` obrigató
 | `orch_answer(task_id, answer)` | Envia a resposta ao worker bloqueado, que continua. | Só o worker |
 | `orch_fix_red_prs(repo_path, concurrency?)` | Lista PRs com CI vermelho e lança correções com no máximo N workers ao mesmo tempo. | Não |
 | `orch_logs(task_id, lines?)` | Últimas linhas do terminal do worker (padrão 40, máximo 200). Só lê se o painel ainda for da tarefa; mascara segredos óbvios. | Não |
-| `orch_relaunch(task_id, model?)` | Relança uma tarefa falha como tarefa nova ligada à anterior. Falha por cota exige modelo diferente do que esgotou. Só quando você pede. | Não |
+| `orch_relaunch(task_id, model?)` | Relança uma tarefa falha como tarefa nova ligada à anterior: recebe o relatório completo e um fork da conversa anterior (ver abaixo). Falha por cota exige modelo diferente do que esgotou. Só quando você pede. | Não |
 | `orch_cancel(task_id)` | Fecha a tab da tarefa, se ela ainda for do orquestrador. | Não |
 
 O worker recebe a tool `orch_report(status, result, question?, artifacts?)`. Ele a chama
@@ -60,6 +60,13 @@ uma vez no fim, com `done`, `failed` ou `blocked`.
 - **Sem duplicidade:** não há duas tarefas ativas para a mesma PR (`source`) ou a mesma branch no mesmo projeto. Um lote com item repetido é recusado inteiro; `orch_fix_red_prs` pula as PRs que já têm tarefa ativa e informa quantas pulou.
 - **Relatório tardio:** um relatório novo atualiza a tarefa em qualquer estado, exceto `cancelled`.
   Um worker que falhou por erro transitório do modelo e seguiu depois não fica preso em `failed`.
+- **Relançamento:** `orch_relaunch` nunca retoma a sessão original; ele faz um fork dela. O Herdr só
+  controla panes e não guarda conversa de agente. A conversa vive no Pi, em arquivo JSONL
+  (`~/.pi/agent/sessions/`), e `pi --fork <arquivo>` copia o histórico para uma sessão nova
+  (o original não muda). O worker grava o caminho da própria sessão em `session.txt` na pasta da tarefa.
+  Se o arquivo não existir mais, o relançamento inicia sessão nova. Em qualquer caso o novo worker recebe
+  o relatório completo (resultado e erro) da tentativa anterior, sem corte. A worktree não é reaproveitada:
+  o novo worker arrenda a sua.
 - **Worktrees:** ao cancelar ou perder uma tarefa, a worktree arrendada por ela volta ao pool só se a árvore estiver limpa e o HEAD existir em algum remoto. Caso contrário fica no lugar, e a nota diz o caminho e o motivo (`worktree_note`). Nunca usa `--force`. Ao abrir, lista as worktrees que ainda estão arrendadas por tarefas terminais, sem devolver nada.
 - **Conclusão verificada:** o relatório `done` do worker é conferido sem LLM antes de ser apresentado como concluído. `direct-pr`: precisa de PR em `artifacts`, verificada no GitHub (mergeável, checks verdes). `local-only`: precisa de SHA de commit que existe no repositório. `report`: artefatos com caminho absoluto têm de existir. O resultado fica em `verification` (aprovada, reprovada, não aplicável ou não verificada), separado do relatório. Falha ao conferir nunca vira aprovada.
 - **Notificação do Herdr:** bloqueio, conclusão e falha disparam `herdr notification show`, uma vez por evento. `PI_ORCH_NOTIFY=0` desliga. Falha ao notificar não afeta o orquestrador.
