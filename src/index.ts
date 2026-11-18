@@ -332,12 +332,19 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       // Listagem é informativa: falha do treehouse não impede o orquestrador de subir.
     }
     // Superfícies de tarefas concluídas e já entregues: lembra; não fecha sozinho (orch_close confirma o dono).
-    const idle = idleSurfaces(orch.list());
-    if (idle.length > 0) {
-      pi.sendMessage(
-        { customType: "orch-event", content: `Superfícies ociosas de tarefas concluídas e entregues (${idle.length}), ainda abertas: ${idle.map((s) => s.task_id).join(", ")}. Fechar com orch_close.`, display: true },
-        { triggerTurn: false },
-      );
+    // Confere no Herdr antes de avisar: falha da consulta não gera aviso (evita lembrar superfície que já não existe).
+    try {
+      const herdr = new HerdrCli();
+      const live = { tabIds: await herdr.tabIds(), panes: await herdr.panes() };
+      const idle = idleSurfaces(orch.list(), live);
+      if (idle.length > 0) {
+        pi.sendMessage(
+          { customType: "orch-event", content: `Superfícies ociosas de tarefas concluídas e entregues (${idle.length}), ainda abertas: ${idle.map((s) => s.task_id).join(", ")}. Fechar com orch_close.`, display: true },
+          { triggerTurn: false },
+        );
+      }
+    } catch {
+      // Lembrete é informativo: falha do Herdr não impede o orquestrador de subir.
     }
     await startHook();
     startSweep();
