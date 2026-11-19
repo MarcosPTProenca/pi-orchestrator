@@ -107,9 +107,50 @@ function errorMessage(err: unknown): string {
 
 export class Orchestrator {
   private readonly d: OrchDeps;
+  /** Escopo (projeto) desta sessão. Indefinido: sem separação por dono (testes e simulação). */
+  private scope?: string;
 
   constructor(deps: OrchDeps) {
     this.d = deps;
+  }
+
+  /** Define o escopo desta sessão: só as tarefas dele são avisadas, varridas e alteradas aqui. */
+  setScope(key: string): void {
+    this.scope = key;
+  }
+
+  /** A tarefa é desta sessão? Sem escopo definido, tudo é. Tarefa legada (sem dono) não é. */
+  private mine(t: TaskRecord): boolean {
+    return this.scope === undefined || t.owner_key === this.scope;
+  }
+
+  /** Tarefas deste escopo. Tarefas de outras sessões do orquestrador ficam visíveis em list(), mas não são suas. */
+  owned(): TaskRecord[] {
+    return this.list().filter((t) => this.mine(t));
+  }
+
+  /** Dá a posse das tarefas legadas (sem dono) cujo projeto pertence a este escopo. Devolve quantas adotou. */
+  adoptUnowned(belongs: (projectPath: string) => boolean): number {
+    if (this.scope === undefined) return 0;
+    const scope = this.scope;
+    return this.d.store.mutate((state) => {
+      let n = 0;
+      for (const t of Object.values(state.tasks)) {
+        if (t.owner_key === undefined && belongs(t.project_path)) {
+          t.owner_key = scope;
+          n++;
+        }
+      }
+      return n;
+    });
+  }
+
+  /** Ação que altera uma tarefa só vale para a sessão dona dela. */
+  private assertMine(taskId: string): void {
+    const t = this.get(taskId);
+    if (this.mine(t)) return;
+    const dono = t.owner_key === undefined ? "tarefa legada sem dono (de outro projeto)" : `de outra sessão do orquestrador (escopo ${t.owner_key})`;
+    throw new Error(`tarefa ${taskId} é ${dono}; esta sessão só age sobre as próprias tarefas`);
   }
 
   get(taskId: string): TaskRecord {
@@ -118,7 +159,7 @@ export class Orchestrator {
     return t;
   }
 
-  /** Quantas tarefas ocupam vaga agora (starting, running, blocked). */
+  /** Quantas tarefas ocupam vaga agora (starting, running, blocked). Conta todos os escopos: o teto é da máquina. */
   activeCount(): number {
     return this.list().filter((t) => isActive(t.status)).length;
   }
@@ -132,13 +173,13 @@ export class Orchestrator {
   }
 
   private update(taskId: string, fn: (t: TaskRecord) => void): TaskRecord {
-    const state = this.d.store.load();
-    const t = state.tasks[taskId];
-    if (!t) throw new Error(`tarefa desconhecida: ${taskId}`);
-    fn(t);
-    t.updated_at = this.iso();
-    this.d.store.save(state);
-    return t;
+    return this.d.store.mutate((state) => {
+      const t = state.tasks[taskId];
+      if (!t) throw new Error(`tarefa desconhecida: ${taskId}`);
+      fn(t);
+      t.updated_at = this.iso();
+      return t;
+    });
   }
 
   private reportPath(t: TaskRecord): string {
@@ -154,8 +195,9 @@ export class Orchestrator {
     if (known && (await this.d.herdr.workspaceIds()).includes(known.workspace_id)) return known;
     const created = await this.d.herdr.createWorkspace({ cwd: projectPath, label: projectId });
     const record = { workspace_id: created.workspace_id, seeded_tab_id: created.seeded_tab_id };
-    state.workspaces[projectPath] = record;
-    this.d.store.save(state);
+    this.d.store.mutate((s) => {
+      s.workspaces[projectPath] = record;
+    });
     return record;
   }
 
@@ -238,6 +280,7 @@ export class Orchestrator {
     const now = this.iso();
     const record: TaskRecord = {
       task_id: taskId,
+      ...(this.scope !== undefined ? { owner_key: this.scope } : {}),
       project_id: projectId,
       project_path: input.project_path,
       source: input.source?.trim() || null,
@@ -265,9 +308,9 @@ export class Orchestrator {
       notified: true,
       error: null,
     };
-    const state = this.d.store.load();
-    state.tasks[taskId] = record;
-    this.d.store.save(state);
+    this.d.store.mutate((state) => {
+      state.tasks[taskId] = record;
+    });
     if (this.d.dryRun) return record;
 
     let tabId: string | undefined;
@@ -418,7 +461,7 @@ export class Orchestrator {
 
   /** Atualiza todas as tarefas ativas. Chamado por inbox, status e ao iniciar. */
   async refreshAll(): Promise<void> {
-    for (const t of this.list()) {
+    for (const t of this.owned()) {
       if (t.status !== "cancelled") await this.refresh(t.task_id).catch(() => null);
     }
   }
@@ -428,6 +471,7 @@ export class Orchestrator {
    * conclusão não fecha nada sozinha. Dono confirmado por pane_id + terminal_id.
    */
   async close(taskId: string): Promise<TaskRecord> {
+    this.assertMine(taskId);
     const t = this.get(taskId);
     const owner = await this.ownership(t);
     if (owner === "mismatch") {
@@ -471,6 +515,7 @@ export class Orchestrator {
    * A tarefa anterior não muda nem perde a worktree (o novo worker arrenda a sua).
    */
   async relaunch(taskId: string, model?: string): Promise<TaskRecord> {
+    this.assertMine(taskId);
     const old = this.get(taskId);
     if (isActive(old.status)) throw new Error(`tarefa ${taskId} ainda está ativa; cancele antes de relançar`);
     if (old.status !== "failed") throw new Error(`só relança tarefa falha (status: ${old.status})`);
@@ -524,7 +569,7 @@ export class Orchestrator {
   async inbox(): Promise<WatchEvent[]> {
     await this.refreshAll();
     const items: WatchEvent[] = [];
-    for (const t of this.list()) {
+    for (const t of this.owned()) {
       if (t.status === "blocked") items.push(this.toEvent(t));
       else if (!t.notified && !isActive(t.status) && t.status !== "cancelled") {
         items.push(this.toEvent(t));
@@ -545,6 +590,7 @@ export class Orchestrator {
 
   /** Atualiza a tarefa e entrega o aviso pendente, se houver, uma única vez (webhook e varredura usam isto). */
   async noticeFor(taskId: string): Promise<WatchEvent | null> {
+    if (!this.mine(this.get(taskId))) return null;
     await this.refresh(taskId).catch(() => null);
     return this.takePending(taskId);
   }
@@ -552,7 +598,7 @@ export class Orchestrator {
   /** Varre todas as tarefas (menos canceladas) e devolve os avisos novos. Sem LLM: só disco e Herdr. */
   async sweep(): Promise<WatchEvent[]> {
     const out: WatchEvent[] = [];
-    for (const t of this.list()) {
+    for (const t of this.owned()) {
       if (t.status === "cancelled") continue;
       const ev = await this.noticeFor(t.task_id);
       if (ev) out.push(ev);
@@ -582,6 +628,7 @@ export class Orchestrator {
    * atual (medido com herdr agent prompt em worker ocupado). Bloqueado: vira resposta, como orch_answer.
    */
   async send(taskId: string, text: string): Promise<TaskRecord> {
+    this.assertMine(taskId);
     const t = this.get(taskId);
     if (t.status !== "running" && t.status !== "blocked" && t.status !== "done") throw new Error(`tarefa ${taskId} não aceita mensagem (status: ${t.status})`);
     if (text.trim() === "") throw new Error("mensagem vazia");
@@ -612,6 +659,7 @@ export class Orchestrator {
   }
 
   async answer(taskId: string, text: string): Promise<TaskRecord> {
+    this.assertMine(taskId);
     const t = this.get(taskId);
     if (t.status !== "blocked") throw new Error(`tarefa ${taskId} não está bloqueada (status: ${t.status})`);
     if (text.trim() === "") throw new Error("resposta vazia");
@@ -632,6 +680,7 @@ export class Orchestrator {
   }
 
   async cancel(taskId: string): Promise<TaskRecord> {
+    this.assertMine(taskId);
     const t = this.get(taskId);
     if (!isActive(t.status)) return t;
     const owner = await this.ownership(t);
