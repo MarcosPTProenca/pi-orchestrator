@@ -28,7 +28,7 @@ import { classifyFailure, suggestModel } from "./failure.ts";
 import { capError, maxActiveFrom } from "./cap.ts";
 import { isActive } from "./contract.ts";
 import { orphanLeases, releaseLease, type WorktreeOps } from "./worktrees.ts";
-import { idleSurfaces } from "./idle.ts";
+import { idleAnnouncement, idleSurfaces } from "./idle.ts";
 import { acquireOwnership, legacyAdopter, releaseOwnership, scopeKey, scopeOwnerDir } from "./lock.ts";
 
 /** Treehouse real: `treehouse status` no repositório, `git` na worktree e `treehouse return` sem --force. */
@@ -293,6 +293,48 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     sweepTimer.unref();
   };
 
+  /**
+   * Superfícies ociosas (concluídas, entregues, com tab confirmada no Herdr): avisa quando o conjunto muda e não fecha nada.
+   * Fechar é de `orch_close`, depois que o usuário pede. Falha do Herdr é avisada uma vez por episódio, não a cada rodada.
+   */
+  let idleTimer: ReturnType<typeof setInterval> | undefined;
+  let idleKey = "";
+  let idleFailing = false;
+  let idleChecking = false;
+  const checkIdle = async (): Promise<void> => {
+    if (dryRun || idleChecking) return;
+    idleChecking = true;
+    try {
+      const herdr = new HerdrCli();
+      const live = { tabIds: await herdr.tabIds(), panes: await herdr.panes() };
+      const idle = idleSurfaces(orch.owned(), live);
+      const { announce, key } = idleAnnouncement(idleKey, idle);
+      idleKey = key;
+      idleFailing = false;
+      if (announce) {
+        pi.sendMessage(
+          { customType: "orch-event", content: `Superfícies ociosas de tarefas concluídas e entregues (${idle.length}), ainda abertas: ${idle.map((s) => s.task_id).join(", ")}. Fechar com orch_close somente se o usuário pedir.`, display: true },
+          { triggerTurn: false },
+        );
+      }
+    } catch {
+      if (!idleFailing) {
+        idleFailing = true;
+        pi.sendMessage(
+          { customType: "orch-event", content: "Não foi possível conferir superfícies ociosas no Herdr; nova tentativa no próximo ciclo.", display: true },
+          { triggerTurn: false },
+        );
+      }
+    } finally {
+      idleChecking = false;
+    }
+  };
+  const startIdleWatch = (): void => {
+    if (dryRun || idleTimer) return;
+    idleTimer = setInterval(() => void checkIdle(), Number(process.env.PI_ORCH_IDLE_MS ?? 300_000));
+    idleTimer.unref();
+  };
+
   /** Webhook: o worker faz POST ao terminar. Só diz qual tarefa terminou; o estado vem do relatório em disco. */
   const startHook = async (): Promise<void> => {
     if (dryRun || hookHandle) return;
@@ -342,21 +384,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     } catch {
       // Listagem é informativa: falha do treehouse não impede o orquestrador de subir.
     }
-    // Superfícies de tarefas concluídas e já entregues: lembra; não fecha sozinho (orch_close confirma o dono).
-    // Confere no Herdr antes de avisar: falha da consulta não gera aviso (evita lembrar superfície que já não existe).
-    try {
-      const herdr = new HerdrCli();
-      const live = { tabIds: await herdr.tabIds(), panes: await herdr.panes() };
-      const idle = idleSurfaces(orch.owned(), live);
-      if (idle.length > 0) {
-        pi.sendMessage(
-          { customType: "orch-event", content: `Superfícies ociosas de tarefas concluídas e entregues (${idle.length}), ainda abertas: ${idle.map((s) => s.task_id).join(", ")}. Fechar com orch_close.`, display: true },
-          { triggerTurn: false },
-        );
-      }
-    } catch {
-      // Lembrete é informativo: falha do Herdr não impede o orquestrador de subir.
-    }
+    await checkIdle();
+    startIdleWatch();
     await startHook();
     startSweep();
     // Nome visível no painel do Herdr: mostra que é o orquestrador e em qual pasta. Falha é ignorada.
@@ -393,6 +422,9 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     hookHandle = undefined;
     if (sweepTimer) clearInterval(sweepTimer);
     sweepTimer = undefined;
+    if (idleTimer) clearInterval(idleTimer);
+    idleTimer = undefined;
+    idleKey = "";
   });
 
   pi.registerTool({
