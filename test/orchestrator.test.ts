@@ -541,11 +541,11 @@ test("não lança segundo worker para a mesma PR enquanto a primeira está ativa
 
 test("mesma branch no mesmo projeto também bloqueia; outro projeto não", async () => {
   const h = makeHarness();
-  await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "local-only", branch: "fm/x" });
-  assert.throws(() => h.orch.checkDelegate({ project_path: h.project, role: "b", request: "x", objective: "y", mode: "local-only", branch: "fm/x" }), /fm\/x/);
+  await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "direct-pr", branch: "fm/x" });
+  assert.throws(() => h.orch.checkDelegate({ project_path: h.project, role: "b", request: "x", objective: "y", mode: "direct-pr", branch: "fm/x" }), /fm\/x/);
   const other = h.project + "-outro";
   mkdirSync(join(other, ".git"), { recursive: true });
-  assert.doesNotThrow(() => h.orch.checkDelegate({ project_path: other, role: "b", request: "x", objective: "y", mode: "local-only", branch: "fm/x" }));
+  assert.doesNotThrow(() => h.orch.checkDelegate({ project_path: other, role: "b", request: "x", objective: "y", mode: "direct-pr", branch: "fm/x" }));
 });
 
 test("lote com o mesmo item duas vezes é recusado inteiro, antes de lançar", async () => {

@@ -77,7 +77,7 @@ export interface TaskRecord {
   usage?: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number } | null;
   /** Modelo pedido para o worker (ex.: claude-bridge/claude-haiku-5-5). null = padrão do Pi. */
   model: string | null;
-  /** Modo do pedido (report, direct-pr, local-only, design). Define a regra de verificação da conclusão. */
+  /** Modo do pedido (report, direct-pr, design; local-only só em tarefas antigas). Define a regra de verificação da conclusão. */
   mode?: string;
   /** Pedido original (como foi lançado), guardado para permitir relançar a tarefa sem reabrir o pedido. */
   delegate_input?: Record<string, unknown> | null;

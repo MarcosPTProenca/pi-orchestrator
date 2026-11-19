@@ -5,7 +5,8 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 
-export const MODES = ["report", "direct-pr", "local-only", "design"] as const;
+/** `local-only` foi removido: workers sempre podem publicar (direct-pr) ou só reportar. Tarefas antigas com esse modo seguem verificáveis em verify.ts. */
+export const MODES = ["report", "direct-pr", "design"] as const;
 export const TRACKERS = ["github", "plane", "none"] as const;
 export type Tracker = (typeof TRACKERS)[number];
 export type Mode = (typeof MODES)[number];
@@ -75,11 +76,6 @@ export function acceptanceFor(mode: Mode, branch: string | null): string[] {
           : "Commit na branch de trabalho, push e PR aberto ou atualizado com gh (descubra a branch da PR citada, se houver).",
         "Checks do PR verificados; falha do próprio código corrigida até ficarem verdes.",
         "URL completa do PR em `artifacts`.",
-      ];
-    case "local-only":
-      return [
-        "Implementar o pedido seguindo a skill `implement`, com testes.",
-        "Commit local na branch de trabalho. Nenhum push e nenhum PR.",
       ];
     case "design":
       return [

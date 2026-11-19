@@ -120,7 +120,7 @@ const DELEGATE_ITEM = {
     role: { type: "string", description: "Papel curto, ex.: fix-pr, investigate." },
     request: { type: "string", description: "O trabalho que o worker deve fazer, em palavras do usuário. Sem as instruções de lançamento: quantidade, modelo, projeto e modo ficam nos campos próprios." },
     objective: { type: "string", description: "Como saber que terminou: critério verificável." },
-    mode: { type: "string", enum: [...MODES], description: "report: só relatório. direct-pr: implementa, dá push e abre/atualiza o PR. local-only: implementa sem push." },
+    mode: { type: "string", enum: [...MODES], description: "report: só relatório, sem push nem PR. direct-pr: implementa, dá push e abre/atualiza o PR. design: fluxo de especificação e issues." },
     constraints: { type: "array", items: { type: "string" }, description: "Restrições do usuário, copiadas. Ex.: não tocar em outros arquivos." },
     source: { type: "string", description: "URL da PR ou issue, quando houver." },
     branch: { type: "string", description: "Branch de trabalho. Omitida: o worker descobre a da PR citada." },

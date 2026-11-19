@@ -35,6 +35,7 @@ export async function judgeDone(mode: string, status: string, artifacts: string[
       }
       return { verdict: rejected ? "rejected" : "approved", reason: lines.join(" ") };
     }
+    // Legado: tarefas lançadas antes da remoção do modo local-only continuam verificáveis.
     if (mode === "local-only") {
       const shas = artifacts.flatMap((a) => a.match(SHA_RE) ?? []);
       if (shas.length === 0) return { verdict: "rejected", reason: "modo local-only sem commit informado em artefatos" };
