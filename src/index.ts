@@ -28,7 +28,7 @@ import { classifyFailure, suggestModel } from "./failure.ts";
 import { capError, maxActiveFrom } from "./cap.ts";
 import { isActive } from "./contract.ts";
 import { orphanLeases, releaseLease, type WorktreeOps } from "./worktrees.ts";
-import { idleAnnouncement, idleSurfaces } from "./idle.ts";
+import { closeBlocker, idleAnnouncement, idleSurfaces } from "./idle.ts";
 import { acquireOwnership, legacyAdopter, releaseOwnership, scopeKey, scopeOwnerDir } from "./lock.ts";
 
 /** Treehouse real: `treehouse status` no repositório, `git` na worktree e `treehouse return` sem --force. */
@@ -665,6 +665,9 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     },
     async execute(_id: string, params: { task_id: string }) {
       assertWritable();
+      const current = orch.list().find((x) => x.task_id === params.task_id);
+      const blocked = current ? closeBlocker(current) : null;
+      if (blocked) throw new Error(blocked);
       const task = await orch.close(params.task_id);
       return asText({ task_id: task.task_id, status: task.status, tab_closed: true });
     },

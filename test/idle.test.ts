@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { idleAnnouncement, idleSurfaces, type LiveSurfaces } from "../src/idle.ts";
+import { closeBlocker, idleAnnouncement, idleSurfaces, whyNotIdle, type LiveSurfaces } from "../src/idle.ts";
 import { parseTabIds } from "../src/herdr.ts";
 import type { TaskRecord } from "../src/contract.ts";
 
@@ -88,4 +88,32 @@ test("lista vazia não avisa e zera a chave, para avisar de novo se a tarefa rea
   const a = { task_id: "t-a", project_id: "p", updated_at: "x", projected: false };
   assert.deepEqual(idleAnnouncement("t-a", []), { announce: false, key: "" });
   assert.deepEqual(idleAnnouncement("", [a]), { announce: true, key: "t-a" });
+});
+
+test("whyNotIdle explica cada inelegibilidade e é null para candidata", () => {
+  const ok = task({ task_id: "t-ok" });
+  const live = liveFor(ok);
+  assert.equal(whyNotIdle(ok, live), null);
+  assert.match(whyNotIdle(task({ status: "running", notified: false }), live) ?? "", /em andamento/);
+  assert.match(whyNotIdle(task({ status: "blocked", notified: false }), live) ?? "", /decis/);
+  assert.match(whyNotIdle(task({ status: "failed" }), live) ?? "", /failed/);
+  assert.match(whyNotIdle(task({ status: "cancelled" }), live) ?? "", /cancelada/);
+  assert.match(whyNotIdle(task({ notified: false }), live) ?? "", /não entregue/);
+  assert.match(whyNotIdle(task({ tab_id: "" }), live) ?? "", /sem tab/);
+  assert.match(whyNotIdle(ok, { tabIds: new Set(), panes: [] }) ?? "", /não confere/);
+});
+
+test("whyNotIdle e idleSurfaces concordam: candidata é exatamente a que não tem motivo", () => {
+  const tasks = [task({ task_id: "t-a" }), task({ task_id: "t-b", status: "failed" }), task({ task_id: "t-c", notified: false })];
+  const live = liveFor(...tasks);
+  const candidatas = tasks.filter((t) => whyNotIdle(t, live) === null).map((t) => t.task_id);
+  assert.deepEqual(idleSurfaces(tasks, live).map((s) => s.task_id), candidatas);
+});
+
+test("closeBlocker recusa tarefa ativa e libera as demais", () => {
+  assert.match(closeBlocker(task({ status: "running", task_id: "t-r" })) ?? "", /t-r ainda está running/);
+  assert.match(closeBlocker(task({ status: "starting" })) ?? "", /starting/);
+  assert.equal(closeBlocker(task({ status: "blocked" })) === null, false);
+  assert.equal(closeBlocker(task({ status: "done" })), null);
+  assert.equal(closeBlocker(task({ status: "failed" })), null);
 });

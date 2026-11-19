@@ -31,9 +31,26 @@ export function confirmedInHerdr(t: TaskRecord, live: LiveSurfaces): boolean {
   return live.tabIds.has(t.tab_id) && live.panes.some((p) => p.pane_id === t.pane_id && p.terminal_id === t.terminal_id);
 }
 
+/** Motivo de a superfície não ser candidata a fechar, ou `null` quando é candidata. Fonte única da regra. */
+export function whyNotIdle(t: TaskRecord, live: LiveSurfaces): string | null {
+  if (t.status === "blocked") return "aguarda decisão";
+  if (isActive(t.status)) return `ainda em andamento (${t.status})`;
+  if (t.status === "cancelled") return "cancelada (a tab já foi fechada pelo cancelamento)";
+  if (t.status !== "done") return `terminou como ${t.status}; pode ser relançada ou inspecionada`;
+  if (!t.notified) return "resultado ainda não entregue ao usuário";
+  if (!t.tab_id) return "sem tab registrada";
+  if (!confirmedInHerdr(t, live)) return "tab ou pane não confere mais com a tarefa no Herdr";
+  return null;
+}
+
+/** Recusa de `orch_close` para tarefa ativa: fechar a tab mataria um worker em andamento. */
+export function closeBlocker(t: TaskRecord): string | null {
+  return isActive(t.status) ? `tarefa ${t.task_id} ainda está ${t.status}; não fechei a tab. Use orch_cancel se for cancelar.` : null;
+}
+
 export function idleSurfaces(tasks: TaskRecord[], live: LiveSurfaces): IdleSurface[] {
   return tasks
-    .filter((t) => !isActive(t.status) && t.status === "done" && t.notified && !!t.tab_id && confirmedInHerdr(t, live))
+    .filter((t) => whyNotIdle(t, live) === null)
     .map((t) => ({ task_id: t.task_id, project_id: t.project_id, updated_at: t.updated_at, projected: t.projected === true }))
     .sort((a, b) => a.updated_at.localeCompare(b.updated_at));
 }
