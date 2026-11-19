@@ -100,6 +100,15 @@ export const scenarios: Scenario[] = [
       (run) => ({ name: "sem pesquisa prévia", ok: !run.calls.some((c) => forbidden.includes(c.name)), detail: run.calls.map((c) => c.name).join(",") }),
     ],
   },
+  {
+    id: "discovery-sem-worker",
+    prompt: (fx) =>
+      `Quero discutir uma ideia nova para o projeto ${fx.alpha}: faça o discovery e a entrevista com você mesmo, depois grill-with-docs, to-spec e to-tickets. Ainda não quero execução.`,
+    checks: [
+      (_r, t) => ({ name: "nenhum worker lançado para discovery/entrevista", ok: t.count === 0, detail: `criados=${t.count}` }),
+      (run) => ({ name: "discovery conduzido pelo orquestrador (subagents só para fatos)", ok: !run.calls.some((c) => c.name === "orch_delegate"), detail: run.calls.map((c) => c.name).join(",") }),
+    ],
+  },
   // Reação a eventos de worker. O texto do evento é o mesmo que a extensão monta (modelMessageFor).
   // Entrega do aviso não é testada aqui: isso é coberto por testes unitários (avisos, notices).
   {
