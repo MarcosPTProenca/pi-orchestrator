@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { closeBlocker, IdleWatch, idleAnnouncement, idleSurfaces, whyNotIdle, type LiveSurfaces } from "../src/idle.ts";
+import { closeBlocker, idleReport, IdleWatch, idleAnnouncement, idleSurfaces, whyNotIdle, type LiveSurfaces } from "../src/idle.ts";
 import { parseTabIds } from "../src/herdr.ts";
 import type { TaskRecord } from "../src/contract.ts";
 
@@ -145,4 +145,16 @@ test("falha do Herdr avisa uma vez por episódio e volta a valer após uma confe
   assert.equal(w.fail(), true);
   w.reset();
   assert.equal(w.fail(), true);
+});
+
+test("idleReport lista candidatas e o motivo de cada não candidata, em ordem estável", () => {
+  const ok = task({ task_id: "t-ok" });
+  const run = task({ task_id: "t-run", status: "running", notified: false });
+  const failed = task({ task_id: "t-fail", status: "failed" });
+  const tasks = [failed, run, ok];
+  const rep = idleReport(tasks, liveFor(ok));
+  assert.deepEqual(rep.eligible, ["t-ok"]);
+  assert.deepEqual(rep.not_eligible.map((x) => x.task_id), ["t-fail", "t-run"]);
+  assert.match(rep.not_eligible[1].reason, /em andamento/);
+  assert.match(rep.not_eligible[0].reason, /failed/);
 });

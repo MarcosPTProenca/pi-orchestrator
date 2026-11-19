@@ -28,7 +28,7 @@ import { classifyFailure, suggestModel } from "./failure.ts";
 import { capError, maxActiveFrom } from "./cap.ts";
 import { isActive } from "./contract.ts";
 import { orphanLeases, releaseLease, type WorktreeOps } from "./worktrees.ts";
-import { closeBlocker, IdleWatch, idleSurfaces } from "./idle.ts";
+import { closeBlocker, idleReport, IdleWatch, idleSurfaces } from "./idle.ts";
 import { acquireOwnership, legacyAdopter, releaseOwnership, scopeKey, scopeOwnerDir } from "./lock.ts";
 
 /** Treehouse real: `treehouse status` no repositório, `git` na worktree e `treehouse return` sem --force. */
@@ -665,6 +665,18 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       if (blocked) throw new Error(blocked);
       const task = await orch.close(params.task_id);
       return asText({ task_id: task.task_id, status: task.status, tab_closed: true });
+    },
+  });
+
+  pi.registerTool({
+    name: "orch_idle",
+    label: "orch idle",
+    description: "Mostra, sem fechar nada, quais tarefas desta sessão são candidatas a fechar (concluídas, entregues, com tab confirmada) e o motivo de cada uma das outras não ser candidata.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    async execute() {
+      const herdr = new HerdrCli();
+      const live = { tabIds: await herdr.tabIds(), panes: await herdr.panes() };
+      return asText(idleReport(orch.owned(), live));
     },
   });
 

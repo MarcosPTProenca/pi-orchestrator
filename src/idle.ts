@@ -55,6 +55,18 @@ export function idleSurfaces(tasks: TaskRecord[], live: LiveSurfaces): IdleSurfa
     .sort((a, b) => a.updated_at.localeCompare(b.updated_at));
 }
 
+/** Relatório legível: candidatas e, para cada outra tarefa, o motivo de não ser candidata. Somente leitura. */
+export function idleReport(tasks: TaskRecord[], live: LiveSurfaces): { eligible: string[]; not_eligible: { task_id: string; reason: string }[] } {
+  const eligible: string[] = [];
+  const not_eligible: { task_id: string; reason: string }[] = [];
+  for (const t of tasks) {
+    const reason = whyNotIdle(t, live);
+    if (reason === null) eligible.push(t.task_id);
+    else not_eligible.push({ task_id: t.task_id, reason });
+  }
+  return { eligible: eligible.sort(), not_eligible: not_eligible.sort((a, b) => a.task_id.localeCompare(b.task_id)) };
+}
+
 /**
  * Aviso periódico sem repetição: avisa só quando o conjunto de candidatas muda em relação ao último aviso.
  * Lista vazia não avisa, mas zera a chave: se a mesma tarefa voltar a ser candidata, avisa de novo.
