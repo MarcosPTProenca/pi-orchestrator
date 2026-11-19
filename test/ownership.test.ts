@@ -8,6 +8,7 @@ import type { TaskRecord } from "../src/contract.ts";
 import { acquireOwnership, hasLiveOwner, legacyAdopter, releaseOwnership, scopeKey, scopeOwnerDir } from "../src/lock.ts";
 import { Store } from "../src/store.ts";
 import { makeHarness } from "./fakes.ts";
+import { idleSurfaces } from "../src/idle.ts";
 
 const ROOT = process.cwd();
 
@@ -181,4 +182,24 @@ test("dono de processo morto não bloqueia a adoção; dono vivo bloqueia", () =
   assert.equal(hasLiveOwner(dir), false, "pid morto não é dono vivo");
   writeFileSync(join(dir, "owner.json"), JSON.stringify({ pid: process.pid, started_at: "x" }));
   assert.equal(hasLiveOwner(dir), true, "pid vivo é dono vivo");
+});
+
+test("superfícies ociosas: cada sessão só vê as candidatas do próprio escopo", async () => {
+  const h = makeHarness();
+  const live = {
+    tabIds: new Set(["w1:t1", "w2:t1"]),
+    panes: [
+      { pane_id: "w1:t1-1", terminal_id: "term-a", cwd: null, agent: null, agent_status: null },
+      { pane_id: "w2:t1-1", terminal_id: "term-b", cwd: null, agent: null, agent_status: null },
+    ],
+  };
+  const done = { status: "done" as const, notified: true, updated_at: "2026-11-18T10:00:00.000Z" };
+  new Store(join(h.stateDir, "state.json")).mutate((s) => {
+    s.tasks["t-a"] = task({ ...done, task_id: "t-a", owner_key: "A", tab_id: "w1:t1", pane_id: "w1:t1-1", terminal_id: "term-a" });
+    s.tasks["t-b"] = task({ ...done, task_id: "t-b", owner_key: "B", tab_id: "w2:t1", pane_id: "w2:t1-1", terminal_id: "term-b" });
+  });
+  h.orch.setScope("A");
+  assert.deepEqual(idleSurfaces(h.orch.owned(), live).map((s) => s.task_id), ["t-a"]);
+  h.orch.setScope("B");
+  assert.deepEqual(idleSurfaces(h.orch.owned(), live).map((s) => s.task_id), ["t-b"]);
 });

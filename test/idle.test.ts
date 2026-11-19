@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { idleSurfaces, type LiveSurfaces } from "../src/idle.ts";
+import { closeBlocker, idleReport, IdleWatch, idleAnnouncement, idleSurfaces, whyNotIdle, type LiveSurfaces } from "../src/idle.ts";
 import { parseTabIds } from "../src/herdr.ts";
 import type { TaskRecord } from "../src/contract.ts";
 
@@ -73,4 +73,88 @@ test("parseTabIds lê os tab_id de tab list", () => {
 
 test("parseTabIds rejeita resposta sem tabs", () => {
   assert.throws(() => parseTabIds({ result: {} }), /sem tabs/);
+});
+
+test("aviso periódico só sai quando o conjunto de candidatas muda", () => {
+  const a = { task_id: "t-a", project_id: "p", updated_at: "x", projected: false };
+  const b = { task_id: "t-b", project_id: "p", updated_at: "y", projected: false };
+  const first = idleAnnouncement("", [a]);
+  assert.deepEqual(first, { announce: true, key: "t-a" });
+  assert.deepEqual(idleAnnouncement(first.key, [a]), { announce: false, key: "t-a" });
+  assert.deepEqual(idleAnnouncement("t-a", [a, b]), { announce: true, key: "t-a,t-b" });
+});
+
+test("lista vazia não avisa e zera a chave, para avisar de novo se a tarefa reaparecer", () => {
+  const a = { task_id: "t-a", project_id: "p", updated_at: "x", projected: false };
+  assert.deepEqual(idleAnnouncement("t-a", []), { announce: false, key: "" });
+  assert.deepEqual(idleAnnouncement("", [a]), { announce: true, key: "t-a" });
+});
+
+test("whyNotIdle explica cada inelegibilidade e é null para candidata", () => {
+  const ok = task({ task_id: "t-ok" });
+  const live = liveFor(ok);
+  assert.equal(whyNotIdle(ok, live), null);
+  assert.match(whyNotIdle(task({ status: "running", notified: false }), live) ?? "", /em andamento/);
+  assert.match(whyNotIdle(task({ status: "blocked", notified: false }), live) ?? "", /decis/);
+  assert.match(whyNotIdle(task({ status: "failed" }), live) ?? "", /failed/);
+  assert.match(whyNotIdle(task({ status: "cancelled" }), live) ?? "", /cancelada/);
+  assert.match(whyNotIdle(task({ notified: false }), live) ?? "", /não entregue/);
+  assert.match(whyNotIdle(task({ tab_id: "" }), live) ?? "", /sem tab/);
+  assert.match(whyNotIdle(ok, { tabIds: new Set(), panes: [] }) ?? "", /não confere/);
+});
+
+test("whyNotIdle e idleSurfaces concordam: candidata é exatamente a que não tem motivo", () => {
+  const tasks = [task({ task_id: "t-a" }), task({ task_id: "t-b", status: "failed" }), task({ task_id: "t-c", notified: false })];
+  const live = liveFor(...tasks);
+  const candidatas = tasks.filter((t) => whyNotIdle(t, live) === null).map((t) => t.task_id);
+  assert.deepEqual(idleSurfaces(tasks, live).map((s) => s.task_id), candidatas);
+});
+
+test("closeBlocker recusa tarefa ativa e libera as demais", () => {
+  assert.match(closeBlocker(task({ status: "running", task_id: "t-r" })) ?? "", /t-r ainda está running/);
+  assert.match(closeBlocker(task({ status: "starting" })) ?? "", /starting/);
+  assert.equal(closeBlocker(task({ status: "blocked" })) === null, false);
+  assert.equal(closeBlocker(task({ status: "done" })), null);
+  assert.equal(closeBlocker(task({ status: "failed" })), null);
+});
+
+test("transição ativa -> concluída vira candidata e avisa uma vez, sem reiniciar", () => {
+  const w = new IdleWatch();
+  const running = task({ task_id: "t-x", status: "running", notified: false });
+  assert.equal(w.observe(idleSurfaces([running], liveFor(running))), false);
+  const done = task({ task_id: "t-x", status: "done", notified: true });
+  assert.equal(w.observe(idleSurfaces([done], liveFor(done))), true);
+  assert.equal(w.observe(idleSurfaces([done], liveFor(done))), false);
+});
+
+test("reload (shutdown zera o watcher): a mesma candidata volta a ser avisada uma vez", () => {
+  const w = new IdleWatch();
+  const a = task({ task_id: "t-a" });
+  assert.equal(w.observe(idleSurfaces([a], liveFor(a))), true);
+  w.reset();
+  assert.equal(w.observe(idleSurfaces([a], liveFor(a))), true);
+  assert.equal(w.observe(idleSurfaces([a], liveFor(a))), false);
+});
+
+test("falha do Herdr avisa uma vez por episódio e volta a valer após uma conferência boa", () => {
+  const w = new IdleWatch();
+  assert.equal(w.fail(), true);
+  assert.equal(w.fail(), false);
+  assert.equal(w.fail(), false);
+  w.observe([]);
+  assert.equal(w.fail(), true);
+  w.reset();
+  assert.equal(w.fail(), true);
+});
+
+test("idleReport lista candidatas e o motivo de cada não candidata, em ordem estável", () => {
+  const ok = task({ task_id: "t-ok" });
+  const run = task({ task_id: "t-run", status: "running", notified: false });
+  const failed = task({ task_id: "t-fail", status: "failed" });
+  const tasks = [failed, run, ok];
+  const rep = idleReport(tasks, liveFor(ok));
+  assert.deepEqual(rep.eligible, ["t-ok"]);
+  assert.deepEqual(rep.not_eligible.map((x) => x.task_id), ["t-fail", "t-run"]);
+  assert.match(rep.not_eligible[1].reason, /em andamento/);
+  assert.match(rep.not_eligible[0].reason, /failed/);
 });
