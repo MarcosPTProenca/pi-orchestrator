@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { idleSurfaces, type LiveSurfaces } from "../src/idle.ts";
+import { idleAnnouncement, idleSurfaces, type LiveSurfaces } from "../src/idle.ts";
 import { parseTabIds } from "../src/herdr.ts";
 import type { TaskRecord } from "../src/contract.ts";
 
@@ -73,4 +73,19 @@ test("parseTabIds lê os tab_id de tab list", () => {
 
 test("parseTabIds rejeita resposta sem tabs", () => {
   assert.throws(() => parseTabIds({ result: {} }), /sem tabs/);
+});
+
+test("aviso periódico só sai quando o conjunto de candidatas muda", () => {
+  const a = { task_id: "t-a", project_id: "p", updated_at: "x", projected: false };
+  const b = { task_id: "t-b", project_id: "p", updated_at: "y", projected: false };
+  const first = idleAnnouncement("", [a]);
+  assert.deepEqual(first, { announce: true, key: "t-a" });
+  assert.deepEqual(idleAnnouncement(first.key, [a]), { announce: false, key: "t-a" });
+  assert.deepEqual(idleAnnouncement("t-a", [a, b]), { announce: true, key: "t-a,t-b" });
+});
+
+test("lista vazia não avisa e zera a chave, para avisar de novo se a tarefa reaparecer", () => {
+  const a = { task_id: "t-a", project_id: "p", updated_at: "x", projected: false };
+  assert.deepEqual(idleAnnouncement("t-a", []), { announce: false, key: "" });
+  assert.deepEqual(idleAnnouncement("", [a]), { announce: true, key: "t-a" });
 });
