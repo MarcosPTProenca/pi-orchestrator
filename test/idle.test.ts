@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { closeBlocker, idleAnnouncement, idleSurfaces, whyNotIdle, type LiveSurfaces } from "../src/idle.ts";
+import { closeBlocker, IdleWatch, idleAnnouncement, idleSurfaces, whyNotIdle, type LiveSurfaces } from "../src/idle.ts";
 import { parseTabIds } from "../src/herdr.ts";
 import type { TaskRecord } from "../src/contract.ts";
 
@@ -116,4 +116,33 @@ test("closeBlocker recusa tarefa ativa e libera as demais", () => {
   assert.equal(closeBlocker(task({ status: "blocked" })) === null, false);
   assert.equal(closeBlocker(task({ status: "done" })), null);
   assert.equal(closeBlocker(task({ status: "failed" })), null);
+});
+
+test("transição ativa -> concluída vira candidata e avisa uma vez, sem reiniciar", () => {
+  const w = new IdleWatch();
+  const running = task({ task_id: "t-x", status: "running", notified: false });
+  assert.equal(w.observe(idleSurfaces([running], liveFor(running))), false);
+  const done = task({ task_id: "t-x", status: "done", notified: true });
+  assert.equal(w.observe(idleSurfaces([done], liveFor(done))), true);
+  assert.equal(w.observe(idleSurfaces([done], liveFor(done))), false);
+});
+
+test("reload (shutdown zera o watcher): a mesma candidata volta a ser avisada uma vez", () => {
+  const w = new IdleWatch();
+  const a = task({ task_id: "t-a" });
+  assert.equal(w.observe(idleSurfaces([a], liveFor(a))), true);
+  w.reset();
+  assert.equal(w.observe(idleSurfaces([a], liveFor(a))), true);
+  assert.equal(w.observe(idleSurfaces([a], liveFor(a))), false);
+});
+
+test("falha do Herdr avisa uma vez por episódio e volta a valer após uma conferência boa", () => {
+  const w = new IdleWatch();
+  assert.equal(w.fail(), true);
+  assert.equal(w.fail(), false);
+  assert.equal(w.fail(), false);
+  w.observe([]);
+  assert.equal(w.fail(), true);
+  w.reset();
+  assert.equal(w.fail(), true);
 });

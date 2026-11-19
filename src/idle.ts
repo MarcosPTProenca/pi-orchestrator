@@ -64,3 +64,31 @@ export function idleAnnouncement(prevKey: string, idle: IdleSurface[]): { announ
   if (key === prevKey) return { announce: false, key };
   return { announce: idle.length > 0, key: idle.length > 0 ? key : "" };
 }
+
+/**
+ * Estado do acompanhamento periódico na sessão. `observe` diz se deve avisar; `fail` diz se a falha do Herdr
+ * merece aviso (uma vez por episódio: volta a valer depois de uma conferência bem-sucedida). `reset` roda no
+ * shutdown: após reload, a primeira conferência volta a avisar o que ainda estiver ocioso.
+ */
+export class IdleWatch {
+  private key = "";
+  private failing = false;
+
+  observe(idle: IdleSurface[]): boolean {
+    this.failing = false;
+    const { announce, key } = idleAnnouncement(this.key, idle);
+    this.key = key;
+    return announce;
+  }
+
+  fail(): boolean {
+    if (this.failing) return false;
+    this.failing = true;
+    return true;
+  }
+
+  reset(): void {
+    this.key = "";
+    this.failing = false;
+  }
+}

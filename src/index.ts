@@ -28,7 +28,7 @@ import { classifyFailure, suggestModel } from "./failure.ts";
 import { capError, maxActiveFrom } from "./cap.ts";
 import { isActive } from "./contract.ts";
 import { orphanLeases, releaseLease, type WorktreeOps } from "./worktrees.ts";
-import { closeBlocker, idleAnnouncement, idleSurfaces } from "./idle.ts";
+import { closeBlocker, IdleWatch, idleSurfaces } from "./idle.ts";
 import { acquireOwnership, legacyAdopter, releaseOwnership, scopeKey, scopeOwnerDir } from "./lock.ts";
 
 /** Treehouse real: `treehouse status` no repositório, `git` na worktree e `treehouse return` sem --force. */
@@ -298,8 +298,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
    * Fechar é de `orch_close`, depois que o usuário pede. Falha do Herdr é avisada uma vez por episódio, não a cada rodada.
    */
   let idleTimer: ReturnType<typeof setInterval> | undefined;
-  let idleKey = "";
-  let idleFailing = false;
+  const idleWatch = new IdleWatch();
   let idleChecking = false;
   const checkIdle = async (): Promise<void> => {
     if (dryRun || idleChecking) return;
@@ -308,18 +307,14 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       const herdr = new HerdrCli();
       const live = { tabIds: await herdr.tabIds(), panes: await herdr.panes() };
       const idle = idleSurfaces(orch.owned(), live);
-      const { announce, key } = idleAnnouncement(idleKey, idle);
-      idleKey = key;
-      idleFailing = false;
-      if (announce) {
+      if (idleWatch.observe(idle)) {
         pi.sendMessage(
           { customType: "orch-event", content: `Superfícies ociosas de tarefas concluídas e entregues (${idle.length}), ainda abertas: ${idle.map((s) => s.task_id).join(", ")}. Fechar com orch_close somente se o usuário pedir.`, display: true },
           { triggerTurn: false },
         );
       }
     } catch {
-      if (!idleFailing) {
-        idleFailing = true;
+      if (idleWatch.fail()) {
         pi.sendMessage(
           { customType: "orch-event", content: "Não foi possível conferir superfícies ociosas no Herdr; nova tentativa no próximo ciclo.", display: true },
           { triggerTurn: false },
@@ -377,7 +372,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       const orphans = projects.flatMap((p) => orphanLeases(treehouseOps, p, terminal));
       if (orphans.length > 0) {
         pi.sendMessage(
-          { customType: "orch-event", content: `Worktrees ainda arrendadas por tarefas terminais (não foram devolvidas): ${orphans.map((o) => `${o.path} (${o.holder})`).join("; ")}`, display: true },
+          { customType: "orch-event", content: `Worktrees ainda arrendadas por tarefas terminais (não foram devolvidas): ${orphans.map((o) => `${o.path} (${o.holder})`).join("; ")}. Devolver com orch_release só se o usuário pedir; ela recusa o que tiver trabalho não publicado.`, display: true },
           { triggerTurn: false },
         );
       }
@@ -424,7 +419,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     sweepTimer = undefined;
     if (idleTimer) clearInterval(idleTimer);
     idleTimer = undefined;
-    idleKey = "";
+    idleWatch.reset();
   });
 
   pi.registerTool({
@@ -670,6 +665,23 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       if (blocked) throw new Error(blocked);
       const task = await orch.close(params.task_id);
       return asText({ task_id: task.task_id, status: task.status, tab_closed: true });
+    },
+  });
+
+  pi.registerTool({
+    name: "orch_release",
+    label: "orch release",
+    description: "Devolve ao pool a worktree de uma tarefa já terminal, só se não houver alterações não commitadas e o HEAD já estiver num remoto. Nunca força. Não fecha a tab e não apaga relatórios.",
+    parameters: {
+      type: "object",
+      properties: { task_id: { type: "string" } },
+      required: ["task_id"],
+      additionalProperties: false,
+    },
+    async execute(_id: string, params: { task_id: string }) {
+      assertWritable();
+      const task = orch.release(params.task_id);
+      return asText({ task_id: task.task_id, status: task.status, worktree_note: task.worktree_note ?? null });
     },
   });
 

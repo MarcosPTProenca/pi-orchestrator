@@ -752,6 +752,18 @@ export class Orchestrator {
     if (note !== null) this.update(taskId, (x) => { x.worktree_note = note; });
   }
 
+  /**
+   * Devolve a worktree de uma tarefa já terminal, só se o git confirmar que nada se perde (releaseLease).
+   * Separado de fechar a tab: não fecha nada, não força. Tarefa ativa é recusada.
+   */
+  release(taskId: string): TaskRecord {
+    this.assertMine(taskId);
+    const t = this.get(taskId);
+    if (isActive(t.status)) throw new Error(`tarefa ${taskId} ainda está ${t.status}; devolva a worktree só depois que terminar`);
+    this.noteWorktree(taskId);
+    return this.get(taskId);
+  }
+
   /** Ao iniciar: atualiza as tarefas ativas a partir do disco e do Herdr. */
   async reconcile(): Promise<void> {
     await this.refreshAll();

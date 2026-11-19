@@ -626,3 +626,23 @@ test("uso de tokens do worker (usage.json) entra no registro da tarefa ao atuali
   await h.orch.refresh(t.task_id);
   assert.equal(h.orch.get(t.task_id).usage?.totalTokens, 135);
 });
+
+test("release s\u00f3 devolve worktree de tarefa terminal e recusa tarefa ativa", async () => {
+  const h = makeHarness();
+  const released: string[] = [];
+  const orch = new Orchestrator({
+    herdr: h.herdr, store: new Store(join(h.stateDir, "rel.json")), tasksDir: join(h.stateDir, "rel-tasks"),
+    workerExtPath: "/x", now: () => h.clock.ms, newHex: () => "eeeeeeee", availableModels: () => ["claude-bridge/claude-haiku-5-5"], dryRun: false,
+    releaseWorktree: (t) => {
+      released.push(t.task_id);
+      return `devolvida: ${t.task_id}`;
+    },
+  });
+  const a = await orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  assert.throws(() => orch.release(a.task_id), /ainda está/);
+  assert.deepEqual(released, []);
+  writeReport(a.task_dir, a.task_id, { status: "done", result: "ok" });
+  await orch.refresh(a.task_id);
+  assert.equal(orch.release(a.task_id).worktree_note, `devolvida: ${a.task_id}`);
+  assert.deepEqual(released, [a.task_id]);
+});
