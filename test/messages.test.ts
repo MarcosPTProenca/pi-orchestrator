@@ -110,3 +110,10 @@ test("papel executa pedido claro e relata o erro quando falha", () => {
   assert.match(FIRST_MATE_ROLE, /Pedido claro dentro do seu papel/);
   assert.match(FIRST_MATE_ROLE, /diga a tentativa e o erro exato/);
 });
+
+test("papel conduz discovery e entrevista diretamente, sem delegar a worker (regressão #61)", () => {
+  assert.match(FIRST_MATE_ROLE, /Discovery e entrevista com o usuário são seus/);
+  assert.match(FIRST_MATE_ROLE, /`grill-with-docs`, `to-spec` e `to-tickets`/);
+  assert.match(FIRST_MATE_ROLE, /Não lance worker para conduzir essas etapas/);
+  assert.match(FIRST_MATE_ROLE, /Subagents só levantam fatos/);
+});
