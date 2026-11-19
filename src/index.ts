@@ -29,7 +29,7 @@ import { capError, maxActiveFrom } from "./cap.ts";
 import { isActive } from "./contract.ts";
 import { orphanLeases, releaseLease, type WorktreeOps } from "./worktrees.ts";
 import { idleSurfaces } from "./idle.ts";
-import { acquireOwnership, releaseOwnership, scopeKey, scopeOwnerDir } from "./lock.ts";
+import { acquireOwnership, legacyAdopter, releaseOwnership, scopeKey, scopeOwnerDir } from "./lock.ts";
 
 /** Treehouse real: `treehouse status` no repositório, `git` na worktree e `treehouse return` sem --force. */
 const treehouseOps: WorktreeOps = {
@@ -326,7 +326,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     }
     orch.setScope(key);
     // Tarefas legadas (de antes do escopo por projeto) deste projeto passam a ser desta sessão.
-    orch.adoptUnowned((p) => scopeKey(p) === key);
+    // Sessão numa pasta-pai (fora de git) também adota legadas dos repos dentro dela sem sessão viva.
+    orch.adoptUnowned(legacyAdopter({ key, cwd: ctx.cwd, stateDir }));
     // Arrendamentos de tarefas já terminais: só listados, nunca devolvidos sozinhos.
     try {
       const terminal = new Set(orch.owned().filter((t) => !isActive(t.status)).map((t) => t.task_id));
