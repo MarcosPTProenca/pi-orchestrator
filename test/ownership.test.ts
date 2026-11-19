@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, utimesSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TaskRecord } from "../src/contract.ts";
-import { acquireOwnership, releaseOwnership, scopeKey, scopeOwnerDir } from "../src/lock.ts";
+import { acquireOwnership, hasLiveOwner, legacyAdopter, releaseOwnership, scopeKey, scopeOwnerDir } from "../src/lock.ts";
 import { Store } from "../src/store.ts";
 import { makeHarness } from "./fakes.ts";
 
@@ -140,4 +140,45 @@ test("sem escopo definido (simulação e testes) todas as tarefas são desta ses
   });
   assert.equal(h.orch.owned().length, 1);
   assert.equal(h.orch.adoptUnowned(() => true), 0, "sem escopo não adota nada");
+});
+
+test("sessão da pasta-pai (fora de git) adota legada de repo dentro dela só se o repo não tem sessão viva", () => {
+  const parent = realpathSync(mkdtempSync(join(tmpdir(), "orch-parent-")));
+  const repoFree = join(parent, "free");
+  const repoLive = join(parent, "live");
+  for (const r of [repoFree, repoLive]) {
+    mkdirSync(r);
+    execFileSync("git", ["init", "-q", r]);
+  }
+  const state = realpathSync(mkdtempSync(join(tmpdir(), "orch-state-")));
+  const liveDir = scopeOwnerDir(state, scopeKey(repoLive));
+  assert.equal(acquireOwnership(liveDir).owner, true);
+  try {
+    const adopt = legacyAdopter({ key: scopeKey(parent), cwd: parent, stateDir: state });
+    assert.equal(adopt(repoFree), true, "repo sem sessão viva dentro do cwd é adotável");
+    assert.equal(adopt(repoLive), false, "repo com sessão viva fica com a sessão dele");
+    assert.equal(adopt(realpathSync(mkdtempSync(join(tmpdir(), "orch-out-")))), false, "fora do cwd não é adotável");
+    assert.equal(adopt(parent + "-irmao"), false, "prefixo parecido não conta como dentro do cwd");
+
+    const h = makeHarness();
+    const store = new Store(join(h.stateDir, "state.json"));
+    store.mutate((s) => {
+      s.tasks["t-free"] = task({ task_id: "t-free", project_path: repoFree });
+      s.tasks["t-live"] = task({ task_id: "t-live", project_path: repoLive });
+    });
+    h.orch.setScope(scopeKey(parent));
+    assert.equal(h.orch.adoptUnowned(adopt), 1);
+    assert.deepEqual(h.orch.owned().map((t) => t.task_id), ["t-free"]);
+  } finally {
+    releaseOwnership(liveDir);
+  }
+});
+
+test("dono de processo morto não bloqueia a adoção; dono vivo bloqueia", () => {
+  const dir = mkdtempSync(join(tmpdir(), "orch-live-"));
+  assert.equal(hasLiveOwner(dir), false, "sem arquivo de posse não há dono vivo");
+  writeFileSync(join(dir, "owner.json"), JSON.stringify({ pid: 2 ** 22 - 3, started_at: "x" }));
+  assert.equal(hasLiveOwner(dir), false, "pid morto não é dono vivo");
+  writeFileSync(join(dir, "owner.json"), JSON.stringify({ pid: process.pid, started_at: "x" }));
+  assert.equal(hasLiveOwner(dir), true, "pid vivo é dono vivo");
 });

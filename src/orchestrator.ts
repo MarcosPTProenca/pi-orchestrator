@@ -159,7 +159,7 @@ export class Orchestrator {
   private assertMine(taskId: string): void {
     const t = this.get(taskId);
     if (this.mine(t)) return;
-    const dono = t.owner_key === undefined ? "tarefa legada sem dono (de outro projeto)" : `de outra sessão do orquestrador (escopo ${t.owner_key})`;
+    const dono = t.owner_key === undefined ? "tarefa legada sem dono (o repo dela tem sessão viva ou está fora desta sessão)" : `de outra sessão do orquestrador (escopo ${t.owner_key})`;
     throw new Error(`tarefa ${taskId} é ${dono}; esta sessão só age sobre as próprias tarefas`);
   }
 

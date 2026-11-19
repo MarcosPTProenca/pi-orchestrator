@@ -67,6 +67,38 @@ export function scopeOwnerDir(stateDir: string, key: string): string {
   return join(stateDir, "owners", key);
 }
 
+/** Há sessão viva (pid existente) com a posse deste diretório? */
+export function hasLiveOwner(dir: string): boolean {
+  const holder = readOwner(join(dir, FILE));
+  return holder !== null && alive(holder.pid);
+}
+
+/** `child` está em `parent` ou abaixo dele (caminhos reais; prefixo parecido não conta). */
+function within(child: string, parent: string): boolean {
+  const real = (p: string): string => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return p;
+    }
+  };
+  const c = real(child);
+  const p = real(parent);
+  return c === p || c.startsWith(p.endsWith("/") ? p : `${p}/`);
+}
+
+/**
+ * Quais tarefas legadas (sem dono) esta sessão pode adotar: as do próprio escopo, e as de repositórios
+ * dentro do `cwd` que não têm sessão viva. Repo com sessão viva fica com ela; repo fora do `cwd` não é tocado.
+ */
+export function legacyAdopter(scope: { key: string; cwd: string; stateDir: string }): (projectPath: string) => boolean {
+  return (projectPath) => {
+    const key = scopeKey(projectPath);
+    if (key === scope.key) return true;
+    return within(projectPath, scope.cwd) && !hasLiveOwner(scopeOwnerDir(scope.stateDir, key));
+  };
+}
+
 export function acquireOwnership(dir: string): Ownership {
   mkdirSync(dir, { recursive: true });
   const file = join(dir, FILE);
