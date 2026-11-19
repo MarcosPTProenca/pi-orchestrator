@@ -59,8 +59,18 @@ export default function workerExtension(pi: ExtensionAPI): void {
     renameSync(`${usageFile}.tmp`, usageFile);
 
     const file = join(taskDir, "report.json");
+    // Relatório existente só vale se for válido para esta tarefa. Inválido sai do caminho (preservado de lado) e vira falha com o motivo.
+    let invalidReason: string | null = null;
+    if (existsSync(file)) {
+      try {
+        validateReport(JSON.parse(readFileSync(file, "utf8")), taskId);
+      } catch (err) {
+        invalidReason = err instanceof Error ? err.message : String(err);
+        renameSync(file, join(taskDir, `report-invalid-${Date.now()}.json`));
+      }
+    }
     if (!existsSync(file)) {
-      const report = fallbackReportFor(taskId, (event as { messages?: unknown[] }).messages ?? [], new Date().toISOString());
+      const report = fallbackReportFor(taskId, (event as { messages?: unknown[] }).messages ?? [], new Date().toISOString(), invalidReason);
       writeFileSync(`${file}.tmp`, JSON.stringify(report, null, 2));
       renameSync(`${file}.tmp`, file);
     }

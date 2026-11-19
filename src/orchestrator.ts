@@ -5,7 +5,7 @@
 import { workerSessionFile } from "./session-file.ts";
 import { resolveModel } from "./models.ts";
 import { workerAgentName, workerTabName } from "./label.ts";
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join } from "node:path";
 import { clampLines, maskSecrets } from "./logs.ts";
 import { classifyFailure } from "./failure.ts";
@@ -16,6 +16,7 @@ import {
   type TaskRecord,
   type TaskStatus,
 } from "./contract.ts";
+import type { Report } from "./contract.ts";
 import { belowFloor, PRESENTATION_FLOOR, type HerdrPort, type TabResult } from "./herdr.ts";
 import type { Store } from "./store.ts";
 
@@ -96,6 +97,15 @@ const LAUNCH_MESSAGE = "Execute a tarefa do brief que voce recebeu no contexto. 
 function isDirectory(path: string): boolean {
   try {
     return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/** Relatório gravado pela extensão do worker ao fim do turno (sem orch_report). */
+function isFallbackRaw(raw: string): boolean {
+  try {
+    return (JSON.parse(raw) as { source?: unknown }).source === "fallback";
   } catch {
     return false;
   }
@@ -386,27 +396,61 @@ export class Orchestrator {
     const raw = readFileSync(file, "utf8");
     const key = reportKey(raw);
     if (key === t.last_report_key) return false;
+    let report: Report;
     try {
-      const report = validateReport(JSON.parse(raw), taskId);
-      this.update(taskId, (x) => {
-        x.status = report.status;
-        x.result = report.result;
-        x.question = report.question;
-        x.artifacts = report.artifacts;
-        x.last_report_key = key;
-        x.notified = false;
-        x.error = null;
-      });
-      if (report.status !== "blocked") this.d.onTerminal?.(taskId);
+      report = validateReport(JSON.parse(raw), taskId);
     } catch (err) {
+      // Inválido não muda o estado nem vira falha: a tarefa segue como está e o diagnóstico fica em error.
       this.update(taskId, (x) => {
-        x.status = "failed";
-        x.error = `relatório inválido: ${errorMessage(err)}`;
+        x.last_report_key = key;
+        x.error = `relatório inválido ignorado: ${errorMessage(err)}`;
+      });
+      return false;
+    }
+    // Continuação que encerrou sem orch_report não apaga o resultado anterior bem-sucedido.
+    const previous = report.status === "failed" && isFallbackRaw(raw) ? this.lastArchivedDone(t) : null;
+    if (previous) {
+      this.update(taskId, (x) => {
+        x.status = "done";
+        x.result = previous.result;
+        x.question = null;
+        x.artifacts = previous.artifacts;
         x.last_report_key = key;
         x.notified = false;
+        x.error = `continuação encerrou sem orch_report; resultado anterior mantido. ${report.result}`;
       });
+      this.d.onTerminal?.(taskId);
+      return true;
     }
+    this.update(taskId, (x) => {
+      x.status = report.status;
+      x.result = report.result;
+      x.question = report.question;
+      x.artifacts = report.artifacts;
+      x.last_report_key = key;
+      x.notified = false;
+      x.error = null;
+    });
+    if (report.status !== "blocked") this.d.onTerminal?.(taskId);
     return true;
+  }
+
+  /** Último relatório `done` arquivado por `send` antes de retomar a tarefa. Null se não houver. */
+  private lastArchivedDone(t: TaskRecord): Report | null {
+    let best: { at: number; report: Report } | null = null;
+    for (const name of readdirSync(t.task_dir)) {
+      if (!/^report-[0-9a-f]+\.json$/.test(name)) continue;
+      const path = join(t.task_dir, name);
+      try {
+        const report = validateReport(JSON.parse(readFileSync(path, "utf8")), t.task_id);
+        if (report.status !== "done") continue;
+        const at = statSync(path).mtimeMs;
+        if (!best || at > best.at) best = { at, report };
+      } catch {
+        // Arquivo arquivado inválido não conta como resultado anterior.
+      }
+    }
+    return best?.report ?? null;
   }
 
   private toEvent(t: TaskRecord): WatchEvent {

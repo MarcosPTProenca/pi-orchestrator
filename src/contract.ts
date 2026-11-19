@@ -90,8 +90,11 @@ export function validateReport(input: unknown, taskId: string): Report {
     throw new Error("relatório inválido: não é um objeto");
   }
   const r = input as Record<string, unknown>;
+  if (r.task_id === undefined) {
+    throw new Error(`relatório sem task_id (esperado ${taskId})`);
+  }
   if (r.task_id !== taskId) {
-    throw new Error(`relatório de outra tarefa: ${String(r.task_id)}`);
+    throw new Error(`relatório de outra tarefa: ${String(r.task_id)} (esperado ${taskId})`);
   }
   if (!(REPORT_STATUSES as readonly unknown[]).includes(r.status)) {
     throw new Error(`status de relatório inválido: ${String(r.status)}`);
