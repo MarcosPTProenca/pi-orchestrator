@@ -124,7 +124,7 @@ test("papel conduz discovery e entrevista diretamente, sem delegar a worker (reg
 
 test("pergunta de acompanhamento: responde com o que já existe, data e lacuna, sem relançar (#57)", () => {
   assert.match(FIRST_MATE_ROLE, /Pergunta de acompanhamento sobre tarefa anterior/);
-  assert.match(FIRST_MATE_ROLE, /com a data do relatório/);
+  assert.match(FIRST_MATE_ROLE, /com a data absoluta do relatório \(AAAA-MM-DD, não só a idade\)/);
   assert.match(FIRST_MATE_ROLE, /Investigue só a lacuna, nunca refaça trabalho/);
   assert.match(FIRST_MATE_ROLE, /pode estar desatualizado/);
 });
