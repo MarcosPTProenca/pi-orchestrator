@@ -56,8 +56,9 @@ test("ponta a ponta: duas tarefas em dois projetos; cada aviso identifica o seu 
 
 test("dois repos com o mesmo nome de pasta ganham nomes distintos nas mensagens (#65)", async () => {
   const h = makeHarness();
-  const a = join(h.project, "..", "casa-a", "app");
-  const b = join(h.project, "..", "casa-b", "app");
+  const base = mkdtempSync(join(tmpdir(), "orch-clash-"));
+  const a = join(base, "casa-a", "app");
+  const b = join(base, "casa-b", "app");
   for (const p of [a, b]) {
     mkdirSync(p, { recursive: true });
     mkdirSync(join(p, ".git"));
@@ -70,8 +71,9 @@ test("dois repos com o mesmo nome de pasta ganham nomes distintos nas mensagens 
 
 test("mesma branch em repos diferentes com o mesmo nome de pasta não conflita (#65)", async () => {
   const h = makeHarness();
-  const a = join(h.project, "..", "pai-x", "app");
-  const b = join(h.project, "..", "pai-y", "app");
+  const base = mkdtempSync(join(tmpdir(), "orch-clash-"));
+  const a = join(base, "pai-x", "app");
+  const b = join(base, "pai-y", "app");
   for (const p of [a, b]) {
     mkdirSync(p, { recursive: true });
     mkdirSync(join(p, ".git"));
