@@ -317,8 +317,10 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         } catch (err) {
           prLine += `\nFalha por ${why} em ${task.model}. Tentei relançar com ${next} e não consegui: ${err instanceof Error ? err.message : String(err)}. Decida o próximo passo.`;
         }
+      } else if (next) {
+        prLine += `\nFalha por ${why} em ${task.model}. Limite de ${MAX_AUTO_RELAUNCH} trocas automáticas atingido; para relançar: orch_relaunch(task_id="${event.task_id}", model="${next}").`;
       } else if (kind === "quota") {
-        prLine += `\nCota esgotada em ${task.model}. ${next ? `Limite de trocas automáticas atingido; para relançar: orch_relaunch(task_id="${event.task_id}", model="${next}").` : "Não há outro modelo na ordem de prioridade."}`;
+        prLine += `\nCota esgotada em ${task.model}. Não há outro modelo na ordem de prioridade.`;
       } else {
         prLine += failureHintFor(reason, event.task_id);
       }
