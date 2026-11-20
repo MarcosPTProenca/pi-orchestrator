@@ -24,7 +24,7 @@ import { Store, defaultStateDir } from "./store.ts";
 import { NoticeBatcher } from "./notices.ts";
 import { notificationFor, notifyArgs, notifyEnabled } from "./notify.ts";
 import { buildStatus, oldHoursFrom } from "./status.ts";
-import { classifyFailure, suggestModel } from "./failure.ts";
+import { classifyFailure, failureHintFor, suggestModel } from "./failure.ts";
 import { capError, maxActiveFrom } from "./cap.ts";
 import { isActive } from "./contract.ts";
 import { orphanLeases, releaseLease, type WorktreeOps } from "./worktrees.ts";
@@ -291,6 +291,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         prLine += next
           ? `\nCota esgotada em ${task.model}. Para relançar com outro modelo: orch_relaunch(task_id="${event.task_id}", model="${next}").`
           : `\nCota esgotada em ${task.model}, e não há outro modelo na ordem de prioridade.`;
+      } else {
+        prLine += failureHintFor(event.result ?? event.error ?? "", event.task_id);
       }
     }
     notices.push({ key: `${event.task_id}:${event.status}`, text: modelMessageFor(event) + prLine, event });
