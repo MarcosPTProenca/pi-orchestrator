@@ -9,7 +9,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, unlinkSync, writeSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 export interface Owner {
   pid: number;
@@ -95,7 +95,9 @@ export function legacyAdopter(scope: { key: string; cwd: string; stateDir: strin
   return (projectPath) => {
     const key = scopeKey(projectPath);
     if (key === scope.key) return true;
-    return within(projectPath, scope.cwd) && !hasLiveOwner(scopeOwnerDir(scope.stateDir, key));
+    // Mesmo repositório (inclusive worktrees dele): adota se o repo não tem dono vivo, como a pasta-pai (#59).
+    const sameRepo = repoIdentity(projectPath) !== undefined && repoIdentity(projectPath) === repoIdentity(scope.cwd);
+    return (sameRepo || within(projectPath, scope.cwd)) && !hasLiveOwner(scopeOwnerDir(scope.stateDir, key));
   };
 }
 
@@ -147,6 +149,9 @@ function keyOf(path: string): string {
  */
 export function ownsByRepo(taskProject: string, sessionKey: string, sessionCwd: string): boolean {
   if (keyOf(taskProject) === sessionKey) return true;
+  // Sessão numa worktree do mesmo repositório controla as tarefas dele (#59): mesma identidade de repositório.
+  const identity = repoIdentity(taskProject);
+  if (identity !== undefined && identity === repoIdentity(sessionCwd)) return true;
   return within(taskProject, sessionCwd) && keyOf(sessionCwd) === sessionKey && !isRepoRoot(sessionCwd);
 }
 
@@ -158,4 +163,23 @@ function isRepoRoot(cwd: string): boolean {
   } catch {
     return false;
   }
+}
+
+const identityCache = new Map<string, string | undefined>();
+
+/**
+ * Identidade do repositório: o diretório git comum (`--git-common-dir`). O checkout principal e as worktrees
+ * dele têm a mesma identidade; repos diferentes não. Fora de git, indefinida.
+ */
+export function repoIdentity(path: string): string | undefined {
+  if (identityCache.has(path)) return identityCache.get(path);
+  let id: string | undefined;
+  try {
+    const out = execFileSync("git", ["-C", path, "rev-parse", "--git-common-dir"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    id = realpathSync(resolve(path, out));
+  } catch {
+    id = undefined;
+  }
+  identityCache.set(path, id);
+  return id;
 }
