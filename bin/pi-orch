@@ -24,5 +24,7 @@ if [ "${PI_ORCH_NO_SYNC:-}" != "1" ] && [ "$(git -C "$HERE" symbolic-ref --short
   fi
 fi
 export PI_ORCH_WORKER_EXT="$HERE/src/worker-ext.ts"
+# Papel da sessão: as extensões globais (ex.: pr-review-hook) leem isto para não rodar no orquestrador. Workers definem o próprio papel no comando.
+export PI_ORCH_ROLE=orchestrator
 # Orquestrador = agente Pi normal, com todas as ferramentas (inclusive subagents de pesquisa). O agente worker do pi-subagents está desabilitado em settings.json.
 exec pi -e "$HERE/src/index.ts" "$@"
