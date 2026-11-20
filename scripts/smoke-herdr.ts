@@ -25,6 +25,10 @@ if (process.env.HERDR_ENV !== "1" || !process.env.HERDR_PANE_ID) {
 const stateDir = mkdtempSync(join(tmpdir(), "pi-orch-smoke-state-"));
 const project = mkdtempSync(join(tmpdir(), "pi-orch-smoke-proj-"));
 writeFileSync(join(project, "README.md"), "Projeto descartável do smoke test do pi-orchestrator.\n");
+// O intake exige a raiz de um repositório git (project_path precisa de .git).
+execFileSync("git", ["init", "-q"], { cwd: project });
+execFileSync("git", ["add", "README.md"], { cwd: project });
+execFileSync("git", ["-c", "user.name=smoke", "-c", "user.email=smoke@example.invalid", "commit", "-q", "-m", "chore: inicia projeto descartável do smoke"], { cwd: project });
 
 const orch = new Orchestrator({
   herdr: new HerdrCli(),
@@ -66,11 +70,16 @@ async function scenarioDone(): Promise<void> {
   log(`A: delegada task=${t.task_id} pane=${t.pane_id} worker=${t.worker_id}`);
   const ev = await watchUntilSettled(t.task_id, "A");
   if (ev.status !== "done") throw new Error(`A: esperado done, veio ${ev.status}`);
+  // Desde o #62 a tab de tarefa concluída fica aberta até o usuário validar (ou o fechamento automático do #51).
   const panesA = (await new HerdrCli().panes()).map((p) => p.pane_id);
-  if (panesA.includes(t.pane_id)) throw new Error("A: tab de tarefa concluída deveria ter sido fechada");
+  if (!panesA.includes(t.pane_id)) throw new Error("A: tab de tarefa concluída deveria continuar aberta até a validação");
   if (!orch.takeNotice(t.task_id)) throw new Error("A: aviso deveria estar pendente uma vez");
   if (orch.takeNotice(t.task_id)) throw new Error("A: aviso repetido");
-  log("A: OK (done, aviso deduplicado)");
+  const outcome = await orch.closeOutcome(t.task_id);
+  if (!outcome.closed) throw new Error(`A: orch_close deveria fechar a tab (${outcome.reason ?? "sem motivo"})`);
+  const panesA2 = (await new HerdrCli().panes()).map((p) => p.pane_id);
+  if (panesA2.includes(t.pane_id)) throw new Error("A: tab continua aberta após orch_close");
+  log("A: OK (done, aviso deduplicado, orch_close fechou a tab)");
 }
 
 async function scenarioBlockedAnswer(): Promise<void> {
