@@ -67,6 +67,8 @@ export interface TaskRecord {
   error: string | null;
   /** Resultado da tentativa de devolver a worktree ao pool (ao cancelar ou perder a tarefa). */
   worktree_note?: string | null;
+  /** Status anterior quando um relatório válido reabre a tarefa (lost, failed, timeout): o aviso diz a correção. */
+  reopened_from?: string | null;
   /** Fonte da tarefa (URL de PR ou issue). Usada para não lançar duas tarefas ativas para a mesma PR. */
   source?: string | null;
   /** Branch de trabalho pedida. Usada para não lançar duas tarefas ativas na mesma branch. */

@@ -85,6 +85,8 @@ export interface WatchEvent {
   question: string | null;
   artifacts: string[];
   error: string | null;
+  /** Correção de um aviso anterior: a tarefa tinha sido dada como outro status e o relatório válido prevalece. */
+  correction?: string | null;
 }
 
 /** Aspas simples seguras para o shell do pane: o comando é digitado no shell do Herdr. */
@@ -422,6 +424,7 @@ export class Orchestrator {
       this.d.onTerminal?.(taskId);
       return true;
     }
+    const reopened = ["lost", "failed", "timeout"].includes(t.status) ? `antes marcada como ${t.status}${t.error ? ` (${t.error})` : ""}; o relatório válido chegou depois e prevalece` : null;
     this.update(taskId, (x) => {
       x.status = report.status;
       x.result = report.result;
@@ -429,6 +432,7 @@ export class Orchestrator {
       x.artifacts = report.artifacts;
       x.last_report_key = key;
       x.notified = false;
+      x.reopened_from = reopened;
       x.error = null;
     });
     if (report.status !== "blocked") this.d.onTerminal?.(taskId);
@@ -462,6 +466,7 @@ export class Orchestrator {
       question: t.question,
       artifacts: t.artifacts,
       error: t.error,
+      correction: t.reopened_from ?? null,
     };
   }
 

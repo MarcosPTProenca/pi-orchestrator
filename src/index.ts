@@ -95,6 +95,7 @@ export function modelMessageFor(e: WatchEvent): string {
   if (e.question) lines.push(`Pergunta do worker: ${clip(e.question, 600)}`);
   if (e.artifacts.length) lines.push(`Artefatos: ${e.artifacts.join(", ")}`);
   if (e.error) lines.push(`Erro: ${clip(e.error, 400)}`);
+  if (e.correction) lines.push(`Correção de aviso anterior: ${clip(e.correction, 400)}`);
   lines.push(
     "",
     "Responda ao usuário em até 5 linhas: o que aconteceu, o que ficou pronto e o que falta validar. Cite URLs de PR quando houver. Não cole o relatório do worker, e não narre o mecanismo.",
