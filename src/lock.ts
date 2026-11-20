@@ -126,3 +126,36 @@ export function releaseOwnership(dir: string): void {
   const file = join(dir, FILE);
   if (readOwner(file)?.pid === process.pid) unlinkSync(file);
 }
+
+const keyCache = new Map<string, string>();
+
+/** Chave do escopo, com cache: a listagem chama esta função por tarefa. */
+function keyOf(path: string): string {
+  let key = keyCache.get(path);
+  if (key === undefined) {
+    key = scopeKey(path);
+    keyCache.set(path, key);
+  }
+  return key;
+}
+
+/**
+ * Controle compartilhado (decisão do usuário): a sessão do repositório e a sessão da pasta-pai controlam as tarefas
+ * desse repositório. Uma sessão de outro repositório não controla essas tarefas (sem controle cruzado).
+ * - Sessão de repo: controla as tarefas cujo repo é o dela.
+ * - Sessão de pasta (fora de git): controla as tarefas de repos dentro da pasta.
+ */
+export function ownsByRepo(taskProject: string, sessionKey: string, sessionCwd: string): boolean {
+  if (keyOf(taskProject) === sessionKey) return true;
+  return within(taskProject, sessionCwd) && keyOf(sessionCwd) === sessionKey && !isRepoRoot(sessionCwd);
+}
+
+/** A pasta é uma raiz de repositório git? Sessão de pasta-pai (fora de git) não é. */
+function isRepoRoot(cwd: string): boolean {
+  try {
+    execFileSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], { stdio: ["ignore", "pipe", "ignore"] });
+    return true;
+  } catch {
+    return false;
+  }
+}
