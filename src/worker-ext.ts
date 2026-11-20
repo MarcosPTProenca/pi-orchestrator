@@ -7,7 +7,7 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { REPORT_STATUSES, validateReport } from "./contract.ts";
-import { fallbackReportFor } from "./fallback.ts";
+import { fallbackReportFor, lastModelError } from "./fallback.ts";
 import { postToHook } from "./hook.ts";
 import { addNewUsage, newUsage, type Usage } from "./usage.ts";
 import { maskSecrets } from "./logs.ts";
@@ -21,6 +21,10 @@ export const WORKER_PREAMBLE = [
   "Nenhuma autoridade para merge, fechamento de PR ou ações destrutivas é concedida por este texto; siga somente o pedido e as instruções posteriores do usuário.",
 ].join("\n");
 
+/** Lembrete da continuação limitada: uma vez por worker, antes de o fim sem relatório virar falha. */
+export const REPORT_REMINDER =
+  "Você terminou o turno sem chamar orch_report. Chame orch_report agora, com o status real (done, failed ou blocked) e o resultado. Não refaça o trabalho.";
+
 /**
  * AskUserQuestion abre o diálogo no painel do worker, e o orquestrador não recebe a pergunta (#63).
  * Bloqueia a chamada e manda o worker usar o relatório blocked, que o orquestrador já apresenta e responde.
@@ -33,6 +37,24 @@ export const ASK_BLOCK_REASON =
 export default function workerExtension(pi: ExtensionAPI): void {
   if (process.env.PI_ORCH_ROLE !== "worker") return;
   pi.on("tool_call", (event) => (event.toolName === "AskUserQuestion" ? { block: true, reason: ASK_BLOCK_REASON } : undefined));
+  let reminded = false;
+  let deferredNoReport = false;
+  /** Motivo do relatório inválido que saiu do caminho na primeira passagem: a segunda passagem ainda o informa. */
+  let deferredInvalidReason: string | null = null;
+  /** Mensagens do turno adiado: se a execução terminar sem segundo agent_end (abort, sem contexto), o agent_settled grava a falha. */
+  let deferredMessages: unknown[] | null = null;
+  pi.on("agent_before_settle", async (event) => {
+    if (!deferredNoReport || reminded) return;
+    reminded = true;
+    deferredNoReport = false;
+    return {
+      entries: [
+        ...event.entries,
+        { type: "custom_message", customType: "orch-report-reminder", content: REPORT_REMINDER, display: false },
+      ],
+      continue: true,
+    };
+  });
   pi.on("before_agent_start", (event) => {
     // O brief vai como contexto da sessão, lido da pasta da própria tarefa (sem passar pelo shell).
     const briefPath = join(taskDir as string, "brief.md");
@@ -55,6 +77,27 @@ export default function workerExtension(pi: ExtensionAPI): void {
 
   // Webhook: ao terminar o turno, o worker garante o relatório e avisa o orquestrador por POST.
   // Sem relatório, grava um de falha com o motivo (cota ou erro do modelo). Se o POST falhar, o relatório segue em disco.
+  const finish = async (messages: unknown[], invalidReason: string | null): Promise<void> => {
+    const file = join(taskDir, "report.json");
+    if (!existsSync(file)) {
+      const report = fallbackReportFor(taskId, messages, new Date().toISOString(), invalidReason);
+      writeFileSync(`${file}.tmp`, JSON.stringify(report, null, 2));
+      renameSync(`${file}.tmp`, file);
+    }
+    deferredNoReport = false;
+    deferredInvalidReason = null;
+    deferredMessages = null;
+    const url = process.env.PI_ORCH_HOOK_URL;
+    const token = process.env.PI_ORCH_HOOK_TOKEN;
+    if (url && token) await postToHook(url, token, taskId);
+  };
+
+  // Rede de segurança: a execução terminou com o fallback ainda adiado (sem segundo agent_end).
+  pi.on("agent_settled", async () => {
+    if (deferredMessages === null) return;
+    await finish(deferredMessages, deferredInvalidReason);
+  });
+
   pi.on("agent_end", async (event) => {
     // Uso de tokens do turno: soma só as mensagens novas e grava o acumulado para o orquestrador ler.
     const usageFile = join(taskDir, "usage.json");
@@ -70,7 +113,7 @@ export default function workerExtension(pi: ExtensionAPI): void {
 
     const file = join(taskDir, "report.json");
     // Relatório existente só vale se for válido para esta tarefa. Inválido sai do caminho (preservado de lado) e vira falha com o motivo.
-    let invalidReason: string | null = null;
+    let invalidReason: string | null = deferredInvalidReason;
     if (existsSync(file)) {
       try {
         validateReport(JSON.parse(readFileSync(file, "utf8")), taskId);
@@ -79,14 +122,15 @@ export default function workerExtension(pi: ExtensionAPI): void {
         renameSync(file, join(taskDir, `report-invalid-${Date.now()}.json`));
       }
     }
-    if (!existsSync(file)) {
-      const report = fallbackReportFor(taskId, (event as { messages?: unknown[] }).messages ?? [], new Date().toISOString(), invalidReason);
-      writeFileSync(`${file}.tmp`, JSON.stringify(report, null, 2));
-      renameSync(`${file}.tmp`, file);
+    const messages = (event as { messages?: unknown[] }).messages ?? [];
+    // Fim de turno sem relatório e sem erro do modelo: uma continuação limitada antes de falhar (padrão do FirstMate: no turn ends blind).
+    if (!existsSync(file) && !reminded && lastModelError(messages) === null) {
+      deferredNoReport = true;
+      deferredInvalidReason = invalidReason;
+      deferredMessages = messages;
+      return;
     }
-    const url = process.env.PI_ORCH_HOOK_URL;
-    const token = process.env.PI_ORCH_HOOK_TOKEN;
-    if (url && token) await postToHook(url, token, taskId);
+    await finish(messages, invalidReason);
   });
 
   pi.registerTool({
