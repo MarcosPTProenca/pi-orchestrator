@@ -5,7 +5,7 @@
 import { workerSessionFile } from "./session-file.ts";
 import { resolveModel } from "./models.ts";
 import { workerAgentName, workerTabName } from "./label.ts";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join } from "node:path";
 import { clampLines, maskSecrets } from "./logs.ts";
 import { classifyFailure } from "./failure.ts";
@@ -48,6 +48,10 @@ export interface OrchDeps {
 
 export { MODES, type Mode } from "./intake.ts";
 import { buildIntake, renderBrief, type Mode } from "./intake.ts";
+
+/** Trava por tarefa: espera até 5 s; trava com mais de 30 s é de processo morto. */
+const OP_LOCK_WAIT_MS = 5_000;
+const OP_LOCK_STALE_MS = 30_000;
 
 export interface DelegateInput {
   project_path: string;
@@ -124,14 +128,54 @@ export class Orchestrator {
     this.d = deps;
   }
 
-  /** Define o escopo desta sessão: só as tarefas dele são avisadas, varridas e alteradas aqui. */
-  setScope(key: string): void {
+  private sharedWith?: (projectPath: string) => boolean;
+
+  /**
+   * Define o escopo desta sessão: só as tarefas dele são avisadas, varridas e alteradas aqui.
+   * `sharedWith` diz quais tarefas de outros escopos esta sessão também controla (controle compartilhado do repo).
+   */
+  setScope(key: string, sharedWith?: (projectPath: string) => boolean): void {
     this.scope = key;
+    this.sharedWith = sharedWith;
   }
 
-  /** A tarefa é desta sessão? Sem escopo definido, tudo é. Tarefa legada (sem dono) não é. */
+  /** A tarefa é desta sessão? Sem escopo, tudo é. Dono igual, ou controle compartilhado do repo da tarefa. */
   private mine(t: TaskRecord): boolean {
-    return this.scope === undefined || t.owner_key === this.scope;
+    if (this.scope === undefined || t.owner_key === this.scope) return true;
+    return this.sharedWith !== undefined && this.sharedWith(t.project_path);
+  }
+
+  /**
+   * Trava por tarefa: duas sessões que controlam a mesma tarefa não executam operações que a mudam ao mesmo tempo
+   * (cancelar e enviar, dois cancelamentos, duas respostas). Trava de processo morto expira.
+   */
+  private async withTaskLock<T>(taskId: string, fn: () => Promise<T>): Promise<T> {
+    mkdirSync(this.d.tasksDir, { recursive: true });
+    const dir = join(this.d.tasksDir, `${taskId}.oplock`);
+    const deadline = Date.now() + OP_LOCK_WAIT_MS;
+    for (;;) {
+      try {
+        mkdirSync(dir);
+        break;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+        try {
+          if (Date.now() - statSync(dir).mtimeMs > OP_LOCK_STALE_MS) {
+            rmSync(dir, { recursive: true, force: true });
+            continue;
+          }
+        } catch {
+          continue; // a outra sessão soltou a trava entre o EEXIST e o stat
+        }
+        if (Date.now() > deadline) throw new Error(`tarefa ${taskId} está ocupada com outra operação; tente de novo`);
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    }
+    try {
+      return await fn();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 
   /** Tarefas deste escopo. Tarefas de outras sessões do orquestrador ficam visíveis em list(), mas não são suas. */
@@ -523,6 +567,10 @@ export class Orchestrator {
    * reportar sucesso (#62, critério de fechamento seguro).
    */
   async closeOutcome(taskId: string): Promise<{ task: TaskRecord; closed: boolean; reason: string | null }> {
+    return this.withTaskLock(taskId, () => this.closeOutcomeLocked(taskId));
+  }
+
+  private async closeOutcomeLocked(taskId: string): Promise<{ task: TaskRecord; closed: boolean; reason: string | null }> {
     this.assertMine(taskId);
     const t = this.get(taskId);
     const owner = await this.ownership(t);
@@ -570,6 +618,10 @@ export class Orchestrator {
    * A tarefa anterior não muda nem perde a worktree (o novo worker arrenda a sua).
    */
   async relaunch(taskId: string, model?: string): Promise<TaskRecord> {
+    return this.withTaskLock(taskId, () => this.relaunchLocked(taskId, model));
+  }
+
+  private async relaunchLocked(taskId: string, model?: string): Promise<TaskRecord> {
     this.assertMine(taskId);
     const old = this.get(taskId);
     if (isActive(old.status)) throw new Error(`tarefa ${taskId} ainda está ativa; cancele antes de relançar`);
@@ -683,6 +735,10 @@ export class Orchestrator {
    * atual (medido com herdr agent prompt em worker ocupado). Bloqueado: vira resposta, como orch_answer.
    */
   async send(taskId: string, text: string): Promise<TaskRecord> {
+    return this.withTaskLock(taskId, () => this.sendLocked(taskId, text));
+  }
+
+  private async sendLocked(taskId: string, text: string): Promise<TaskRecord> {
     this.assertMine(taskId);
     const t = this.get(taskId);
     if (t.status !== "running" && t.status !== "blocked" && t.status !== "done") throw new Error(`tarefa ${taskId} não aceita mensagem (status: ${t.status})`);
@@ -691,7 +747,7 @@ export class Orchestrator {
     const owner = await this.ownership(t);
     if (owner === "missing") throw new Error("o painel da tarefa não existe mais; nada foi enviado");
     if (owner === "mismatch") throw new Error("o painel trocou de agente; nada foi enviado");
-    if (t.status === "blocked") return this.answer(taskId, text);
+    if (t.status === "blocked") return this.answerLocked(taskId, text);
     if (t.status === "done") {
       const pane = (await this.d.herdr.panes()).find((p) => p.pane_id === t.pane_id && p.terminal_id === t.terminal_id);
       if (!pane || pane.agent !== "pi" || pane.agent_status !== "idle") throw new Error("o worker não está disponível e ocioso; nada foi enviado");
@@ -714,6 +770,10 @@ export class Orchestrator {
   }
 
   async answer(taskId: string, text: string): Promise<TaskRecord> {
+    return this.withTaskLock(taskId, () => this.answerLocked(taskId, text));
+  }
+
+  private async answerLocked(taskId: string, text: string): Promise<TaskRecord> {
     this.assertMine(taskId);
     const t = this.get(taskId);
     if (t.status !== "blocked") throw new Error(`tarefa ${taskId} não está bloqueada (status: ${t.status})`);
@@ -735,6 +795,10 @@ export class Orchestrator {
   }
 
   async cancel(taskId: string): Promise<TaskRecord> {
+    return this.withTaskLock(taskId, () => this.cancelLocked(taskId));
+  }
+
+  private async cancelLocked(taskId: string): Promise<TaskRecord> {
     this.assertMine(taskId);
     const t = this.get(taskId);
     if (!isActive(t.status)) return t;
