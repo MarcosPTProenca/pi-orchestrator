@@ -179,3 +179,22 @@ test("orch_close com pane ausente não fecha nada e não diz que fechou (#62)", 
   assert.match(out.reason ?? "", /nada foi fechado/);
   assert.equal(h.herdr.calls.some((c) => c.op === "closeTab"), false, "nenhuma tab foi fechada");
 });
+
+test("candidata só vence o prazo de fechamento depois de ociosa pelo tempo configurado (#51)", async () => {
+  const { dueForAutoClose, idleSurfaces } = await import("../src/idle.ts");
+  const t = task({ task_id: "t-vence", updated_at: "2026-11-18T10:00:00.000Z" });
+  const surfaces = idleSurfaces([t], liveFor(t));
+  const entregue = Date.parse("2026-11-18T10:00:00.000Z");
+  const cinco = 5 * 60_000;
+  assert.deepEqual(dueForAutoClose(surfaces, entregue + cinco - 1, cinco), []);
+  assert.deepEqual(dueForAutoClose(surfaces, entregue + cinco, cinco).map((s) => s.task_id), ["t-vence"]);
+});
+
+test("tarefa ativa ou ainda não entregue nunca vence o prazo de fechamento (#51)", async () => {
+  const { dueForAutoClose, idleSurfaces } = await import("../src/idle.ts");
+  const ativa = task({ task_id: "t-ativa", status: "running" as TaskRecord["status"], updated_at: "2026-11-18T10:00:00.000Z" });
+  const naoEntregue = task({ task_id: "t-nao", notified: false, updated_at: "2026-11-18T10:00:00.000Z" });
+  const muito_depois = Date.parse("2026-11-19T10:00:00.000Z");
+  const surfaces = idleSurfaces([ativa, naoEntregue], liveFor(ativa, naoEntregue));
+  assert.deepEqual(dueForAutoClose(surfaces, muito_depois, 300_000), []);
+});
