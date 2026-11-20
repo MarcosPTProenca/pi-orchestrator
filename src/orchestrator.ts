@@ -515,16 +515,27 @@ export class Orchestrator {
    * conclusão não fecha nada sozinha. Dono confirmado por pane_id + terminal_id.
    */
   async close(taskId: string): Promise<TaskRecord> {
+    return (await this.closeOutcome(taskId)).task;
+  }
+
+  /**
+   * Fecha a tab da tarefa e diz se fechou de fato. Pane ausente no Herdr não fecha nada: quem chama não pode
+   * reportar sucesso (#62, critério de fechamento seguro).
+   */
+  async closeOutcome(taskId: string): Promise<{ task: TaskRecord; closed: boolean; reason: string | null }> {
     this.assertMine(taskId);
     const t = this.get(taskId);
     const owner = await this.ownership(t);
     if (owner === "mismatch") {
       throw new Error(`tab ${t.tab_id} não corresponde mais à tarefa ${taskId}; nada foi fechado`);
     }
+    let reason: string | null = null;
     if (owner === "owned") await this.closeSurface(t);
-    return this.update(taskId, (x) => {
+    else reason = "a pane da tarefa não existe mais no Herdr; nada foi fechado";
+    const task = this.update(taskId, (x) => {
       x.notified = true;
     });
+    return { task, closed: owner === "owned", reason };
   }
 
   /** Grava o resultado da verificação da conclusão. Não muda o relatório nem o status. */

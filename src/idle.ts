@@ -107,13 +107,3 @@ export class IdleWatch {
     this.failing = false;
   }
 }
-
-/**
- * Texto do aviso periódico. Tarefas concluídas e entregues cuja tab já não confere (#62) são nomeadas com o motivo,
- * para o usuário não ficar sem saber por que uma superfície antiga não aparece como candidata.
- */
-export function idleNoticeText(idle: IdleSurface[], stale: { task_id: string; reason: string }[]): string {
-  const base = `Superfícies ociosas de tarefas concluídas e entregues (${idle.length}), ainda abertas: ${idle.map((s) => s.task_id).join(", ")}. Fechar com orch_close somente se o usuário pedir.`;
-  if (stale.length === 0) return base;
-  return `${base} Não são candidatas: ${stale.map((s) => `${s.task_id} (${s.reason})`).join("; ")}.`;
-}

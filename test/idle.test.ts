@@ -160,9 +160,22 @@ test("idleReport lista candidatas e o motivo de cada não candidata, em ordem es
 });
 
 test("aviso de ociosas nomeia a concluída cuja tab não confere mais, com o motivo (#62)", async () => {
-  const { idleNoticeText } = await import("../src/idle.ts");
-  const msg = idleNoticeText([{ task_id: "t-a", project_id: "p", updated_at: "x", projected: false }], [{ task_id: "t-b", reason: "tab ou pane não confere mais com a tarefa no Herdr" }]);
-  assert.match(msg, /ainda abertas: t-a\./);
+  const { idleNoticeFor } = await import("../src/index.ts");
+  const idle = [{ task_id: "t-a", project_id: "p" }];
+  const msg = idleNoticeFor(idle, [{ task_id: "t-b", reason: "tab ou pane não confere mais com a tarefa no Herdr" }]);
+  assert.match(msg, /ainda abertas: t-a \(/);
   assert.match(msg, /Não são candidatas: t-b \(tab ou pane não confere mais com a tarefa no Herdr\)\./);
-  assert.doesNotMatch(idleNoticeText([{ task_id: "t-a", project_id: "p", updated_at: "x", projected: false }], []), /Não são candidatas/);
+  assert.doesNotMatch(idleNoticeFor(idle, []), /Não são candidatas/);
+});
+
+test("orch_close com pane ausente não fecha nada e não diz que fechou (#62)", async () => {
+  const { makeHarness } = await import("./fakes.ts");
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  h.herdr.panesList = [];
+  h.herdr.calls = [];
+  const out = await h.orch.closeOutcome(t.task_id);
+  assert.equal(out.closed, false);
+  assert.match(out.reason ?? "", /nada foi fechado/);
+  assert.equal(h.herdr.calls.some((c) => c.op === "closeTab"), false, "nenhuma tab foi fechada");
 });
