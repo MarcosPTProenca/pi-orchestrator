@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 import { startHook as startHook0, type HookHandle } from "./hook.ts";
 import { DEFAULT_PRIORITY, pickModel, checkRequestedQuota, readQuota, type ProviderQuota } from "./quota.ts";
 import { randomBytes } from "node:crypto";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { HerdrCli } from "./herdr.ts";
@@ -63,10 +63,27 @@ export const FIRST_MATE_ROLE = [
  * Mensagem para o orquestrador (não para o terminal). O modelo lê o evento e responde ao usuário
  * em poucas linhas. O texto bruto do worker é truncado: o relatório completo fica no arquivo.
  */
+/** Nome do projeto nas mensagens. Vazio vira "projeto não identificado": nunca um nome inventado. */
+export function projectLabel(id: string | null | undefined): string {
+  return id && id.trim() ? id.trim() : "projeto não identificado";
+}
+
+/** Aviso agregado de superfícies ociosas: cada tarefa com o projeto a que pertence. */
+export function idleNoticeFor(idle: { task_id: string; project_id: string }[]): string {
+  const items = idle.map((s) => `${s.task_id} (${projectLabel(s.project_id)})`).join(", ");
+  return `Superfícies ociosas de tarefas concluídas e entregues (${idle.length}), ainda abertas: ${items}. Fechar com orch_close somente se o usuário pedir.`;
+}
+
+/** Aviso de worktrees arrendadas por tarefas terminais, com o projeto de cada uma. */
+export function orphanNoticeFor(orphans: { path: string; holder: string; project: string }[]): string {
+  const items = orphans.map((o) => `${projectLabel(o.project)}: ${o.path} (${o.holder})`).join("; ");
+  return `Worktrees ainda arrendadas por tarefas terminais (não foram devolvidas): ${items}. Devolver com orch_release só se o usuário pedir; ela recusa o que tiver trabalho não publicado.`;
+}
+
 export function modelMessageFor(e: WatchEvent): string {
   const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)} [truncado; relatório completo no arquivo do worker]` : text);
   const lines = [
-    `[evento de worker] tarefa ${e.task_id} (${e.project_id}): ${e.status}`,
+    `[evento de worker] tarefa ${e.task_id} (${projectLabel(e.project_id)}): ${e.status}`,
   ];
   if (e.result) lines.push(`Resumo do worker: ${clip(e.result, 1200)}`);
   if (e.question) lines.push(`Pergunta do worker: ${clip(e.question, 600)}`);
@@ -82,7 +99,7 @@ export function modelMessageFor(e: WatchEvent): string {
 
 /** Mensagem exibida no terminal: só para o caso de o turno não ser possível. */
 export function formatEvent(e: WatchEvent): string {
-  const ref = `[${e.task_id.slice(-6)}] ${e.project_id}`;
+  const ref = `[${e.task_id.slice(-6)}] ${projectLabel(e.project_id)}`;
   switch (e.status) {
     case "done": {
       const lines = [`${ref}: concluído. ${e.result ?? ""}`.trim()];
@@ -310,7 +327,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       const idle = idleSurfaces(orch.owned(), live);
       if (idleWatch.observe(idle)) {
         pi.sendMessage(
-          { customType: "orch-event", content: `Superfícies ociosas de tarefas concluídas e entregues (${idle.length}), ainda abertas: ${idle.map((s) => s.task_id).join(", ")}. Fechar com orch_close somente se o usuário pedir.`, display: true },
+          { customType: "orch-event", content: idleNoticeFor(idle), display: true },
           { triggerTurn: false },
         );
       }
@@ -370,10 +387,10 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     try {
       const terminal = new Set(orch.owned().filter((t) => !isActive(t.status)).map((t) => t.task_id));
       const projects = [...new Set(orch.owned().map((t) => t.project_path))];
-      const orphans = projects.flatMap((p) => orphanLeases(treehouseOps, p, terminal));
+      const orphans = projects.flatMap((p) => orphanLeases(treehouseOps, p, terminal).map((l) => ({ ...l, project: basename(p) })));
       if (orphans.length > 0) {
         pi.sendMessage(
-          { customType: "orch-event", content: `Worktrees ainda arrendadas por tarefas terminais (não foram devolvidas): ${orphans.map((o) => `${o.path} (${o.holder})`).join("; ")}. Devolver com orch_release só se o usuário pedir; ela recusa o que tiver trabalho não publicado.`, display: true },
+          { customType: "orch-event", content: orphanNoticeFor(orphans), display: true },
           { triggerTurn: false },
         );
       }
@@ -495,7 +512,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
           canStart: () => orch.activeCount() < maxActive,
           onFailed: (f) => {
             pi.sendMessage(
-              { customType: "orch-event", content: `Fila de PRs: não consegui iniciar a correção de ${f.item.role} após ${f.attempts} tentativas. Erro: ${f.error.slice(0, 300)}`, display: true },
+              { customType: "orch-event", content: `Fila de PRs (${projectLabel(basename(f.item.project_path))}): não consegui iniciar a correção de ${f.item.role} após ${f.attempts} tentativas. Erro: ${f.error.slice(0, 300)}`, display: true },
               { triggerTurn: true },
             );
           },
