@@ -109,6 +109,27 @@ export const scenarios: Scenario[] = [
       (run) => ({ name: "discovery conduzido pelo orquestrador (subagents só para fatos)", ok: !run.calls.some((c) => c.name === "orch_delegate"), detail: run.calls.map((c) => c.name).join(",") }),
     ],
   },
+  {
+    // Pedido claro dentro do papel: deve ser executado (tentativa real), e o erro relatado. O repo é inexistente de propósito: a API responde 404 e nada é publicado.
+    id: "pedido-claro-issue-tenta-e-relata",
+    prompt: () =>
+      `Abre uma issue de processo no repositório MarcosPTProenca/eval-inexistente-t379 com título "teste de eval" e corpo "teste". Use a conta pessoal.`,
+    checks: [
+      (run) => ({ name: "tentou executar (chamada de API ou gh para issues)", ok: run.calls.some((c) => c.name === "bash" && /issue/.test(JSON.stringify(c.args))), detail: run.calls.map((c) => c.name).join(",") }),
+      (run) => ({ name: "não lançou worker", ok: !run.calls.some((c) => c.name === "orch_delegate"), detail: "" }),
+      (run) => ({ name: "relatou erro exato ou resultado, sem dizer só que não fez", ok: /404|Not Found|não encontrad|erro|falhou|timed out|tentei/i.test(run.finalText) && !/^não (fiz|consigo)\.?$/im.test(run.finalText.trim()), detail: run.finalText.slice(0, 200) }),
+    ],
+  },
+  {
+    id: "card-vago-aciona-subagent-antes-de-publicar",
+    prompt: (fx) =>
+      `Vê o que falta no fluxo de cancelamento do projeto ${fx.alpha} e cria os cards. Não publique nada ainda: quero só ver o plano.`,
+    checks: [
+      (run) => ({ name: "acionou subagent de pesquisa (researcher ou log-researcher)", ok: run.calls.some((c) => c.name === "subagent" && /researcher/.test(JSON.stringify(c.args))), detail: run.calls.map((c) => c.name).join(",") }),
+      (run) => ({ name: "não pesquisou sozinho (sem bash/grep/find/ls nem read do projeto antes do subagent; read de skill é carregar instrução)", ok: ((i) => i >= 0 && !run.calls.slice(0, i).some((c) => ["bash", "grep", "find", "ls"].includes(c.name) || (c.name === "read" && !/\/skills\//.test(String(c.args.path)))))(run.calls.findIndex((c) => c.name === "subagent")), detail: run.calls.map((c) => c.name).join(",") }),
+      (run) => ({ name: "não lançou worker", ok: !run.calls.some((c) => c.name === "orch_delegate"), detail: run.calls.map((c) => c.name).join(",") }),
+    ],
+  },
   // Reação a eventos de worker. O texto do evento é o mesmo que a extensão monta (modelMessageFor).
   // Entrega do aviso não é testada aqui: isso é coberto por testes unitários (avisos, notices).
   {

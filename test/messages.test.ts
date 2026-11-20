@@ -111,6 +111,10 @@ test("papel executa pedido claro e relata o erro quando falha", () => {
   assert.match(FIRST_MATE_ROLE, /diga a tentativa e o erro exato/);
 });
 
+test("papel não trata discovery para criar issue ou card como trabalho de worker (#52)", () => {
+  assert.match(FIRST_MATE_ROLE, /Discovery para criar issue ou card não é trabalho novo de worker/);
+});
+
 test("papel conduz discovery e entrevista diretamente, sem delegar a worker (regressão #61)", () => {
   assert.match(FIRST_MATE_ROLE, /Discovery e entrevista com o usuário são seus/);
   assert.match(FIRST_MATE_ROLE, /`grill-with-docs`, `to-spec` e `to-tickets`/);
