@@ -53,3 +53,31 @@ test("ponta a ponta: duas tarefas em dois projetos; cada aviso identifica o seu 
   assert.match(partB, /PROJETO-B: opção 1 ou 2\?/);
   assert.doesNotMatch(partB, /PROJETO-A/);
 });
+
+test("dois repos com o mesmo nome de pasta ganham nomes distintos nas mensagens (#65)", async () => {
+  const h = makeHarness();
+  const base = mkdtempSync(join(tmpdir(), "orch-clash-"));
+  const a = join(base, "casa-a", "app");
+  const b = join(base, "casa-b", "app");
+  for (const p of [a, b]) {
+    mkdirSync(p, { recursive: true });
+    mkdirSync(join(p, ".git"));
+  }
+  const t1 = await h.orch.delegate({ project_path: a, role: "a", request: "x", objective: "y", mode: "report" });
+  const t2 = await h.orch.delegate({ project_path: b, role: "a", request: "x", objective: "y", mode: "report" });
+  assert.notEqual(h.orch.get(t1.task_id).project_id, h.orch.get(t2.task_id).project_id);
+  assert.equal(h.orch.get(t2.task_id).project_id, "casa-b/app");
+});
+
+test("mesma branch em repos diferentes com o mesmo nome de pasta não conflita (#65)", async () => {
+  const h = makeHarness();
+  const base = mkdtempSync(join(tmpdir(), "orch-clash-"));
+  const a = join(base, "pai-x", "app");
+  const b = join(base, "pai-y", "app");
+  for (const p of [a, b]) {
+    mkdirSync(p, { recursive: true });
+    mkdirSync(join(p, ".git"));
+  }
+  await h.orch.delegate({ project_path: a, role: "a", request: "x", objective: "y", mode: "report", branch: "feat/x" } as never);
+  assert.equal(h.orch.activeConflict({ project_path: b, role: "a", request: "x", objective: "y", mode: "report", branch: "feat/x" } as never), null);
+});

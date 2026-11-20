@@ -6,7 +6,7 @@ import { workerSessionFile } from "./session-file.ts";
 import { resolveModel } from "./models.ts";
 import { workerAgentName, workerTabName } from "./label.ts";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { basename, isAbsolute, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { clampLines, maskSecrets } from "./logs.ts";
 import { classifyFailure } from "./failure.ts";
 import {
@@ -289,11 +289,20 @@ export class Orchestrator {
     }
   }
 
+  /**
+   * Nome do projeto nas mensagens. Dois repos com o mesmo nome de pasta (basename) ganham o nome do pai, para as
+   * mensagens não se confundirem (#65). Tarefas antigas mantêm o nome que receberam.
+   */
+  projectIdFor(projectPath: string): string {
+    const base = basename(projectPath);
+    const clash = this.list().some((t) => t.project_id === base && t.project_path !== projectPath);
+    return clash ? `${basename(dirname(projectPath))}/${base}` : base;
+  }
+
   /** Tarefa ativa no mesmo projeto para a mesma PR ou branch, ou null. Não lança. */
   activeConflict(input: DelegateInput): { task: TaskRecord; label: string } | null {
-    const projectId = basename(input.project_path);
     for (const t of this.list()) {
-      if (!isActive(t.status) || t.project_id !== projectId) continue;
+      if (!isActive(t.status) || t.project_path !== input.project_path) continue;
       const dup = sameWork({ ...input, source: t.source ?? undefined, branch: t.branch ?? undefined, project_path: t.project_path }, input);
       if (dup) return { task: t, label: dup };
     }
@@ -314,7 +323,7 @@ export class Orchestrator {
     const model = this.d.chooseModel
       ? (await this.d.chooseModel(input.model)).model
       : resolveModel(input.model, this.d.availableModels());
-    const projectId = basename(input.project_path);
+    const projectId = this.projectIdFor(input.project_path);
     const intake = buildIntake({ ...input, model });
     const projected = this.d.presentationSpaces === true && !this.d.dryRun;
     if (projected) await this.assertSpacesFloor();
