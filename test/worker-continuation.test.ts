@@ -73,3 +73,29 @@ test("relatório válido que chega durante a continuação não é sobrescrito p
     assert.equal(rep.status, "done");
     assert.equal(rep.result, "entregue na continuação");
   }));
+
+test("execução termina sem segundo agent_end (abort, sem contexto): agent_settled grava a falha adiada (#57)", () =>
+  withWorker("t-c5", async (h, dir) => {
+    await h.agent_end(silentEnd);
+    assert.equal(existsSync(join(dir, "report.json")), false);
+    await h.agent_settled({ aborted: true });
+    const rep = JSON.parse(readFileSync(join(dir, "report.json"), "utf8"));
+    assert.equal(rep.status, "failed");
+    assert.equal(rep.source, "fallback");
+  }));
+
+test("agent_settled sem fallback adiado não grava nada", () =>
+  withWorker("t-c6", async (h, dir) => {
+    await h.agent_settled({ aborted: false });
+    assert.equal(existsSync(join(dir, "report.json")), false);
+  }));
+
+test("agent_settled depois da continuação concluída não regrava nem sobrescreve", () =>
+  withWorker("t-c7", async (h, dir) => {
+    await h.agent_end(silentEnd);
+    await h.agent_before_settle(settleEvent);
+    writeFileSync(join(dir, "report.json"), JSON.stringify({ task_id: "t-c7", status: "done", result: "ok", question: null, artifacts: [], reported_at: "2" }));
+    await h.agent_end(silentEnd);
+    await h.agent_settled({ aborted: false });
+    assert.equal(JSON.parse(readFileSync(join(dir, "report.json"), "utf8")).status, "done");
+  }));
