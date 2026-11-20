@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { formatEvent, modelMessageFor, FIRST_MATE_ROLE } from "../src/index.ts";
+import { makeHarness, writeReport } from "./fakes.ts";
 
 const base = { task_id: "t-abcdef123456", project_id: "rko", result: null, question: null, artifacts: [], error: null };
 
@@ -133,4 +134,18 @@ test("aviso de falha com recuperação: o rodapé manda repetir a linha de recup
   const msg = modelMessageFor({ task_id: "t-r1", project_id: "p", status: "failed", result: "Encerrou com erro do modelo", question: null, artifacts: [], error: null, correction: null } as never);
   assert.match(msg, /repita essa linha para o usuário/);
   assert.match(msg, /Nenhuma recuperação é executada sem o pedido dele/);
+});
+
+test("pergunta sem resposta depois do prazo: avisa uma vez, segue bloqueada, não cancela sozinha (#63)", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report", timeout_minutes: 5 } as never);
+  writeReport(t.task_dir, t.task_id, { status: "blocked", question: "A ou B?" }, "1");
+  await h.orch.refresh(t.task_id);
+  h.clock.ms += 6 * 60_000;
+  const first = await h.orch.refresh(t.task_id);
+  assert.ok(first, "o prazo vencido gera um aviso");
+  assert.equal(first.status, "blocked");
+  assert.match(first.error ?? "", /venceu enquanto a tarefa aguardava sua resposta; segue bloqueada/);
+  assert.equal(h.orch.get(t.task_id).status, "blocked", "não cancela sozinha");
+  assert.equal(await h.orch.refresh(t.task_id), null, "avisa uma vez só");
 });

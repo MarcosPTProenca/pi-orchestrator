@@ -69,6 +69,8 @@ export interface TaskRecord {
   worktree_note?: string | null;
   /** Status anterior quando um relatório válido reabre a tarefa (lost, failed, timeout): o aviso diz a correção. */
   reopened_from?: string | null;
+  /** Prazo venceu com a tarefa bloqueada aguardando resposta: o aviso sai uma vez, sem cancelar sozinho. */
+  deadline_notified?: boolean;
   /** Fonte da tarefa (URL de PR ou issue). Usada para não lançar duas tarefas ativas para a mesma PR. */
   source?: string | null;
   /** Branch de trabalho pedida. Usada para não lançar duas tarefas ativas na mesma branch. */
