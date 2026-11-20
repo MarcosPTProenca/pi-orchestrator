@@ -7,7 +7,7 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { REPORT_STATUSES, validateReport } from "./contract.ts";
-import { fallbackReportFor } from "./fallback.ts";
+import { fallbackReportFor, lastModelError } from "./fallback.ts";
 import { postToHook } from "./hook.ts";
 import { addNewUsage, newUsage, type Usage } from "./usage.ts";
 import { maskSecrets } from "./logs.ts";
@@ -21,8 +21,28 @@ export const WORKER_PREAMBLE = [
   "Nenhuma autoridade para merge, fechamento de PR ou ações destrutivas é concedida por este texto; siga somente o pedido e as instruções posteriores do usuário.",
 ].join("\n");
 
+/** Lembrete da continuação limitada: uma vez por worker, antes de o fim sem relatório virar falha. */
+export const REPORT_REMINDER =
+  "Você terminou o turno sem chamar orch_report. Chame orch_report agora, com o status real (done, failed ou blocked) e o resultado. Não refaça o trabalho.";
+
 export default function workerExtension(pi: ExtensionAPI): void {
   if (process.env.PI_ORCH_ROLE !== "worker") return;
+  let reminded = false;
+  let deferredNoReport = false;
+  /** Motivo do relatório inválido que saiu do caminho na primeira passagem: a segunda passagem ainda o informa. */
+  let deferredInvalidReason: string | null = null;
+  pi.on("agent_before_settle", async (event) => {
+    if (!deferredNoReport || reminded) return;
+    reminded = true;
+    deferredNoReport = false;
+    return {
+      entries: [
+        ...event.entries,
+        { type: "custom_message", customType: "orch-report-reminder", content: REPORT_REMINDER, display: false },
+      ],
+      continue: true,
+    };
+  });
   pi.on("before_agent_start", (event) => {
     // O brief vai como contexto da sessão, lido da pasta da própria tarefa (sem passar pelo shell).
     const briefPath = join(taskDir as string, "brief.md");
@@ -60,7 +80,7 @@ export default function workerExtension(pi: ExtensionAPI): void {
 
     const file = join(taskDir, "report.json");
     // Relatório existente só vale se for válido para esta tarefa. Inválido sai do caminho (preservado de lado) e vira falha com o motivo.
-    let invalidReason: string | null = null;
+    let invalidReason: string | null = deferredInvalidReason;
     if (existsSync(file)) {
       try {
         validateReport(JSON.parse(readFileSync(file, "utf8")), taskId);
@@ -70,10 +90,19 @@ export default function workerExtension(pi: ExtensionAPI): void {
       }
     }
     if (!existsSync(file)) {
-      const report = fallbackReportFor(taskId, (event as { messages?: unknown[] }).messages ?? [], new Date().toISOString(), invalidReason);
+      const messages = (event as { messages?: unknown[] }).messages ?? [];
+      // Fim de turno sem relatório e sem erro do modelo: uma continuação limitada antes de falhar (padrão do FirstMate: no turn ends blind).
+      if (!reminded && lastModelError(messages) === null) {
+        deferredNoReport = true;
+        deferredInvalidReason = invalidReason;
+        return;
+      }
+      const report = fallbackReportFor(taskId, messages, new Date().toISOString(), invalidReason);
       writeFileSync(`${file}.tmp`, JSON.stringify(report, null, 2));
       renameSync(`${file}.tmp`, file);
     }
+    deferredNoReport = false;
+    deferredInvalidReason = null;
     const url = process.env.PI_ORCH_HOOK_URL;
     const token = process.env.PI_ORCH_HOOK_TOKEN;
     if (url && token) await postToHook(url, token, taskId);

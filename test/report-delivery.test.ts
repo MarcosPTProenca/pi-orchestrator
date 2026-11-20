@@ -79,6 +79,9 @@ function withWorkerEnv(taskId: string, dir: string, fn: (handlers: Record<string
 test("fim de turno com relatório inválido: guarda o arquivo de lado e grava falha com o motivo", withWorkerEnv("t-end1", mkdtempSync(join(tmpdir(), "orch-end-")), async (handlers) => {
   const dir = process.env.PI_ORCH_TASK_DIR as string;
   writeFileSync(join(dir, "report.json"), JSON.stringify({ status: "done", result: "sem id" }));
+  // Relatório inválido sem erro do modelo: primeiro uma continuação limitada (#57), depois a falha com o motivo.
+  await handlers.agent_end({ messages: [] }, {});
+  await handlers.agent_before_settle({ entries: [], continue: false, context: {}, outcome: {} }, {});
   await handlers.agent_end({ messages: [] }, {});
   const r = JSON.parse(readFileSync(join(dir, "report.json"), "utf8"));
   assert.equal(r.task_id, "t-end1");
