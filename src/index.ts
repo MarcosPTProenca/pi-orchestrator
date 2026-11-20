@@ -664,8 +664,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       const current = orch.list().find((x) => x.task_id === params.task_id);
       const blocked = current ? closeBlocker(current) : null;
       if (blocked) throw new Error(blocked);
-      const task = await orch.close(params.task_id);
-      return asText({ task_id: task.task_id, status: task.status, tab_closed: true });
+      const outcome = await orch.closeOutcome(params.task_id);
+      return asText({ task_id: outcome.task.task_id, status: outcome.task.status, tab_closed: outcome.closed, ...(outcome.reason ? { reason: outcome.reason } : {}) });
     },
   });
 
