@@ -23,3 +23,24 @@ test("sugere o próximo modelo da prioridade, sem repetir o que falhou", () => {
   assert.equal(suggestModel("claude-bridge/claude-haiku-5-5", prio), "openai-codex/gpt-6-luna");
   assert.equal(suggestModel("kiro/auto", ["kiro/auto"]), null);
 });
+
+test("erro do provedor: orientação diz que a causa não está comprovada e como relançar (#64)", async () => {
+  const { failureHintFor } = await import("../src/failure.ts");
+  const hint = failureHintFor('500: {"message":"An error occurred while processing your request. Please try again."}', "t-x1");
+  assert.match(hint, /transitório do provedor/);
+  assert.match(hint, /causa não está comprovada/);
+  assert.match(hint, /orch_relaunch\(task_id="t-x1"\)/);
+});
+
+test("erro desconhecido: diz que a causa é desconhecida e manda ver o log, sem prometer relançamento", async () => {
+  const { failureHintFor } = await import("../src/failure.ts");
+  const hint = failureHintFor("o worker ficou ocioso sem chamar orch_report", "t-x2");
+  assert.match(hint, /Causa desconhecida/);
+  assert.match(hint, /orch_logs\(task_id="t-x2"\)/);
+  assert.doesNotMatch(hint, /orch_relaunch/);
+});
+
+test("credencial: avisa que relançar sem corrigir falha de novo", async () => {
+  const { failureHintFor } = await import("../src/failure.ts");
+  assert.match(failureHintFor("401 Unauthorized: invalid api key", "t-x3"), /não troque de modelo/);
+});
