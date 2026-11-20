@@ -477,6 +477,8 @@ export class Orchestrator {
       this.d.onTerminal?.(taskId);
       return true;
     }
+    // Mesma pergunta de uma tarefa já bloqueada: relatório repetido, não reabre o aviso (#63, perguntas duplicadas).
+    const samePendingQuestion = t.status === "blocked" && report.status === "blocked" && t.question === report.question;
     const reopened = ["lost", "failed", "timeout"].includes(t.status) ? `antes marcada como ${t.status}${t.error ? ` (${t.error})` : ""}; o relatório válido chegou depois e prevalece` : null;
     this.update(taskId, (x) => {
       x.status = report.status;
@@ -484,7 +486,7 @@ export class Orchestrator {
       x.question = report.question;
       x.artifacts = report.artifacts;
       x.last_report_key = key;
-      x.notified = false;
+      x.notified = samePendingQuestion ? t.notified : false;
       x.reopened_from = reopened;
       x.error = null;
     });
@@ -543,6 +545,16 @@ export class Orchestrator {
     // Relatório novo vale em qualquer estado, menos cancelled (decisão do usuário): um worker que falhou por erro
     // transitório do modelo e seguiu depois não pode ficar preso em failed/timeout/lost.
     if (t.status !== "cancelled" && t.status !== "planned" && this.collect(taskId)) return this.toEvent(this.get(taskId));
+    // Pergunta sem resposta depois do prazo: avisa uma vez e segue bloqueada. Não cancela sozinha (#63).
+    if (t.status === "blocked" && t.deadline_at !== null && !t.deadline_notified && this.d.now() >= Date.parse(t.deadline_at)) {
+      const at = t.deadline_at;
+      this.update(taskId, (x) => {
+        x.deadline_notified = true;
+        x.notified = false;
+        x.error = `o prazo (${at}) venceu enquanto a tarefa aguardava sua resposta; segue bloqueada. Responder, prorrogar ou cancelar?`;
+      });
+      return this.toEvent(this.get(taskId));
+    }
     if (!isActive(t.status) || t.status === "blocked") return null;
     if (t.deadline_at !== null && this.d.now() >= Date.parse(t.deadline_at)) {
       return this.setTerminal(taskId, "timeout", `prazo definido por você (${t.deadline_at}) foi atingido; o worker segue rodando`);
