@@ -33,6 +33,20 @@ test("parseLeases pega só arrendamentos com titular e expande ~", () => {
   ]);
 });
 
+const STATUS_V3 = `base  master  (repository default)
+1     leased       ~/.treehouse/al-0802e3/1/al  [feat/tokens-no-status]  (held by implement-issue6-status)
+2     available    ~/.treehouse/al-0802e3/2/al
+3     leased       ~/.treehouse/al-0802e3/3/al  (detached)  (held by t-e19b2fae)
+`;
+
+test("parseLeases lê a saída do treehouse v3 com [branch] e (detached)", () => {
+  const leases = parseLeases(STATUS_V3, "/home/u");
+  assert.deepEqual(leases.map((l) => [l.holder, l.path]), [
+    ["implement-issue6-status", "/home/u/.treehouse/al-0802e3/1/al"],
+    ["t-e19b2fae", "/home/u/.treehouse/al-0802e3/3/al"],
+  ]);
+});
+
 test("devolve a worktree de uma tarefa limpa e já enviada", () => {
   const ops = fakeOps();
   const note = releaseLease(ops, "/repo", "t-e19b2fae", "/home/u");

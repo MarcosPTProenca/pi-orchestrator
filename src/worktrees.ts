@@ -25,7 +25,8 @@ export interface ReleaseNote {
   message: string;
 }
 
-const LEASE_RE = /(\S+)\s+leased\s+(\S+)\s+\(held by (\S+)\)/;
+// v2.3.0: `N leased <path> (held by X)`. v3.1.8 acrescenta `[branch]` ou `(detached)` antes do titular.
+const LEASE_RE = /(\S+)\s+leased\s+(\S+)\s+(?:\[[^\]]*\]\s+|\(detached\)\s+)?\(held by (\S+)\)/;
 
 export function parseLeases(text: string, home: string = homedir()): Lease[] {
   const out: Lease[] = [];
