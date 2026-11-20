@@ -128,3 +128,9 @@ test("pergunta de acompanhamento: responde com o que já existe, data e lacuna, 
   assert.match(FIRST_MATE_ROLE, /Investigue só a lacuna, nunca refaça trabalho/);
   assert.match(FIRST_MATE_ROLE, /pode estar desatualizado/);
 });
+
+test("aviso de falha com recuperação: o rodapé manda repetir a linha de recuperação ao usuário (#64)", () => {
+  const msg = modelMessageFor({ task_id: "t-r1", project_id: "p", status: "failed", result: "Encerrou com erro do modelo", question: null, artifacts: [], error: null, correction: null } as never);
+  assert.match(msg, /repita essa linha para o usuário/);
+  assert.match(msg, /Nenhuma recuperação é executada sem o pedido dele/);
+});

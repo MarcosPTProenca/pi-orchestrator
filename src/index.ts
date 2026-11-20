@@ -99,6 +99,7 @@ export function modelMessageFor(e: WatchEvent): string {
   lines.push(
     "",
     "Responda ao usuário em até 5 linhas: o que aconteceu, o que ficou pronto e o que falta validar. Cite URLs de PR quando houver. Não cole o relatório do worker, e não narre o mecanismo.",
+    "Se o aviso trouxer uma linha de recuperação (orch_relaunch, orch_logs ou orch_close, com o task_id), repita essa linha para o usuário: é ela que diz como seguir. Nenhuma recuperação é executada sem o pedido dele.",
     "Se houver uma linha de verificação, ela vale mais que o relatório do worker: se disser NÃO VERIFICADA, não diga que a tarefa está concluída; diga o que falta.",
   );
   return lines.join("\n");
