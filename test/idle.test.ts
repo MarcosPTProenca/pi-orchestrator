@@ -158,3 +158,15 @@ test("idleReport lista candidatas e o motivo de cada não candidata, em ordem es
   assert.match(rep.not_eligible[1].reason, /em andamento/);
   assert.match(rep.not_eligible[0].reason, /failed/);
 });
+
+test("orch_close com pane ausente não fecha nada e não diz que fechou (#62)", async () => {
+  const { makeHarness } = await import("./fakes.ts");
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  h.herdr.panesList = [];
+  h.herdr.calls = [];
+  const out = await h.orch.closeOutcome(t.task_id);
+  assert.equal(out.closed, false);
+  assert.match(out.reason ?? "", /nada foi fechado/);
+  assert.equal(h.herdr.calls.some((c) => c.op === "closeTab"), false, "nenhuma tab foi fechada");
+});
