@@ -28,7 +28,7 @@ import { classifyFailure, suggestModel } from "./failure.ts";
 import { capError, maxActiveFrom } from "./cap.ts";
 import { isActive } from "./contract.ts";
 import { orphanLeases, releaseLease, type WorktreeOps } from "./worktrees.ts";
-import { closeBlocker, idleReport, IdleWatch, idleSurfaces } from "./idle.ts";
+import { closeBlocker, idleNoticeText, idleReport, IdleWatch, idleSurfaces } from "./idle.ts";
 import { acquireOwnership, legacyAdopter, releaseOwnership, scopeKey, scopeOwnerDir } from "./lock.ts";
 
 /** Treehouse real: `treehouse status` no repositório, `git` na worktree e `treehouse return` sem --force. */
@@ -310,7 +310,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       const idle = idleSurfaces(orch.owned(), live);
       if (idleWatch.observe(idle)) {
         pi.sendMessage(
-          { customType: "orch-event", content: `Superfícies ociosas de tarefas concluídas e entregues (${idle.length}), ainda abertas: ${idle.map((s) => s.task_id).join(", ")}. Fechar com orch_close somente se o usuário pedir.`, display: true },
+          { customType: "orch-event", content: idleNoticeText(idle, idleReport(orch.owned(), live).not_eligible.filter((n) => n.reason.startsWith("tab ou pane"))), display: true },
           { triggerTurn: false },
         );
       }

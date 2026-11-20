@@ -158,3 +158,11 @@ test("idleReport lista candidatas e o motivo de cada não candidata, em ordem es
   assert.match(rep.not_eligible[1].reason, /em andamento/);
   assert.match(rep.not_eligible[0].reason, /failed/);
 });
+
+test("aviso de ociosas nomeia a concluída cuja tab não confere mais, com o motivo (#62)", async () => {
+  const { idleNoticeText } = await import("../src/idle.ts");
+  const msg = idleNoticeText([{ task_id: "t-a", project_id: "p", updated_at: "x", projected: false }], [{ task_id: "t-b", reason: "tab ou pane não confere mais com a tarefa no Herdr" }]);
+  assert.match(msg, /ainda abertas: t-a\./);
+  assert.match(msg, /Não são candidatas: t-b \(tab ou pane não confere mais com a tarefa no Herdr\)\./);
+  assert.doesNotMatch(idleNoticeText([{ task_id: "t-a", project_id: "p", updated_at: "x", projected: false }], []), /Não são candidatas/);
+});
