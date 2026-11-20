@@ -73,9 +73,10 @@ async function main(): Promise<void> {
   for (const [i, prompt] of TURNS.entries()) {
     const t = parse(await runTurn(prompt, session, { ...env, PWD: alpha }));
     const gh = existsSync(ghLog) ? readFileSync(ghLog, "utf8").split("\n").filter(Boolean).length : 0;
-    results.push({ ...t, ghCalls: gh - ghSeen });
+    const ghCalls = gh - ghSeen;
+    results.push({ ...t, ghCalls });
     ghSeen = gh;
-    console.log(`turno ${i + 1}: tools=${t.calls.join(",") || "(nenhuma)"} | gh=${gh - (i ? ghSeen - (gh - ghSeen) : 0)} | ${t.finalText.slice(0, 120).replace(/\n/g, " ")}`);
+    console.log(`turno ${i + 1}: tools=${t.calls.join(",") || "(nenhuma)"} | gh=${ghCalls} | ${t.finalText.slice(0, 120).replace(/\n/g, " ")}`);
   }
   const checks = [
     { name: "nenhum worker lançado em nenhum turno", ok: results.every((r) => r.delegates === 0) },
