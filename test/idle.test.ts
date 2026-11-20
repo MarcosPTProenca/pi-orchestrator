@@ -159,6 +159,15 @@ test("idleReport lista candidatas e o motivo de cada não candidata, em ordem es
   assert.match(rep.not_eligible[0].reason, /failed/);
 });
 
+test("aviso de ociosas nomeia a concluída cuja tab não confere mais, com o motivo (#62)", async () => {
+  const { idleNoticeFor } = await import("../src/index.ts");
+  const idle = [{ task_id: "t-a", project_id: "p" }];
+  const msg = idleNoticeFor(idle, [{ task_id: "t-b", reason: "tab ou pane não confere mais com a tarefa no Herdr" }]);
+  assert.match(msg, /ainda abertas: t-a \(/);
+  assert.match(msg, /Não são candidatas: t-b \(tab ou pane não confere mais com a tarefa no Herdr\)\./);
+  assert.doesNotMatch(idleNoticeFor(idle, []), /Não são candidatas/);
+});
+
 test("orch_close com pane ausente não fecha nada e não diz que fechou (#62)", async () => {
   const { makeHarness } = await import("./fakes.ts");
   const h = makeHarness();

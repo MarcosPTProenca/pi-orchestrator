@@ -28,7 +28,7 @@ import { classifyFailure, failureHintFor, suggestModel } from "./failure.ts";
 import { capError, maxActiveFrom } from "./cap.ts";
 import { isActive } from "./contract.ts";
 import { orphanLeases, releaseLease, type WorktreeOps } from "./worktrees.ts";
-import { closeBlocker, idleReport, IdleWatch, idleSurfaces } from "./idle.ts";
+import { closeBlocker, idleReport, STALE_SURFACE_REASON, IdleWatch, idleSurfaces } from "./idle.ts";
 import { acquireOwnership, legacyAdopter, releaseOwnership, scopeKey, scopeOwnerDir } from "./lock.ts";
 
 /** Treehouse real: `treehouse status` no repositório, `git` na worktree e `treehouse return` sem --force. */
@@ -69,10 +69,15 @@ export function projectLabel(id: string | null | undefined): string {
   return id && id.trim() ? id.trim() : "projeto não identificado";
 }
 
-/** Aviso agregado de superfícies ociosas: cada tarefa com o projeto a que pertence. */
-export function idleNoticeFor(idle: { task_id: string; project_id: string }[]): string {
+/**
+ * Aviso agregado de superfícies ociosas: cada tarefa com o projeto a que pertence. Tarefas concluídas e entregues cuja tab
+ * já não confere (#62) são nomeadas com o motivo, para o usuário saber por que não aparecem como candidatas.
+ */
+export function idleNoticeFor(idle: { task_id: string; project_id: string }[], stale: { task_id: string; reason: string }[] = []): string {
   const items = idle.map((s) => `${s.task_id} (${projectLabel(s.project_id)})`).join(", ");
-  return `Superfícies ociosas de tarefas concluídas e entregues (${idle.length}), ainda abertas: ${items}. Fechar com orch_close somente se o usuário pedir.`;
+  const base = `Superfícies ociosas de tarefas concluídas e entregues (${idle.length}), ainda abertas: ${items}. Fechar com orch_close somente se o usuário pedir.`;
+  if (stale.length === 0) return base;
+  return `${base} Não são candidatas: ${stale.map((s) => `${s.task_id} (${s.reason})`).join("; ")}.`;
 }
 
 /** Aviso de worktrees arrendadas por tarefas terminais, com o projeto de cada uma. */
@@ -330,7 +335,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       const idle = idleSurfaces(orch.owned(), live);
       if (idleWatch.observe(idle)) {
         pi.sendMessage(
-          { customType: "orch-event", content: idleNoticeFor(idle), display: true },
+          { customType: "orch-event", content: idleNoticeFor(idle, idleReport(orch.owned(), live).not_eligible.filter((n) => n.reason === STALE_SURFACE_REASON)), display: true },
           { triggerTurn: false },
         );
       }

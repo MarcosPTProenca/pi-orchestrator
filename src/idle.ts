@@ -31,6 +31,9 @@ export function confirmedInHerdr(t: TaskRecord, live: LiveSurfaces): boolean {
   return live.tabIds.has(t.tab_id) && live.panes.some((p) => p.pane_id === t.pane_id && p.terminal_id === t.terminal_id);
 }
 
+/** Motivo de uma concluída e entregue deixar de ser candidata porque o Herdr não confirma mais a tab/pane. */
+export const STALE_SURFACE_REASON = "tab ou pane não confere mais com a tarefa no Herdr";
+
 /** Motivo de a superfície não ser candidata a fechar, ou `null` quando é candidata. Fonte única da regra. */
 export function whyNotIdle(t: TaskRecord, live: LiveSurfaces): string | null {
   if (t.status === "blocked") return "aguarda decisão";
@@ -39,7 +42,7 @@ export function whyNotIdle(t: TaskRecord, live: LiveSurfaces): string | null {
   if (t.status !== "done") return `terminou como ${t.status}; pode ser relançada ou inspecionada`;
   if (!t.notified) return "resultado ainda não entregue ao usuário";
   if (!t.tab_id) return "sem tab registrada";
-  if (!confirmedInHerdr(t, live)) return "tab ou pane não confere mais com a tarefa no Herdr";
+  if (!confirmedInHerdr(t, live)) return STALE_SURFACE_REASON;
   return null;
 }
 
