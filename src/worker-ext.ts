@@ -25,8 +25,18 @@ export const WORKER_PREAMBLE = [
 export const REPORT_REMINDER =
   "Você terminou o turno sem chamar orch_report. Chame orch_report agora, com o status real (done, failed ou blocked) e o resultado. Não refaça o trabalho.";
 
+/**
+ * AskUserQuestion abre o diálogo no painel do worker, e o orquestrador não recebe a pergunta (#63).
+ * Bloqueia a chamada e manda o worker usar o relatório blocked, que o orquestrador já apresenta e responde.
+ */
+export const ASK_BLOCK_REASON =
+  "Não use AskUserQuestion: o diálogo fica no painel do worker e o orquestrador não vê a pergunta. " +
+  "Chame orch_report com status blocked e question: a pergunta, em uma frase, e as opções numeradas (uma por linha, com a descrição). " +
+  "Se houver mais de uma pergunta, junte-as na mesma question. Pare o trabalho até a resposta chegar.";
+
 export default function workerExtension(pi: ExtensionAPI): void {
   if (process.env.PI_ORCH_ROLE !== "worker") return;
+  pi.on("tool_call", (event) => (event.toolName === "AskUserQuestion" ? { block: true, reason: ASK_BLOCK_REASON } : undefined));
   let reminded = false;
   let deferredNoReport = false;
   /** Motivo do relatório inválido que saiu do caminho na primeira passagem: a segunda passagem ainda o informa. */

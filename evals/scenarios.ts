@@ -107,6 +107,10 @@ export const scenarios: Scenario[] = [
     checks: [
       (_r, t) => ({ name: "nenhum worker lançado para discovery/entrevista", ok: t.count === 0, detail: `criados=${t.count}` }),
       (run) => ({ name: "discovery conduzido pelo orquestrador (subagents só para fatos)", ok: !run.calls.some((c) => c.name === "orch_delegate"), detail: run.calls.map((c) => c.name).join(",") }),
+      // #61: a aprovação do usuário vem antes de publicar. Nada de issue criada sem confirmação.
+      (run) => ({ name: "não publicou issue (gh issue create) sem aprovação", ok: !run.calls.some((c) => c.name === "bash" && /issue\s+create/.test(JSON.stringify(c.args))), detail: run.calls.map((c) => c.name).join(",") }),
+      // A aprovação antes de to-tickets vem em turno posterior, fora deste cenário de um turno: aqui só se mede a entrevista começar com pergunta ao usuário.
+      (run) => ({ name: "conduz a entrevista: faz pergunta ao usuário na resposta final", ok: /\?/.test(run.finalText), detail: run.finalText.slice(0, 200) }),
     ],
   },
   {

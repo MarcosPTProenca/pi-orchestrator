@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 import { startHook as startHook0, type HookHandle } from "./hook.ts";
 import { DEFAULT_PRIORITY, pickModel, checkRequestedQuota, readQuota, type ProviderQuota } from "./quota.ts";
 import { randomBytes } from "node:crypto";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { HerdrCli } from "./herdr.ts";
@@ -24,7 +24,7 @@ import { Store, defaultStateDir } from "./store.ts";
 import { NoticeBatcher } from "./notices.ts";
 import { notificationFor, notifyArgs, notifyEnabled } from "./notify.ts";
 import { buildStatus, oldHoursFrom } from "./status.ts";
-import { classifyFailure, suggestModel } from "./failure.ts";
+import { classifyFailure, failureHintFor, suggestModel } from "./failure.ts";
 import { capError, maxActiveFrom } from "./cap.ts";
 import { isActive } from "./contract.ts";
 import { orphanLeases, releaseLease, type WorktreeOps } from "./worktrees.ts";
@@ -56,6 +56,7 @@ export const FIRST_MATE_ROLE = [
   "Pesquisa e levantamento não são seus. Quando faltar contexto externo ou de logs para criar issue ou card, acione os subagents `researcher` (docs, APIs e fatos externos) e `log-researcher` (logs e sessões passadas) e monte o trabalho a partir do relatório deles. Nunca pesquise ou levante sozinho.",
   "Discovery e entrevista com o usuário são seus: conduza você mesmo, na conversa, as perguntas e a síntese das etapas `grill-with-docs`, `to-spec` e `to-tickets`. Não lance worker para conduzir essas etapas. Subagents só levantam fatos: `researcher` e `log-researcher` devolvem evidência e não conduzem a conversa com o usuário.",
   "Pedido claro dentro do seu papel (por exemplo, abrir uma issue de processo com gh) você executa sem pausa e sem lançar worker. Pare só para decisão do usuário, ação destrutiva ou ação pública que ele não pediu. Se não conseguir executar, diga a tentativa e o erro exato; nunca só diga que não fez.",
+  "Pergunta de acompanhamento sobre tarefa anterior (andamento, resultado, artefatos): antes de lançar de novo, consulte orch_status com all e o relatório da tarefa (orch_logs, se preciso). Responda com o que já é conhecido, com a data do relatório e as pendências específicas. Investigue só a lacuna, nunca refaça trabalho que já tem resultado. Diferencie 'não há informação' de 'há resultado, mas pode estar desatualizado'; no segundo caso, diga isso e pergunte se o usuário quer atualizar.",
   "Resultados e decisões chegam como mensagens: apresente-os sem narrar o mecanismo.",
 ].join("\n");
 
@@ -63,10 +64,27 @@ export const FIRST_MATE_ROLE = [
  * Mensagem para o orquestrador (não para o terminal). O modelo lê o evento e responde ao usuário
  * em poucas linhas. O texto bruto do worker é truncado: o relatório completo fica no arquivo.
  */
+/** Nome do projeto nas mensagens. Vazio vira "projeto não identificado": nunca um nome inventado. */
+export function projectLabel(id: string | null | undefined): string {
+  return id && id.trim() ? id.trim() : "projeto não identificado";
+}
+
+/** Aviso agregado de superfícies ociosas: cada tarefa com o projeto a que pertence. */
+export function idleNoticeFor(idle: { task_id: string; project_id: string }[]): string {
+  const items = idle.map((s) => `${s.task_id} (${projectLabel(s.project_id)})`).join(", ");
+  return `Superfícies ociosas de tarefas concluídas e entregues (${idle.length}), ainda abertas: ${items}. Fechar com orch_close somente se o usuário pedir.`;
+}
+
+/** Aviso de worktrees arrendadas por tarefas terminais, com o projeto de cada uma. */
+export function orphanNoticeFor(orphans: { path: string; holder: string; project: string }[]): string {
+  const items = orphans.map((o) => `${projectLabel(o.project)}: ${o.path} (${o.holder})`).join("; ");
+  return `Worktrees ainda arrendadas por tarefas terminais (não foram devolvidas): ${items}. Devolver com orch_release só se o usuário pedir; ela recusa o que tiver trabalho não publicado.`;
+}
+
 export function modelMessageFor(e: WatchEvent): string {
   const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)} [truncado; relatório completo no arquivo do worker]` : text);
   const lines = [
-    `[evento de worker] tarefa ${e.task_id} (${e.project_id}): ${e.status}`,
+    `[evento de worker] tarefa ${e.task_id} (${projectLabel(e.project_id)}): ${e.status}`,
   ];
   if (e.result) lines.push(`Resumo do worker: ${clip(e.result, 1200)}`);
   if (e.question) lines.push(`Pergunta do worker: ${clip(e.question, 600)}`);
@@ -82,7 +100,7 @@ export function modelMessageFor(e: WatchEvent): string {
 
 /** Mensagem exibida no terminal: só para o caso de o turno não ser possível. */
 export function formatEvent(e: WatchEvent): string {
-  const ref = `[${e.task_id.slice(-6)}] ${e.project_id}`;
+  const ref = `[${e.task_id.slice(-6)}] ${projectLabel(e.project_id)}`;
   switch (e.status) {
     case "done": {
       const lines = [`${ref}: concluído. ${e.result ?? ""}`.trim()];
@@ -274,6 +292,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         prLine += next
           ? `\nCota esgotada em ${task.model}. Para relançar com outro modelo: orch_relaunch(task_id="${event.task_id}", model="${next}").`
           : `\nCota esgotada em ${task.model}, e não há outro modelo na ordem de prioridade.`;
+      } else {
+        prLine += failureHintFor(event.result ?? event.error ?? "", event.task_id);
       }
     }
     notices.push({ key: `${event.task_id}:${event.status}`, text: modelMessageFor(event) + prLine, event });
@@ -310,7 +330,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       const idle = idleSurfaces(orch.owned(), live);
       if (idleWatch.observe(idle)) {
         pi.sendMessage(
-          { customType: "orch-event", content: `Superfícies ociosas de tarefas concluídas e entregues (${idle.length}), ainda abertas: ${idle.map((s) => s.task_id).join(", ")}. Fechar com orch_close somente se o usuário pedir.`, display: true },
+          { customType: "orch-event", content: idleNoticeFor(idle), display: true },
           { triggerTurn: false },
         );
       }
@@ -370,10 +390,10 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     try {
       const terminal = new Set(orch.owned().filter((t) => !isActive(t.status)).map((t) => t.task_id));
       const projects = [...new Set(orch.owned().map((t) => t.project_path))];
-      const orphans = projects.flatMap((p) => orphanLeases(treehouseOps, p, terminal));
+      const orphans = projects.flatMap((p) => orphanLeases(treehouseOps, p, terminal).map((l) => ({ ...l, project: basename(p) })));
       if (orphans.length > 0) {
         pi.sendMessage(
-          { customType: "orch-event", content: `Worktrees ainda arrendadas por tarefas terminais (não foram devolvidas): ${orphans.map((o) => `${o.path} (${o.holder})`).join("; ")}. Devolver com orch_release só se o usuário pedir; ela recusa o que tiver trabalho não publicado.`, display: true },
+          { customType: "orch-event", content: orphanNoticeFor(orphans), display: true },
           { triggerTurn: false },
         );
       }
@@ -495,7 +515,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
           canStart: () => orch.activeCount() < maxActive,
           onFailed: (f) => {
             pi.sendMessage(
-              { customType: "orch-event", content: `Fila de PRs: não consegui iniciar a correção de ${f.item.role} após ${f.attempts} tentativas. Erro: ${f.error.slice(0, 300)}`, display: true },
+              { customType: "orch-event", content: `Fila de PRs (${projectLabel(basename(f.item.project_path))}): não consegui iniciar a correção de ${f.item.role} após ${f.attempts} tentativas. Erro: ${f.error.slice(0, 300)}`, display: true },
               { triggerTurn: true },
             );
           },
@@ -664,8 +684,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       const current = orch.list().find((x) => x.task_id === params.task_id);
       const blocked = current ? closeBlocker(current) : null;
       if (blocked) throw new Error(blocked);
-      const task = await orch.close(params.task_id);
-      return asText({ task_id: task.task_id, status: task.status, tab_closed: true });
+      const outcome = await orch.closeOutcome(params.task_id);
+      return asText({ task_id: outcome.task.task_id, status: outcome.task.status, tab_closed: outcome.closed, ...(outcome.reason ? { reason: outcome.reason } : {}) });
     },
   });
 

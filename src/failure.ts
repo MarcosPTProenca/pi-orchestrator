@@ -19,3 +19,18 @@ export function classifyFailure(text: string): FailureKind {
 export function suggestModel(failed: string, priority: readonly string[]): string | null {
   return priority.find((m) => m !== failed) ?? null;
 }
+
+/**
+ * Orientação de recuperação para falha que não é cota (#64). Diz o que é comprovado e o que não é:
+ * a causa de erro do provedor não está provada, então a recuperação é relançar com cuidado, nunca presumir correção.
+ */
+export function failureHintFor(text: string, taskId: string): string {
+  switch (classifyFailure(text)) {
+    case "transient":
+      return `\nErro transitório do provedor (HTTP 5xx ou timeout). A causa não está comprovada. Para retomar: confira a worktree e os commits da tentativa e relance com orch_relaunch(task_id="${taskId}") no mesmo modelo.`;
+    case "auth":
+      return "\nErro de credencial. Relançar sem corrigir a credencial vai falhar de novo; não troque de modelo para contornar.";
+    default:
+      return `\nCausa desconhecida: o relatório não basta para diagnosticar. Veja o log com orch_logs(task_id="${taskId}") e confira a worktree antes de relançar, para não repetir trabalho já feito.`;
+  }
+}
