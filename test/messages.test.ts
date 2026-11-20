@@ -149,3 +149,14 @@ test("pergunta sem resposta depois do prazo: avisa uma vez, segue bloqueada, nã
   assert.equal(h.orch.get(t.task_id).status, "blocked", "não cancela sozinha");
   assert.equal(await h.orch.refresh(t.task_id), null, "avisa uma vez só");
 });
+
+test("pergunta repetida pelo worker não reabre o aviso; pergunta nova avisa de novo (#63)", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" } as never);
+  writeReport(t.task_dir, t.task_id, { status: "blocked", question: "A ou B?" }, "1");
+  assert.ok(await h.orch.noticeFor(t.task_id), "primeira pergunta avisa");
+  writeReport(t.task_dir, t.task_id, { status: "blocked", question: "A ou B?" }, "2");
+  assert.equal(await h.orch.noticeFor(t.task_id), null, "mesma pergunta repetida não avisa de novo");
+  writeReport(t.task_dir, t.task_id, { status: "blocked", question: "C ou D?" }, "3");
+  assert.ok(await h.orch.noticeFor(t.task_id), "pergunta nova avisa");
+});

@@ -477,6 +477,8 @@ export class Orchestrator {
       this.d.onTerminal?.(taskId);
       return true;
     }
+    // Mesma pergunta de uma tarefa já bloqueada: relatório repetido, não reabre o aviso (#63, perguntas duplicadas).
+    const samePendingQuestion = t.status === "blocked" && report.status === "blocked" && t.question === report.question;
     const reopened = ["lost", "failed", "timeout"].includes(t.status) ? `antes marcada como ${t.status}${t.error ? ` (${t.error})` : ""}; o relatório válido chegou depois e prevalece` : null;
     this.update(taskId, (x) => {
       x.status = report.status;
@@ -484,7 +486,7 @@ export class Orchestrator {
       x.question = report.question;
       x.artifacts = report.artifacts;
       x.last_report_key = key;
-      x.notified = false;
+      x.notified = samePendingQuestion ? t.notified : false;
       x.reopened_from = reopened;
       x.error = null;
     });
