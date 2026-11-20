@@ -25,7 +25,8 @@ export interface ReleaseNote {
   message: string;
 }
 
-const LEASE_RE = /(\S+)\s+leased\s+(\S+)\s+\(held by (\S+)\)/;
+// treehouse >= 3 insere a branch "[x]" ou "(detached)" antes de "(held by …)".
+const LEASE_RE = /(\S+)\s+leased\s+(\S+)(?:\s+(?:\[[^\]]*\]|\(detached\)))?\s+\(held by (\S+)\)/;
 
 export function parseLeases(text: string, home: string = homedir()): Lease[] {
   const out: Lease[] = [];
