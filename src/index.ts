@@ -32,9 +32,14 @@ import { closeBlocker, dueForAutoClose, idleReport, STALE_SURFACE_REASON, IdleWa
 import { acquireOwnership, legacyAdopter, ownsByRepo, releaseOwnership, scopeKey, scopeOwnerDir } from "./lock.ts";
 
 /** Ociosa por este tempo (minutos, entregue e com tab confirmada) é fechada sozinha. `PI_ORCH_IDLE_CLOSE_MIN` ajusta. */
-export const IDLE_CLOSE_MIN = Number(process.env.PI_ORCH_IDLE_CLOSE_MIN ?? 5);
+/** Env numérica válida e positiva; valor inválido cai no padrão (NaN faria o timer disparar sem pausa). */
+export const envPositive = (raw: string | undefined, fallback: number): number => {
+  const n = Number(raw);
+  return raw !== undefined && Number.isFinite(n) && n > 0 ? n : fallback;
+};
+export const IDLE_CLOSE_MIN = envPositive(process.env.PI_ORCH_IDLE_CLOSE_MIN, 5);
 /** Intervalo da conferência de ociosas. Precisa ser menor que o tempo de fechamento para fechar perto do prazo. */
-const IDLE_CHECK_MS = Number(process.env.PI_ORCH_IDLE_MS ?? 60_000);
+const IDLE_CHECK_MS = envPositive(process.env.PI_ORCH_IDLE_MS, 60_000);
 
 /** Treehouse real: `treehouse status` no repositório, `git` na worktree e `treehouse return` sem --force. */
 const treehouseOps: WorktreeOps = {

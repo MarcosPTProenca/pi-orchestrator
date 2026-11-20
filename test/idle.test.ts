@@ -198,3 +198,12 @@ test("tarefa ativa ou ainda não entregue nunca vence o prazo de fechamento (#51
   const surfaces = idleSurfaces([ativa, naoEntregue], liveFor(ativa, naoEntregue));
   assert.deepEqual(dueForAutoClose(surfaces, muito_depois, 300_000), []);
 });
+
+test("env de prazo inválida cai no padrão, nunca vira NaN (revisão da #85)", async () => {
+  const { envPositive } = await import("../src/index.ts");
+  assert.equal(envPositive(undefined, 60_000), 60_000);
+  assert.equal(envPositive("abc", 60_000), 60_000);
+  assert.equal(envPositive("0", 60_000), 60_000);
+  assert.equal(envPositive("-5", 60_000), 60_000);
+  assert.equal(envPositive("2", 60_000), 2);
+});
