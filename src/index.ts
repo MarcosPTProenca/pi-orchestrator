@@ -24,22 +24,23 @@ import { Store, defaultStateDir } from "./store.ts";
 import { NoticeBatcher } from "./notices.ts";
 import { notificationFor, notifyArgs, notifyEnabled } from "./notify.ts";
 import { buildStatus, oldHoursFrom } from "./status.ts";
-import { classifyFailure, failureHintFor, suggestModel } from "./failure.ts";
+import { chainDepth, classifyFailure, failureHintFor, MAX_AUTO_RELAUNCH, nextModelFor } from "./failure.ts";
 import { capError, maxActiveFrom } from "./cap.ts";
 import { isActive } from "./contract.ts";
 import { orphanLeases, releaseLease, type WorktreeOps } from "./worktrees.ts";
-import { closeBlocker, dueForAutoClose, idleReport, STALE_SURFACE_REASON, IdleWatch, idleSurfaces } from "./idle.ts";
+import { closeBlocker, idleReport, STALE_SURFACE_REASON, IdleWatch, idleSurfaces } from "./idle.ts";
+import { StallWatch, stallNoticeFor } from "./stall.ts";
 import { acquireOwnership, legacyAdopter, ownsByRepo, releaseOwnership, scopeKey, scopeOwnerDir } from "./lock.ts";
 
-/** Ociosa por este tempo (minutos, entregue e com tab confirmada) é fechada sozinha. `PI_ORCH_IDLE_CLOSE_MIN` ajusta. */
 /** Env numérica válida e positiva; valor inválido cai no padrão (NaN faria o timer disparar sem pausa). */
 export const envPositive = (raw: string | undefined, fallback: number): number => {
   const n = Number(raw);
   return raw !== undefined && Number.isFinite(n) && n > 0 ? n : fallback;
 };
-export const IDLE_CLOSE_MIN = envPositive(process.env.PI_ORCH_IDLE_CLOSE_MIN, 5);
-/** Intervalo da conferência de ociosas. Precisa ser menor que o tempo de fechamento para fechar perto do prazo. */
+/** Intervalo da conferência de superfícies ociosas e de workers parados. */
 const IDLE_CHECK_MS = envPositive(process.env.PI_ORCH_IDLE_MS, 60_000);
+/** Worker em execução sem saída nova por este tempo (minutos) é avisado ao orquestrador. `PI_ORCH_STALL_MIN` ajusta. */
+const STALL_MIN = envPositive(process.env.PI_ORCH_STALL_MIN, 15);
 
 /** Treehouse real: `treehouse status` no repositório, `git` na worktree e `treehouse return` sem --force. */
 const treehouseOps: WorktreeOps = {
@@ -83,9 +84,9 @@ export function projectLabel(id: string | null | undefined): string {
  * Aviso agregado de superfícies ociosas: cada tarefa com o projeto a que pertence. Tarefas concluídas e entregues cuja tab
  * já não confere (#62) são nomeadas com o motivo, para o usuário saber por que não aparecem como candidatas.
  */
-export function idleNoticeFor(idle: { task_id: string; project_id: string }[], stale: { task_id: string; reason: string }[] = [], afterMin = IDLE_CLOSE_MIN): string {
+export function idleNoticeFor(idle: { task_id: string; project_id: string }[], stale: { task_id: string; reason: string }[] = []): string {
   const items = idle.map((s) => `${s.task_id} (${projectLabel(s.project_id)})`).join(", ");
-  const base = `Superfícies ociosas de tarefas concluídas e entregues (${idle.length}), ainda abertas: ${items}. Fecham sozinhas após ${afterMin} min ociosas.`;
+  const base = `Superfícies ociosas de tarefas concluídas e entregues (${idle.length}), ainda abertas: ${items}. Decida por tarefa: se nada depende da aba (PR aberta com CI vermelho, conflito de merge ou review pendente), feche com orch_close; se algo ainda precisa dela, mantenha e diga o motivo.`;
   if (stale.length === 0) return base;
   return `${base} Não são candidatas: ${stale.map((s) => `${s.task_id} (${s.reason})`).join("; ")}.`;
 }
@@ -302,15 +303,24 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       if (n) execFile("herdr", notifyArgs(n), { timeout: 10_000 }, () => undefined);
     }
     if (event.status === "failed") {
-      // Só cota sugere outro modelo. Erro 500 ou de credencial não se resolve trocando de modelo.
+      // Cota e credencial se resolvem trocando de modelo (credencial: de provedor). O orquestrador relança sozinho,
+      // com limite de trocas por cadeia. Erro 500 ou timeout não muda de modelo: segue a orientação de falha.
       const task = orch.get(event.task_id);
-      if (classifyFailure(event.result ?? event.error ?? "") === "quota") {
-        const next = suggestModel(task.model ?? "", DEFAULT_PRIORITY);
-        prLine += next
-          ? `\nCota esgotada em ${task.model}. Para relançar com outro modelo: orch_relaunch(task_id="${event.task_id}", model="${next}").`
-          : `\nCota esgotada em ${task.model}, e não há outro modelo na ordem de prioridade.`;
+      const reason = event.result ?? event.error ?? "";
+      const kind = classifyFailure(reason);
+      const next = kind === "quota" || kind === "auth" ? nextModelFor(task.model ?? "", kind, DEFAULT_PRIORITY) : null;
+      const why = kind === "quota" ? "cota esgotada" : "erro de credencial";
+      if (next && chainDepth(task, (id) => { try { return orch.get(id); } catch { return undefined; } }) < MAX_AUTO_RELAUNCH) {
+        try {
+          const fresh = await orch.relaunch(event.task_id, next);
+          prLine += `\nFalha por ${why} em ${task.model}. Relancei sozinho com ${next}: nova tarefa ${fresh.task_id}. Nenhum relatório confirma a correção do problema anterior; acompanhe a nova tarefa.`;
+        } catch (err) {
+          prLine += `\nFalha por ${why} em ${task.model}. Tentei relançar com ${next} e não consegui: ${err instanceof Error ? err.message : String(err)}. Decida o próximo passo.`;
+        }
+      } else if (kind === "quota") {
+        prLine += `\nCota esgotada em ${task.model}. ${next ? `Limite de trocas automáticas atingido; para relançar: orch_relaunch(task_id="${event.task_id}", model="${next}").` : "Não há outro modelo na ordem de prioridade."}`;
       } else {
-        prLine += failureHintFor(event.result ?? event.error ?? "", event.task_id);
+        prLine += failureHintFor(reason, event.task_id);
       }
     }
     notices.push({ key: `${event.task_id}:${event.status}`, text: modelMessageFor(event) + prLine, event });
@@ -332,54 +342,38 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   };
 
   /**
-   * Superfícies ociosas (concluídas, entregues, com tab confirmada no Herdr). Ociosa há `IDLE_CLOSE_MIN` minutos é
-   * fechada sozinha, pelo mesmo caminho de `orch_close` (mesma conferência de dono e bloqueio de tarefa ativa).
-   * Avisa quando o conjunto das que sobram muda. Falha do Herdr é avisada uma vez por episódio, não a cada rodada.
+   * Superfícies ociosas (concluídas, entregues, com tab confirmada no Herdr). Nunca fecha sozinho: avisa o orquestrador
+   * quando o conjunto muda, e ele decide por tarefa com `orch_close`. Falha do Herdr é avisada uma vez por episódio.
    */
   let idleTimer: ReturnType<typeof setInterval> | undefined;
   const idleWatch = new IdleWatch();
   let idleChecking = false;
-  const reportedCloseFailures = new Set<string>();
+  const stallWatch = new StallWatch();
   const checkIdle = async (): Promise<void> => {
     if (dryRun || idleChecking) return;
     idleChecking = true;
     try {
       const herdr = new HerdrCli();
-      let live = { tabIds: await herdr.tabIds(), panes: await herdr.panes() };
-      const tasks = orch.owned();
-      const due = dueForAutoClose(idleSurfaces(tasks, live), Date.now(), IDLE_CLOSE_MIN * 60_000);
-      const closed: string[] = [];
-      const failed: string[] = [];
-      for (const s of due) {
-        const t = tasks.find((x) => x.task_id === s.task_id);
-        if (!t || closeBlocker(t)) continue;
-        try {
-          const outcome = await orch.closeOutcome(s.task_id);
-          if (outcome.closed) closed.push(s.task_id);
-          reportedCloseFailures.delete(s.task_id);
-        } catch (err) {
-          if (!reportedCloseFailures.has(s.task_id)) failed.push(`${s.task_id}: ${err instanceof Error ? err.message : String(err)}`);
-          reportedCloseFailures.add(s.task_id);
-        }
-      }
-      if (closed.length > 0) {
-        pi.sendMessage(
-          { customType: "orch-event", content: `Fechei sozinho ${closed.length} superfície(s) ociosa(s) há ${IDLE_CLOSE_MIN} min: ${closed.join(", ")}. Relatórios preservados.`, display: true },
-          { triggerTurn: false },
-        );
-        live = { tabIds: await herdr.tabIds(), panes: await herdr.panes() };
-      }
-      if (failed.length > 0) {
-        pi.sendMessage(
-          { customType: "orch-event", content: `Não consegui fechar ociosas automaticamente: ${failed.join("; ")}. Nova tentativa no próximo ciclo.`, display: true },
-          { triggerTurn: false },
-        );
-      }
+      const live = { tabIds: await herdr.tabIds(), panes: await herdr.panes() };
       const idle = idleSurfaces(orch.owned(), live);
       if (idleWatch.observe(idle)) {
         pi.sendMessage(
           { customType: "orch-event", content: idleNoticeFor(idle, idleReport(orch.owned(), live).not_eligible.filter((n) => n.reason === STALE_SURFACE_REASON)), display: true },
-          { triggerTurn: false },
+          { triggerTurn: true },
+        );
+      }
+      // Worker em execução sem saída nova: só avisa (decisão é do orquestrador). Falha de leitura de um pane não derruba a rodada.
+      const running = orch.owned().filter((t) => t.status === "running");
+      stallWatch.prune(new Set(running.map((t) => t.task_id)));
+      const stalled: { task_id: string; project_id: string }[] = [];
+      for (const t of running) {
+        const text = await orch.logs(t.task_id, 30).catch(() => null);
+        if (text !== null && stallWatch.observe(t.task_id, text, Date.now(), STALL_MIN * 60_000)) stalled.push(t);
+      }
+      if (stalled.length > 0) {
+        pi.sendMessage(
+          { customType: "orch-event", content: stallNoticeFor(stalled, STALL_MIN, projectLabel), display: true },
+          { triggerTurn: true },
         );
       }
     } catch {

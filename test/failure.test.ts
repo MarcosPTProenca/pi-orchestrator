@@ -38,6 +38,34 @@ test("erro desconhecido: diz que a causa é desconhecida e manda ver o log, sem 
   assert.doesNotMatch(hint, /orch_relaunch/);
 });
 
-test("credencial: avisa que relançar sem corrigir falha de novo", () => {
-  assert.match(failureHintFor("401 Unauthorized: invalid api key", "t-x3"), /não troque de modelo/);
+test("credencial: orientação diz que a troca de provedor é automática", () => {
+  assert.match(failureHintFor("401 Unauthorized: invalid api key", "t-x3"), /troca de provedor sozinho/);
+});
+
+test("credencial falha troca para outro provedor, nunca o mesmo (autonomia do orquestrador)", async () => {
+  const { nextModelFor } = await import("../src/failure.ts");
+  const prio = ["claude-bridge/claude-haiku-5-5", "claude-bridge/claude-sonnet-5", "openai-codex/gpt-6-luna"];
+  assert.equal(nextModelFor("claude-bridge/claude-haiku-5-5", "auth", prio), "openai-codex/gpt-6-luna");
+  assert.equal(nextModelFor("openai-codex/gpt-6-luna", "auth", prio), "claude-bridge/claude-haiku-5-5");
+  assert.equal(nextModelFor("claude-bridge/claude-haiku-5-5", "auth", ["claude-bridge/claude-haiku-5-5"]), null);
+});
+
+test("cota troca para qualquer outro modelo da prioridade", async () => {
+  const { nextModelFor } = await import("../src/failure.ts");
+  const prio = ["claude-bridge/claude-haiku-5-5", "claude-bridge/claude-sonnet-5"];
+  assert.equal(nextModelFor("claude-bridge/claude-haiku-5-5", "quota", prio), "claude-bridge/claude-sonnet-5");
+});
+
+test("cadeia de relançamentos conta os saltos e tem limite contra ciclo", async () => {
+  const { chainDepth } = await import("../src/failure.ts");
+  const tasks: Record<string, { relaunched_from?: string | null }> = {
+    "t-a": {},
+    "t-b": { relaunched_from: "t-a" },
+    "t-c": { relaunched_from: "t-b" },
+    "t-loop": { relaunched_from: "t-loop" },
+  };
+  const get = (id: string) => tasks[id];
+  assert.equal(chainDepth(tasks["t-a"]!, get), 0);
+  assert.equal(chainDepth(tasks["t-c"]!, get), 2);
+  assert.equal(chainDepth(tasks["t-loop"]!, get), 10);
 });
