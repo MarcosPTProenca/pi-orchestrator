@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { closeBlocker, idleReport, IdleWatch, idleAnnouncement, idleSurfaces, whyNotIdle, type LiveSurfaces } from "../src/idle.ts";
+import { closeBlocker, deadTabTaskIds, idleReport, IdleWatch, idleAnnouncement, idleSurfaces, whyNotIdle, type LiveSurfaces } from "../src/idle.ts";
 import { parseTabIds } from "../src/herdr.ts";
 import type { TaskRecord } from "../src/contract.ts";
 
@@ -193,4 +193,18 @@ test("env de prazo inválida cai no padrão, nunca vira NaN (revisão da #85)", 
   assert.equal(envPositive("0", 60_000), 60_000);
   assert.equal(envPositive("-5", 60_000), 60_000);
   assert.equal(envPositive("2", 60_000), 2);
+});
+
+test("registro morto só é limpo com aba e pane ausentes e o Herdr respondendo (revisão da #93)", () => {
+  const morta = task({ task_id: "t-morta", status: "done", tab_id: "w1:t9", pane_id: "w1:p9", notified: true });
+  const ativa = task({ task_id: "t-ativa", status: "running" as TaskRecord["status"], tab_id: "w1:t8", pane_id: "w1:p8" });
+  const pane = (pane_id: string) => ({ pane_id, terminal_id: "x", cwd: null, agent: null, agent_status: null });
+  // Herdr respondendo, aba e pane ausentes: limpa só a concluída
+  assert.deepEqual(deadTabTaskIds([morta, ativa], { tabIds: new Set(["w1:t1"]), panes: [pane("w1:p1")] }), ["t-morta"]);
+  // Lista de abas vazia (instante ruim): não limpa nada
+  assert.deepEqual(deadTabTaskIds([morta], { tabIds: new Set(), panes: [pane("w1:p1")] }), []);
+  // Lista de panes vazia: não limpa nada
+  assert.deepEqual(deadTabTaskIds([morta], { tabIds: new Set(["w1:t1"]), panes: [] }), []);
+  // Pane ainda existe (aba reindexada): não limpa
+  assert.deepEqual(deadTabTaskIds([morta], { tabIds: new Set(["w1:t1"]), panes: [pane("w1:p9")] }), []);
 });

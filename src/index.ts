@@ -28,7 +28,7 @@ import { chainDepth, classifyFailure, failureHintFor, MAX_AUTO_RELAUNCH, nextMod
 import { capError, maxActiveFrom } from "./cap.ts";
 import { isActive } from "./contract.ts";
 import { orphanLeases, releaseLease, type WorktreeOps } from "./worktrees.ts";
-import { closeBlocker, idleReport, IdleWatch, idleSurfaces } from "./idle.ts";
+import { closeBlocker, deadTabTaskIds, idleReport, IdleWatch, idleSurfaces } from "./idle.ts";
 import { StallWatch, stallNoticeFor } from "./stall.ts";
 import { acquireOwnership, legacyAdopter, ownsByRepo, releaseOwnership, scopeKey, scopeOwnerDir } from "./lock.ts";
 
@@ -355,8 +355,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     try {
       const herdr = new HerdrCli();
       const live = { tabIds: await herdr.tabIds(), panes: await herdr.panes() };
-      // Aba que o Herdr não lista mais: registro velho. Limpa em silêncio, sem aviso ao orquestrador.
-      for (const t of orch.owned()) if (t.tab_id && !live.tabIds.has(t.tab_id)) orch.forgetDeadTab(t.task_id);
+      // Aba e pane que o Herdr não lista mais: registro velho. Limpa em silêncio, só com o Herdr respondendo.
+      for (const id of deadTabTaskIds(orch.owned(), live)) orch.forgetDeadTab(id);
       const idle = idleSurfaces(orch.owned(), live);
       if (idleWatch.observe(idle)) {
         pi.sendMessage(

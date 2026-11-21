@@ -27,6 +27,17 @@ export interface LiveSurfaces {
   panes: PaneInfo[];
 }
 
+/**
+ * Tarefas concluídas cuja aba e pane sumiram do Herdr: registro morto, seguro de limpar. Só vale com o Herdr respondendo
+ * com abas e panes: lista vazia ou parcial (instante ruim) não pode apagar registro válido.
+ */
+export function deadTabTaskIds(tasks: TaskRecord[], live: LiveSurfaces): string[] {
+  if (live.tabIds.size === 0 || live.panes.length === 0) return [];
+  return tasks
+    .filter((t) => t.status === "done" && t.tab_id !== "" && !live.tabIds.has(t.tab_id) && !live.panes.some((p) => p.pane_id === t.pane_id))
+    .map((t) => t.task_id);
+}
+
 /** Verdadeiro quando a tab do registro ainda existe e o pane/terminal ainda são os da tarefa. */
 export function confirmedInHerdr(t: TaskRecord, live: LiveSurfaces): boolean {
   return live.tabIds.has(t.tab_id) && live.panes.some((p) => p.pane_id === t.pane_id && p.terminal_id === t.terminal_id);
