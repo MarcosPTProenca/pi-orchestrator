@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PrActionWatch, ciInstruction, conflictInstruction, failingChecks, isPrWatched, prVerdict } from "../src/pr-watch.ts";
+import { PrActionWatch, ciInstruction, conflictInstruction, failingChecks, isPrWatched, prUrlOf, prVerdict } from "../src/pr-watch.ts";
 import type { PrState } from "../src/prs.ts";
 
 const pr = (over: Partial<PrState>): PrState => ({
@@ -75,4 +75,25 @@ test("só acompanha tarefa concluída, já entregue ao usuário, com PR e aba", 
   assert.equal(isPrWatched({ ...base, notified: false }), false, "relatório não entregue: fechar/enviar marcaria como visto");
   assert.equal(isPrWatched({ ...base, status: "running" }), false);
   assert.equal(isPrWatched({ ...base, tab_id: "" }), false);
+});
+
+test("PR da tarefa: a fonte se for PR, senão a PR entre os artefatos (tarefa de issue)", () => {
+  const pr172 = "https://github.com/MarcosPTProenca/adaptative-learning/pull/172";
+  assert.equal(prUrlOf({ source: pr172, artifacts: [] }), pr172);
+  assert.equal(prUrlOf({ source: "https://github.com/o/r/issues/118", artifacts: ["/tmp/x", pr172] }), pr172);
+  assert.equal(prUrlOf({ source: "https://github.com/o/r/issues/118", artifacts: ["http://127.0.0.1:5173/"] }), null);
+  assert.equal(prUrlOf({ source: null }), null);
+});
+
+test("tarefa de issue com PR nos artefatos é acompanhada depois de entregue", () => {
+  const base = { status: "done" as const, notified: true, tab_id: "t1" };
+  assert.equal(isPrWatched({ ...base, source: "https://github.com/o/r/issues/118", artifacts: ["https://github.com/o/r/pull/172"] }), true);
+  assert.equal(isPrWatched({ ...base, source: "https://github.com/o/r/issues/118", artifacts: [] }), false);
+});
+
+test("com várias PRs nos artefatos, prefere a do mesmo repositório da issue", () => {
+  const outra = "https://github.com/o/outro/pull/5";
+  const mesma = "https://github.com/o/r/pull/172";
+  assert.equal(prUrlOf({ source: "https://github.com/o/r/issues/118", artifacts: [outra, mesma] }), mesma);
+  assert.equal(prUrlOf({ source: "https://github.com/o/r/issues/118", artifacts: [outra] }), outra, "sem PR do mesmo repo, usa a primeira");
 });

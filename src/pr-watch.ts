@@ -17,11 +17,24 @@ export function prVerdict(s: PrState): PrVerdict {
 }
 
 /**
- * Tarefa que o acompanhamento de PR pode tocar: concluída, com resultado já entregue ao usuário e aba registrada.
- * Sem `notified`, fechar a aba ou enviar mensagem ao worker marcaria como entregue um relatório que o usuário não viu.
+ * URL da PR da tarefa: a fonte, se for PR, senão a primeira PR entre os artefatos. Uma tarefa de issue (ex.: `Refs #118`)
+ * entrega a PR nos artefatos; sem isso o acompanhamento nunca olharia a PR e ela ficaria "ociosa" para sempre.
  */
-export function isPrWatched(t: Pick<TaskRecord, "status" | "notified" | "source" | "tab_id">): boolean {
-  return t.status === "done" && t.notified && !!t.source && !!t.tab_id;
+export function prUrlOf(t: { source?: string | null; artifacts?: string[] }): string | null {
+  const isPr = (u: string) => /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/.test(u);
+  if (t.source && isPr(t.source)) return t.source;
+  const prs = (t.artifacts ?? []).filter(isPr);
+  // Entre várias PRs, prefere a do mesmo repositório da issue: artefato de outra tarefa pode citar outro repo.
+  const repo = t.source?.match(/^https:\/\/github\.com\/([^/]+\/[^/]+)\/issues\/\d+/)?.[1];
+  return (repo && prs.find((u) => u.startsWith(`https://github.com/${repo}/pull/`))) ?? prs[0] ?? null;
+}
+
+/**
+ * Tarefa que o acompanhamento de PR pode tocar: concluída, com resultado já entregue ao usuário, PR conhecida e aba
+ * registrada. Sem `notified`, fechar a aba ou enviar mensagem ao worker marcaria como entregue um relatório que o usuário não viu.
+ */
+export function isPrWatched(t: Pick<TaskRecord, "status" | "notified" | "tab_id"> & { source?: string | null; artifacts?: string[] }): boolean {
+  return t.status === "done" && t.notified && prUrlOf(t) !== null && !!t.tab_id;
 }
 
 export type PrAction = "conflict" | "ci";

@@ -214,3 +214,8 @@ test("tarefa entregue por PR não é candidata a fechar: quem fecha é o merge (
   const reason = whyNotIdle(prTask, liveFor(prTask));
   assert.match(reason ?? "", /aguarda merge da PR/);
 });
+
+test("tarefa de issue cuja PR está nos artefatos aguarda o merge, não vira candidata a fechar", () => {
+  const t = task({ task_id: "t-iss", source: "https://github.com/o/r/issues/118", artifacts: ["https://github.com/o/r/pull/172"] });
+  assert.match(whyNotIdle(t, liveFor(t)) ?? "", /aguarda merge da PR/);
+});
