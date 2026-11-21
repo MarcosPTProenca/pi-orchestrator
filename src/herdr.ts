@@ -158,7 +158,12 @@ export class HerdrCli implements HerdrPort {
     return parseWorkspaceIds(JSON.parse(await this.runOk(["workspace", "list"])));
   }
 
-  async createTab(a: { workspaceId: string; cwd: string; label: string; env: Record<string, string> }): Promise<TabResult> {
+  async createTab(a: {
+    workspaceId: string;
+    cwd: string;
+    label: string;
+    env: Record<string, string>;
+  }): Promise<TabResult> {
     const args = ["tab", "create", "--workspace", a.workspaceId, "--cwd", a.cwd, "--label", a.label, "--no-focus"];
     for (const [k, v] of Object.entries(a.env)) args.push("--env", `${k}=${v}`);
     return parseTabCreate(JSON.parse(await this.runOk(args)));
@@ -185,7 +190,19 @@ export class HerdrCli implements HerdrPort {
   }
 
   async startAgent(a: { name: string; paneId: string; piArgs: string[]; timeoutMs: number }): Promise<void> {
-    const args = ["agent", "start", a.name, "--kind", "pi", "--pane", a.paneId, "--timeout", String(a.timeoutMs), "--", ...a.piArgs];
+    const args = [
+      "agent",
+      "start",
+      a.name,
+      "--kind",
+      "pi",
+      "--pane",
+      a.paneId,
+      "--timeout",
+      String(a.timeoutMs),
+      "--",
+      ...a.piArgs,
+    ];
     await this.runOk(args, a.timeoutMs + 15_000);
   }
 

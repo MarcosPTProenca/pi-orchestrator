@@ -40,7 +40,10 @@ test("três conclusões em 2 s viram um envio só", () => {
   b.push({ key: "t-3:done", text: "c" });
   clock.advance(5000);
   assert.equal(sent.length, 1);
-  assert.deepEqual(sent[0].map((i) => i.key), ["t-1:done", "t-2:done", "t-3:done"]);
+  assert.deepEqual(
+    sent[0].map((i) => i.key),
+    ["t-1:done", "t-2:done", "t-3:done"],
+  );
 });
 
 test("duas conclusões com 10 s de diferença viram dois envios", () => {
@@ -90,7 +93,10 @@ test("drain cancela o envio pendente e devolve o que estava na janela", () => {
   const sent: Item[][] = [];
   const b = new NoticeBatcher<Item>(5000, (items) => sent.push(items), clock.sched);
   b.push({ key: "t-1:done", text: "a" });
-  assert.deepEqual(b.drain().map((i) => i.key), ["t-1:done"]);
+  assert.deepEqual(
+    b.drain().map((i) => i.key),
+    ["t-1:done"],
+  );
   clock.advance(10000);
   assert.equal(sent.length, 0);
 });

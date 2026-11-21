@@ -10,7 +10,13 @@ const fresh = () => new PlanStore(mkdtempSync(join(tmpdir(), "plans-")), () => "
 test("cria plano com itens pendentes numerados e lê de volta", () => {
   const s = fresh();
   const p = s.create("fase-2", "Fase 2", ["Ingestão", "Replay"]);
-  assert.deepEqual(p.items.map((i) => [i.id, i.title, i.status]), [["1", "Ingestão", "pending"], ["2", "Replay", "pending"]]);
+  assert.deepEqual(
+    p.items.map((i) => [i.id, i.title, i.status]),
+    [
+      ["1", "Ingestão", "pending"],
+      ["2", "Replay", "pending"],
+    ],
+  );
   assert.deepEqual(s.show("fase-2"), p);
   assert.deepEqual(s.list(), ["fase-2"]);
 });
@@ -30,7 +36,7 @@ test("atualiza item: só os campos informados mudam, e status inválido é recus
   const item = s.update("p", "1", { status: "pr_open", pr: "https://github.com/o/r/pull/9" });
   assert.equal(item.status, "pr_open");
   assert.equal(item.task_id, null);
-  assert.equal(s.show("p").items[1]!.status, "pending", "item 2 intocado");
+  assert.equal(s.show("p").items[1].status, "pending", "item 2 intocado");
   assert.throws(() => s.update("p", "1", { status: "feito" as never }), /status inválido/);
   assert.throws(() => s.update("p", "9", { status: "done" }), /não existe/);
 });
@@ -42,8 +48,8 @@ test("merge da tarefa marca o item como merged, em todos os planos que a citam",
   s.update("p1", "1", { task_id: "t-4200aa00", status: "pr_open" });
   s.update("p2", "1", { task_id: "t-9900bb00" });
   assert.deepEqual(s.markMerged("t-4200aa00"), [{ plan: "p1", item: "1" }]);
-  assert.equal(s.show("p1").items[0]!.status, "merged");
-  assert.equal(s.show("p2").items[0]!.status, "pending", "outra tarefa não muda");
+  assert.equal(s.show("p1").items[0].status, "merged");
+  assert.equal(s.show("p2").items[0].status, "pending", "outra tarefa não muda");
   assert.deepEqual(s.markMerged("t-4200aa00"), [], "segunda chamada não toca de novo");
 });
 
@@ -70,6 +76,9 @@ test("task_id e pr fora do formato são recusados antes de gravar", () => {
   s.create("p", "P", ["a"]);
   assert.throws(() => s.update("p", "1", { task_id: "qualquer coisa" }), /task_id inválido/);
   assert.throws(() => s.update("p", "1", { pr: "https://exemplo.com/x" }), /pr inválida/);
-  assert.equal(s.show("p").items[0]!.task_id, null, "nada gravado");
-  assert.equal(s.update("p", "1", { task_id: "t-b60495cd", pr: "https://github.com/o/r/pull/172" }).pr, "https://github.com/o/r/pull/172");
+  assert.equal(s.show("p").items[0].task_id, null, "nada gravado");
+  assert.equal(
+    s.update("p", "1", { task_id: "t-b60495cd", pr: "https://github.com/o/r/pull/172" }).pr,
+    "https://github.com/o/r/pull/172",
+  );
 });

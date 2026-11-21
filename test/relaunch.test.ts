@@ -6,7 +6,14 @@ const HAIKU = "claude-bridge/claude-haiku-5-5";
 const LUNA = "openai-codex/gpt-6.1-sol";
 
 async function failed(h: ReturnType<typeof makeHarness>, result: string, model?: string) {
-  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report", model });
+  const t = await h.orch.delegate({
+    project_path: h.project,
+    role: "a",
+    request: "x",
+    objective: "y",
+    mode: "report",
+    model,
+  });
   writeReport(t.task_dir, t.task_id, { status: "failed", result });
   await h.orch.refresh(t.task_id);
   return t;
@@ -37,7 +44,10 @@ test("falha por cota com o mesmo modelo que esgotou: recusa", async () => {
 test("falha de credencial: recusa modelo do mesmo provedor e aceita outro provedor", async () => {
   const h = makeHarness();
   const old = await failed(h, "401 Unauthorized: invalid api key", HAIKU);
-  await assert.rejects(h.orch.relaunch(old.task_id, "claude-bridge/claude-sonnet-5"), /escolha modelo de outro provedor/);
+  await assert.rejects(
+    h.orch.relaunch(old.task_id, "claude-bridge/claude-sonnet-5"),
+    /escolha modelo de outro provedor/,
+  );
   const neu = await h.orch.relaunch(old.task_id, LUNA);
   assert.equal(neu.model, LUNA);
 });

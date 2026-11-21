@@ -46,7 +46,8 @@ export class Store {
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
         if (lockAge(lock) > LOCK_STALE_MS) rmSync(lock, { recursive: true, force: true });
-        else if (Date.now() > deadline) throw new Error(`estado ocupado: a trava ${lock} não liberou em ${LOCK_WAIT_MS} ms`);
+        else if (Date.now() > deadline)
+          throw new Error(`estado ocupado: a trava ${lock} não liberou em ${LOCK_WAIT_MS} ms`);
         else Atomics.wait(sleep, 0, 0, 5);
       }
     }

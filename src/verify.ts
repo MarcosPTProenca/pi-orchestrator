@@ -14,7 +14,12 @@ export interface VerifyEnv {
 
 const SHA_RE = /\b[0-9a-f]{7,40}\b/g;
 
-export async function judgeDone(mode: string, status: string, artifacts: string[], env: VerifyEnv): Promise<Verification> {
+export async function judgeDone(
+  mode: string,
+  status: string,
+  artifacts: string[],
+  env: VerifyEnv,
+): Promise<Verification> {
   if (status !== "done") return { verdict: "not_applicable", reason: "tarefa não concluída pelo worker" };
   try {
     if (mode === "direct-pr") {
@@ -31,9 +36,11 @@ export async function judgeDone(mode: string, status: string, artifacts: string[
     }
     if (mode === "local-only") {
       const shas = artifacts.flatMap((a) => a.match(SHA_RE) ?? []);
-      if (shas.length === 0) return { verdict: "rejected", reason: "modo local-only sem commit informado em artefatos" };
+      if (shas.length === 0)
+        return { verdict: "rejected", reason: "modo local-only sem commit informado em artefatos" };
       const found = shas.filter((s) => env.commitExists(s));
-      if (found.length === 0) return { verdict: "rejected", reason: `nenhum commit encontrado no repositório entre: ${shas.join(", ")}` };
+      if (found.length === 0)
+        return { verdict: "rejected", reason: `nenhum commit encontrado no repositório entre: ${shas.join(", ")}` };
       return { verdict: "approved", reason: `commit(s) presentes no repositório: ${found.join(", ")}` };
     }
     if (mode === "report") {

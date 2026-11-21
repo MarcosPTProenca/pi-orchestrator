@@ -21,8 +21,10 @@ export function parseQuota(json: unknown): ProviderQuota[] {
   if (!Array.isArray(providers)) throw new Error("resposta do quota-axi sem providers");
   return providers.map((p) => {
     const x = p as Record<string, unknown>;
-    const eff = ((x.quotaSemantics as { effectiveAvailability?: { scope?: string; effectivePercentRemaining?: number }[] })?.effectiveAvailability ?? [])
-      .find((e) => e.scope === "all_models");
+    const eff = (
+      (x.quotaSemantics as { effectiveAvailability?: { scope?: string; effectivePercentRemaining?: number }[] })
+        ?.effectiveAvailability ?? []
+    ).find((e) => e.scope === "all_models");
     const windows = (x.windows as { percentRemaining?: number }[]) ?? [];
     const fromWindows = windows.length ? Math.min(...windows.map((w) => w.percentRemaining ?? 100)) : null;
     const pct = typeof eff?.effectivePercentRemaining === "number" ? eff.effectivePercentRemaining : fromWindows;
@@ -36,17 +38,22 @@ export function parseQuota(json: unknown): ProviderQuota[] {
 
 export function readQuota(): Promise<ProviderQuota[]> {
   return new Promise((resolve, reject) => {
-    execFile("quota-axi", ["--json", "--provider", "claude,codex", "--max-age", "5m"], { timeout: 90_000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
-      if (err) {
-        reject(new Error(`quota-axi falhou: ${(stderr || err.message).trim()}`));
-        return;
-      }
-      try {
-        resolve(parseQuota(JSON.parse(stdout)));
-      } catch (e) {
-        reject(e);
-      }
-    });
+    execFile(
+      "quota-axi",
+      ["--json", "--provider", "claude,codex", "--max-age", "5m"],
+      { timeout: 90_000, maxBuffer: 8 * 1024 * 1024 },
+      (err, stdout, stderr) => {
+        if (err) {
+          reject(new Error(`quota-axi falhou: ${(stderr || err.message).trim()}`));
+          return;
+        }
+        try {
+          resolve(parseQuota(JSON.parse(stdout)));
+        } catch (e) {
+          reject(e);
+        }
+      },
+    );
   });
 }
 
@@ -84,6 +91,8 @@ export function checkRequestedQuota(model: string, quotas: ProviderQuota[], minP
   if (kind === "kiro" || kind === "other") return;
   const q = quotas.find((x) => x.provider === kind);
   if (q && q.percentRemaining !== null && q.percentRemaining < minPercent) {
-    throw new Error(`cota de ${kind} esgotada (${q.percentRemaining}% restante). "${model}" não foi lançado. Escolha outro modelo ou peça para usar a ordem automática.`);
+    throw new Error(
+      `cota de ${kind} esgotada (${q.percentRemaining}% restante). "${model}" não foi lançado. Escolha outro modelo ou peça para usar a ordem automática.`,
+    );
   }
 }

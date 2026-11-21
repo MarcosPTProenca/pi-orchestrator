@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { classifyFailure, failureHintFor, suggestModel } from "../src/failure.ts";
 
 test("cota esgotada é classificada como quota", () => {
-  assert.equal(classifyFailure("Cota esgotada no provedor do modelo; a tarefa não foi executada. Erro: 429 rate limit"), "quota");
+  assert.equal(
+    classifyFailure("Cota esgotada no provedor do modelo; a tarefa não foi executada. Erro: 429 rate limit"),
+    "quota",
+  );
   assert.equal(classifyFailure("usage limit reached for this plan"), "quota");
 });
 
@@ -25,7 +28,10 @@ test("sugere o próximo modelo da prioridade, sem repetir o que falhou", () => {
 });
 
 test("erro do provedor: orientação diz que a causa não está comprovada e como relançar (#64)", () => {
-  const hint = failureHintFor('500: {"message":"An error occurred while processing your request. Please try again."}', "t-x1");
+  const hint = failureHintFor(
+    '500: {"message":"An error occurred while processing your request. Please try again."}',
+    "t-x1",
+  );
   assert.match(hint, /transitório do provedor/);
   assert.match(hint, /causa não está comprovada/);
   assert.match(hint, /orch_relaunch\(task_id="t-x1"\)/);
@@ -65,7 +71,7 @@ test("cadeia de relançamentos conta os saltos e tem limite contra ciclo", async
     "t-loop": { relaunched_from: "t-loop" },
   };
   const get = (id: string) => tasks[id];
-  assert.equal(chainDepth(tasks["t-a"]!, get), 0);
-  assert.equal(chainDepth(tasks["t-c"]!, get), 2);
-  assert.equal(chainDepth(tasks["t-loop"]!, get), 10);
+  assert.equal(chainDepth(tasks["t-a"], get), 0);
+  assert.equal(chainDepth(tasks["t-c"], get), 2);
+  assert.equal(chainDepth(tasks["t-loop"], get), 10);
 });

@@ -11,7 +11,11 @@ const asst = (ts: number, input: number, output: number, cacheRead = 0, cacheWri
 test("soma só mensagens que ainda não foram contadas (identificadas pelo timestamp)", () => {
   const first = addNewUsage(newUsage(), [{ role: "user" }, asst(1, 10, 5, 100, 20)], []);
   assert.equal(first.total.input, 10);
-  const second = addNewUsage(first.total, [{ role: "user" }, asst(1, 10, 5, 100, 20), { role: "user" }, asst(2, 3, 2)], first.counted);
+  const second = addNewUsage(
+    first.total,
+    [{ role: "user" }, asst(1, 10, 5, 100, 20), { role: "user" }, asst(2, 3, 2)],
+    first.counted,
+  );
   assert.equal(second.total.input, 13);
   assert.equal(second.total.output, 7);
   assert.deepEqual(second.counted, [1, 2]);

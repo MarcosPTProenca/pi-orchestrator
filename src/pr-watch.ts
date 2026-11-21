@@ -18,14 +18,20 @@ export function prUrlOf(t: { source?: string | null; artifacts?: string[] }): st
   return (repo && prs.find((u) => u.startsWith(`https://github.com/${repo}/pull/`))) ?? prs[0] ?? null;
 }
 
-export function isPrWatched(t: Pick<TaskRecord, "status" | "notified" | "tab_id"> & { source?: string | null; artifacts?: string[] }): boolean {
+export function isPrWatched(
+  t: Pick<TaskRecord, "status" | "notified" | "tab_id"> & { source?: string | null; artifacts?: string[] },
+): boolean {
   return t.status === "done" && t.notified && prUrlOf(t) !== null && !!t.tab_id;
 }
 
 export type PrAction = "conflict" | "ci";
 
 export function failingChecks(s: PrState): string[] {
-  return [...new Set(s.checks.filter((c) => c.conclusion !== null && FAILING.has(c.conclusion.toUpperCase())).map((c) => c.name))];
+  return [
+    ...new Set(
+      s.checks.filter((c) => c.conclusion !== null && FAILING.has(c.conclusion.toUpperCase())).map((c) => c.name),
+    ),
+  ];
 }
 
 export class PrActionWatch {

@@ -25,7 +25,9 @@ export const ASK_BLOCK_REASON =
 
 export default function workerExtension(pi: ExtensionAPI): void {
   if (process.env.PI_ORCH_ROLE !== "worker") return;
-  pi.on("tool_call", (event) => (event.toolName === "AskUserQuestion" ? { block: true, reason: ASK_BLOCK_REASON } : undefined));
+  pi.on("tool_call", (event) =>
+    event.toolName === "AskUserQuestion" ? { block: true, reason: ASK_BLOCK_REASON } : undefined,
+  );
   let reminded = false;
   let deferredNoReport = false;
   let deferredInvalidReason: string | null = null;
@@ -45,7 +47,9 @@ export default function workerExtension(pi: ExtensionAPI): void {
   pi.on("before_agent_start", (event) => {
     const briefPath = join(taskDir as string, "brief.md");
     const brief = existsSync(briefPath) ? readFileSync(briefPath, "utf8") : "";
-    const systemPrompt = event.systemPrompt.includes(WORKER_PREAMBLE) ? event.systemPrompt : `${event.systemPrompt}\n\n${WORKER_PREAMBLE}`;
+    const systemPrompt = event.systemPrompt.includes(WORKER_PREAMBLE)
+      ? event.systemPrompt
+      : `${event.systemPrompt}\n\n${WORKER_PREAMBLE}`;
     return {
       systemPrompt,
       message: brief ? { customType: "orch-brief", content: maskSecrets(brief), display: true } : undefined,
@@ -84,9 +88,9 @@ export default function workerExtension(pi: ExtensionAPI): void {
     const usageFile = join(taskDir, "usage.json");
     let prev: { total: Usage; counted: number[] } = { total: newUsage(), counted: [] };
     try {
-      if (existsSync(usageFile)) prev = JSON.parse(readFileSync(usageFile, "utf8")) as { total: Usage; counted: number[] };
-    } catch {
-    }
+      if (existsSync(usageFile))
+        prev = JSON.parse(readFileSync(usageFile, "utf8")) as { total: Usage; counted: number[] };
+    } catch {}
     const acc = addNewUsage(prev.total, (event as { messages?: unknown[] }).messages ?? [], prev.counted ?? []);
     writeFileSync(`${usageFile}.tmp`, JSON.stringify(acc));
     renameSync(`${usageFile}.tmp`, usageFile);
@@ -128,10 +132,7 @@ export default function workerExtension(pi: ExtensionAPI): void {
       additionalProperties: false,
     },
     async execute(_toolCallId: string, params: Record<string, unknown>) {
-      const report = validateReport(
-        { ...params, task_id: taskId, reported_at: new Date().toISOString() },
-        taskId,
-      );
+      const report = validateReport({ ...params, task_id: taskId, reported_at: new Date().toISOString() }, taskId);
       const file = join(taskDir, "report.json");
       writeFileSync(`${file}.tmp`, JSON.stringify(report, null, 2));
       renameSync(`${file}.tmp`, file);

@@ -4,10 +4,14 @@ import { FixQueue } from "../src/queue.ts";
 
 test("falha de início que esgota as tentativas avisa na hora, mesmo fora da chamada original", async () => {
   const seen: string[] = [];
-  const q = new FixQueue<string>(1, async (item) => {
-    if (item === "ruim") throw new Error("pane não abriu");
-    return `t-${item}`;
-  }, { maxAttempts: 2, onFailed: (f) => seen.push(`${f.item}:${f.error}`) });
+  const q = new FixQueue<string>(
+    1,
+    async (item) => {
+      if (item === "ruim") throw new Error("pane não abriu");
+      return `t-${item}`;
+    },
+    { maxAttempts: 2, onFailed: (f) => seen.push(`${f.item}:${f.error}`) },
+  );
   await q.enqueue(["ruim"]);
   assert.deepEqual(seen, ["ruim:pane não abriu"]);
 });
@@ -32,13 +36,20 @@ test("setConcurrency fora do intervalo 1..4 é recusado", async () => {
 });
 
 test("failedSince devolve só as falhas depois de um ponto; chamadas seguintes não repetem falhas antigas", async () => {
-  const q = new FixQueue<string>(1, async (item) => {
-    if (item.startsWith("ruim")) throw new Error(`falhou ${item}`);
-    return `t-${item}`;
-  }, { maxAttempts: 1 });
+  const q = new FixQueue<string>(
+    1,
+    async (item) => {
+      if (item.startsWith("ruim")) throw new Error(`falhou ${item}`);
+      return `t-${item}`;
+    },
+    { maxAttempts: 1 },
+  );
   await q.enqueue(["ruim1"]);
   const mark = q.failedCount;
   assert.equal(mark, 1);
   await q.enqueue(["ruim2"]);
-  assert.deepEqual(q.failedSince(mark).map((f) => f.item), ["ruim2"]);
+  assert.deepEqual(
+    q.failedSince(mark).map((f) => f.item),
+    ["ruim2"],
+  );
 });

@@ -46,10 +46,22 @@ test("tarefa de repo com dono pasta-pai passa a ser controlada pela sessão do r
   const h: Harness = makeHarness();
   const store = new Store(join(h.stateDir, "state.json"));
   store.mutate((s) => {
-    s.tasks["t-adotada"] = { task_id: "t-adotada", project_path: repoA, owner_key: scopeKey(parent), status: "done", tab_id: "", pane_id: "", terminal_id: "", notified: true } as never;
+    s.tasks["t-adotada"] = {
+      task_id: "t-adotada",
+      project_path: repoA,
+      owner_key: scopeKey(parent),
+      status: "done",
+      tab_id: "",
+      pane_id: "",
+      terminal_id: "",
+      notified: true,
+    } as never;
   });
   h.orch.setScope(scopeKey(repoA), (p) => ownsByRepo(p, scopeKey(repoA), repoA));
-  assert.deepEqual(h.orch.owned().map((t) => t.task_id), ["t-adotada"]);
+  assert.deepEqual(
+    h.orch.owned().map((t) => t.task_id),
+    ["t-adotada"],
+  );
 });
 
 test("trava por tarefa: dois cancelamentos simultâneos fecham a tab uma vez só", async () => {
@@ -57,7 +69,10 @@ test("trava por tarefa: dois cancelamentos simultâneos fecham a tab uma vez só
   const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
   h.herdr.calls = [];
   const results = await Promise.allSettled([h.orch.cancel(t.task_id), h.orch.cancel(t.task_id)]);
-  assert.ok(results.every((r) => r.status === "fulfilled"), "os dois terminam sem erro");
+  assert.ok(
+    results.every((r) => r.status === "fulfilled"),
+    "os dois terminam sem erro",
+  );
   assert.equal(h.herdr.calls.filter((c) => c.op === "closeTab").length, 1, "uma única tab fechada");
   assert.equal(h.orch.get(t.task_id).status, "cancelled");
 });

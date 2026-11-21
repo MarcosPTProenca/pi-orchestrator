@@ -17,12 +17,20 @@ export interface LiveSurfaces {
 export function deadTabTaskIds(tasks: TaskRecord[], live: LiveSurfaces): string[] {
   if (live.tabIds.size === 0 || live.panes.length === 0) return [];
   return tasks
-    .filter((t) => t.status === "done" && t.tab_id !== "" && !live.tabIds.has(t.tab_id) && !live.panes.some((p) => p.pane_id === t.pane_id))
+    .filter(
+      (t) =>
+        t.status === "done" &&
+        t.tab_id !== "" &&
+        !live.tabIds.has(t.tab_id) &&
+        !live.panes.some((p) => p.pane_id === t.pane_id),
+    )
     .map((t) => t.task_id);
 }
 
 export function confirmedInHerdr(t: TaskRecord, live: LiveSurfaces): boolean {
-  return live.tabIds.has(t.tab_id) && live.panes.some((p) => p.pane_id === t.pane_id && p.terminal_id === t.terminal_id);
+  return (
+    live.tabIds.has(t.tab_id) && live.panes.some((p) => p.pane_id === t.pane_id && p.terminal_id === t.terminal_id)
+  );
 }
 
 export const STALE_SURFACE_REASON = "tab ou pane não confere mais com a tarefa no Herdr";
@@ -40,17 +48,27 @@ export function whyNotIdle(t: TaskRecord, live: LiveSurfaces): string | null {
 }
 
 export function closeBlocker(t: TaskRecord): string | null {
-  return isActive(t.status) ? `tarefa ${t.task_id} ainda está ${t.status}; não fechei a tab. Use orch_cancel se for cancelar.` : null;
+  return isActive(t.status)
+    ? `tarefa ${t.task_id} ainda está ${t.status}; não fechei a tab. Use orch_cancel se for cancelar.`
+    : null;
 }
 
 export function idleSurfaces(tasks: TaskRecord[], live: LiveSurfaces): IdleSurface[] {
   return tasks
     .filter((t) => whyNotIdle(t, live) === null)
-    .map((t) => ({ task_id: t.task_id, project_id: t.project_id, updated_at: t.updated_at, projected: t.projected === true }))
+    .map((t) => ({
+      task_id: t.task_id,
+      project_id: t.project_id,
+      updated_at: t.updated_at,
+      projected: t.projected === true,
+    }))
     .sort((a, b) => a.updated_at.localeCompare(b.updated_at));
 }
 
-export function idleReport(tasks: TaskRecord[], live: LiveSurfaces): { eligible: string[]; not_eligible: { task_id: string; reason: string }[] } {
+export function idleReport(
+  tasks: TaskRecord[],
+  live: LiveSurfaces,
+): { eligible: string[]; not_eligible: { task_id: string; reason: string }[] } {
   const eligible: string[] = [];
   const not_eligible: { task_id: string; reason: string }[] = [];
   for (const t of tasks) {

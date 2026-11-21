@@ -8,7 +8,10 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const git = (cwd: string, ...args: string[]) =>
-  spawnSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" });
+  spawnSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...args], {
+    cwd,
+    encoding: "utf8",
+  });
 const head = (cwd: string) => git(cwd, "rev-parse", "HEAD").stdout.trim();
 
 function setup() {

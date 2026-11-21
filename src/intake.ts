@@ -80,13 +80,20 @@ function readInstructions(projectPath: string): { file: string; content: string 
     const path = join(projectPath, file);
     if (!existsSync(path)) continue;
     const text = readFileSync(path, "utf8");
-    out.push({ file, content: text.length > MAX_INSTRUCTION_CHARS ? `${text.slice(0, MAX_INSTRUCTION_CHARS)}\n[truncado]` : text });
+    out.push({
+      file,
+      content: text.length > MAX_INSTRUCTION_CHARS ? `${text.slice(0, MAX_INSTRUCTION_CHARS)}\n[truncado]` : text,
+    });
   }
   return out;
 }
 
 export function buildIntake(input: IntakeInput): IntakePack {
-  if (!input.project_path.startsWith("/") || !existsSync(input.project_path) || !statSync(input.project_path).isDirectory()) {
+  if (
+    !input.project_path.startsWith("/") ||
+    !existsSync(input.project_path) ||
+    !statSync(input.project_path).isDirectory()
+  ) {
     throw new Error(`project_path precisa ser um diretório absoluto existente: ${input.project_path}`);
   }
   if (!existsSync(join(input.project_path, ".git"))) {
@@ -143,13 +150,17 @@ export function renderBrief(taskId: string, pack: IntakePack, reportPath: string
     `1. Arrende sua worktree isolada a partir de ${pack.project_path}: \`treehouse get --lease --lease-holder ${taskId}\`. O comando imprime o caminho; entre nele.`,
     `2. Verifique o isolamento com \`pwd -P\` e \`git rev-parse --show-toplevel\`. Os dois devem apontar para a sua worktree, não para ${pack.project_path}. Se não baterem, chame orch_report com status failed e pare.`,
     ...(pack.source && /\/pull\/\d+/.test(pack.source)
-      ? ["3. Antes de editar, consulte o estado de merge da PR (mergeable e mergeStateStatus, com gh autenticado). Se estiver com conflito, resolva o conflito no branch da PR primeiro. Ao terminar, confirme de novo que ela está mergeável e com checks verdes."]
+      ? [
+          "3. Antes de editar, consulte o estado de merge da PR (mergeable e mergeStateStatus, com gh autenticado). Se estiver com conflito, resolva o conflito no branch da PR primeiro. Ao terminar, confirme de novo que ela está mergeável e com checks verdes.",
+        ]
       : []),
     ...(pack.branch
       ? [`4. Faça checkout da branch \`${pack.branch}\` antes de editar.`]
       : pack.mode === "report"
         ? []
-        : ["4. Se o pedido cita uma PR, descubra a branch dela (`gh pr view <número> --json headRefName`) e faça checkout. Sem PR, crie uma branch nova a partir da base."]),
+        : [
+            "4. Se o pedido cita uma PR, descubra a branch dela (`gh pr view <número> --json headRefName`) e faça checkout. Sem PR, crie uma branch nova a partir da base.",
+          ]),
     "",
   ];
   if (pack.spec) lines.push("## Especificação de construção", pack.spec, "");

@@ -13,7 +13,12 @@ export class FixQueue<T> {
   constructor(
     concurrency: number,
     start: (item: T) => Promise<string>,
-    opts: { maxAttempts?: number; keyOf?: (item: T) => string; onFailed?: (f: { item: T; error: string; attempts: number }) => void; canStart?: () => boolean } = {},
+    opts: {
+      maxAttempts?: number;
+      keyOf?: (item: T) => string;
+      onFailed?: (f: { item: T; error: string; attempts: number }) => void;
+      canStart?: () => boolean;
+    } = {},
   ) {
     if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error("concurrency deve ser inteiro >= 1");
     this.concurrency = concurrency;

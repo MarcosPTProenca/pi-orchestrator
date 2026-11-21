@@ -46,11 +46,15 @@ export function releaseLease(ops: WorktreeOps, repo: string, holder: string, hom
   try {
     lease = parseLeases(ops.status(repo), home).find((l) => l.holder === holder);
   } catch (err) {
-    return { released: false, message: `não consegui listar o treehouse (${String(err).slice(0, 120)}); worktree não tocada` };
+    return {
+      released: false,
+      message: `não consegui listar o treehouse (${String(err).slice(0, 120)}); worktree não tocada`,
+    };
   }
   if (!lease) return { released: false, message: "nenhuma worktree arrendada por esta tarefa" };
   const safe = safety(ops, lease.path);
-  if (!safe.ok) return { released: false, message: `worktree mantida em ${lease.path}: ${safe.reason}. Nada foi apagado.` };
+  if (!safe.ok)
+    return { released: false, message: `worktree mantida em ${lease.path}: ${safe.reason}. Nada foi apagado.` };
   try {
     ops.returnTree(lease.path);
     return { released: true, message: `worktree devolvida ao pool: ${lease.path}` };
@@ -59,7 +63,12 @@ export function releaseLease(ops: WorktreeOps, repo: string, holder: string, hom
   }
 }
 
-export function orphanLeases(ops: WorktreeOps, repo: string, terminalHolders: Set<string>, home: string = homedir()): Lease[] {
+export function orphanLeases(
+  ops: WorktreeOps,
+  repo: string,
+  terminalHolders: Set<string>,
+  home: string = homedir(),
+): Lease[] {
   try {
     return parseLeases(ops.status(repo), home).filter((l) => terminalHolders.has(l.holder));
   } catch {

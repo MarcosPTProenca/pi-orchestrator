@@ -70,5 +70,7 @@ export function buildStatus(tasks: TaskRecord[], now: number, opts: StatusOption
     list.push(row);
     byProject.set(t.project_id, list);
   }
-  return [...byProject.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([project_id, rows]) => ({ project_id, tasks: rows }));
+  return [...byProject.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([project_id, rows]) => ({ project_id, tasks: rows }));
 }

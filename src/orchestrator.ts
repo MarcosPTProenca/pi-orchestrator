@@ -5,13 +5,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, s
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { clampLines, maskSecrets } from "./logs.ts";
 import { classifyFailure } from "./failure.ts";
-import {
-  isActive,
-  reportKey,
-  validateReport,
-  type TaskRecord,
-  type TaskStatus,
-} from "./contract.ts";
+import { isActive, reportKey, validateReport, type TaskRecord, type TaskStatus } from "./contract.ts";
 import type { Report } from "./contract.ts";
 import { belowFloor, PRESENTATION_FLOOR, type HerdrPort, type TabResult } from "./herdr.ts";
 import type { Store } from "./store.ts";
@@ -171,7 +165,10 @@ export class Orchestrator {
   private assertMine(taskId: string): void {
     const t = this.get(taskId);
     if (this.mine(t)) return;
-    const dono = t.owner_key === undefined ? "tarefa legada sem dono (o repo dela tem sessão viva ou está fora desta sessão)" : `de outra sessão do orquestrador (escopo ${t.owner_key})`;
+    const dono =
+      t.owner_key === undefined
+        ? "tarefa legada sem dono (o repo dela tem sessão viva ou está fora desta sessão)"
+        : `de outra sessão do orquestrador (escopo ${t.owner_key})`;
     throw new Error(`tarefa ${taskId} é ${dono}; esta sessão só age sobre as próprias tarefas`);
   }
 
@@ -207,7 +204,10 @@ export class Orchestrator {
     return join(t.task_dir, "report.json");
   }
 
-  private async ensureWorkspace(projectPath: string, projectId: string): Promise<{ workspace_id: string; seeded_tab_id: string | null }> {
+  private async ensureWorkspace(
+    projectPath: string,
+    projectId: string,
+  ): Promise<{ workspace_id: string; seeded_tab_id: string | null }> {
     const state = this.d.store.load();
     const known = state.workspaces[projectPath];
     if (known && (await this.d.herdr.workspaceIds()).includes(known.workspace_id)) return known;
@@ -227,7 +227,9 @@ export class Orchestrator {
   private async assertSpacesFloor(): Promise<void> {
     const v = await this.d.herdr.clientVersion();
     if (belowFloor(v)) {
-      throw new Error(`workspace por tarefa (PI_ORCH_PRESENTATION_SPACES=1) exige Herdr ${PRESENTATION_FLOOR} ou mais; encontrado: ${v ?? "desconhecido"}. Nada foi lançado.`);
+      throw new Error(
+        `workspace por tarefa (PI_ORCH_PRESENTATION_SPACES=1) exige Herdr ${PRESENTATION_FLOOR} ou mais; encontrado: ${v ?? "desconhecido"}. Nada foi lançado.`,
+      );
     }
   }
 
@@ -258,7 +260,10 @@ export class Orchestrator {
   activeConflict(input: DelegateInput): { task: TaskRecord; label: string } | null {
     for (const t of this.list()) {
       if (!isActive(t.status) || t.project_path !== input.project_path) continue;
-      const dup = sameWork({ ...input, source: t.source ?? undefined, branch: t.branch ?? undefined, project_path: t.project_path }, input);
+      const dup = sameWork(
+        { ...input, source: t.source ?? undefined, branch: t.branch ?? undefined, project_path: t.project_path },
+        input,
+      );
       if (dup) return { task: t, label: dup };
     }
     return null;
@@ -266,7 +271,10 @@ export class Orchestrator {
 
   private assertNotActive(input: DelegateInput): void {
     const c = this.activeConflict(input);
-    if (c) throw new Error(`já existe a tarefa ${c.task.task_id} ativa para a mesma ${c.label} (${c.task.status}); aguarde ou cancele antes de lançar outra`);
+    if (c)
+      throw new Error(
+        `já existe a tarefa ${c.task.task_id} ativa para a mesma ${c.label} (${c.task.status}); aguarde ou cancele antes de lançar outra`,
+      );
   }
 
   async delegate(rawInput: DelegateInput, opts: { forkSession?: string } = {}): Promise<TaskRecord> {
@@ -333,7 +341,10 @@ export class Orchestrator {
       let ws: { workspace_id: string };
       let tab: TabResult;
       if (projected) {
-        const space = await this.d.herdr.createWorkspace({ cwd: input.project_path, label: workerTabName(input.role, taskId.slice(2)) });
+        const space = await this.d.herdr.createWorkspace({
+          cwd: input.project_path,
+          label: workerTabName(input.role, taskId.slice(2)),
+        });
         spaceId = space.workspace_id;
         ws = space;
         tab = { tab_id: space.seeded_tab_id, pane_id: space.pane_id, terminal_id: space.terminal_id };
@@ -347,7 +358,9 @@ export class Orchestrator {
             PI_ORCH_ROLE: "worker",
             PI_ORCH_TASK_ID: taskId,
             PI_ORCH_TASK_DIR: taskDir,
-            ...(this.d.hookUrl && this.d.hookToken ? { PI_ORCH_HOOK_URL: this.d.hookUrl, PI_ORCH_HOOK_TOKEN: this.d.hookToken } : {}),
+            ...(this.d.hookUrl && this.d.hookToken
+              ? { PI_ORCH_HOOK_URL: this.d.hookUrl, PI_ORCH_HOOK_TOKEN: this.d.hookToken }
+              : {}),
           },
         });
       }
@@ -363,7 +376,8 @@ export class Orchestrator {
       if (model) piArgs.push("--model", model);
       piArgs.push(LAUNCH_MESSAGE);
       const launch = ["pi", ...piArgs];
-      if (projected) launch.unshift("env", "PI_ORCH_ROLE=worker", `PI_ORCH_TASK_ID=${taskId}`, `PI_ORCH_TASK_DIR=${taskDir}`);
+      if (projected)
+        launch.unshift("env", "PI_ORCH_ROLE=worker", `PI_ORCH_TASK_ID=${taskId}`, `PI_ORCH_TASK_DIR=${taskDir}`);
       await this.d.herdr.runInPane(tab.pane_id, launch.map(shellQuote).join(" "));
       await this.d.herdr.renamePane(tab.pane_id, workerId).catch(() => undefined);
       return this.update(taskId, (t) => {
@@ -413,7 +427,9 @@ export class Orchestrator {
       return true;
     }
     const samePendingQuestion = t.status === "blocked" && report.status === "blocked" && t.question === report.question;
-    const reopened = ["lost", "failed", "timeout"].includes(t.status) ? `antes marcada como ${t.status}${t.error ? ` (${t.error})` : ""}; o relatório válido chegou depois e prevalece` : null;
+    const reopened = ["lost", "failed", "timeout"].includes(t.status)
+      ? `antes marcada como ${t.status}${t.error ? ` (${t.error})` : ""}; o relatório válido chegou depois e prevalece`
+      : null;
     this.update(taskId, (x) => {
       x.status = report.status;
       x.result = report.result;
@@ -438,8 +454,7 @@ export class Orchestrator {
         if (report.status !== "done") continue;
         const at = statSync(path).mtimeMs;
         if (!best || at > best.at) best = { at, report };
-      } catch {
-      }
+      } catch {}
     }
     return best?.report ?? null;
   }
@@ -470,8 +485,14 @@ export class Orchestrator {
   async refresh(taskId: string): Promise<WatchEvent | null> {
     this.syncUsage(taskId);
     const t = this.get(taskId);
-    if (t.status !== "cancelled" && t.status !== "planned" && this.collect(taskId)) return this.toEvent(this.get(taskId));
-    if (t.status === "blocked" && t.deadline_at !== null && !t.deadline_notified && this.d.now() >= Date.parse(t.deadline_at)) {
+    if (t.status !== "cancelled" && t.status !== "planned" && this.collect(taskId))
+      return this.toEvent(this.get(taskId));
+    if (
+      t.status === "blocked" &&
+      t.deadline_at !== null &&
+      !t.deadline_notified &&
+      this.d.now() >= Date.parse(t.deadline_at)
+    ) {
       const at = t.deadline_at;
       this.update(taskId, (x) => {
         x.deadline_notified = true;
@@ -482,7 +503,11 @@ export class Orchestrator {
     }
     if (!isActive(t.status) || t.status === "blocked") return null;
     if (t.deadline_at !== null && this.d.now() >= Date.parse(t.deadline_at)) {
-      return this.setTerminal(taskId, "timeout", `prazo definido por você (${t.deadline_at}) foi atingido; o worker segue rodando`);
+      return this.setTerminal(
+        taskId,
+        "timeout",
+        `prazo definido por você (${t.deadline_at}) foi atingido; o worker segue rodando`,
+      );
     }
     const owner = await this.ownership(t);
     if (owner !== "owned") {
@@ -521,7 +546,9 @@ export class Orchestrator {
     return this.withTaskLock(taskId, () => this.closeOutcomeLocked(taskId));
   }
 
-  private async closeOutcomeLocked(taskId: string): Promise<{ task: TaskRecord; closed: boolean; reason: string | null }> {
+  private async closeOutcomeLocked(
+    taskId: string,
+  ): Promise<{ task: TaskRecord; closed: boolean; reason: string | null }> {
     this.assertMine(taskId);
     const t = this.get(taskId);
     const owner = await this.ownership(t);
@@ -537,7 +564,10 @@ export class Orchestrator {
     return { task, closed: owner === "owned", reason };
   }
 
-  setVerification(taskId: string, v: { verdict: "approved" | "rejected" | "not_applicable" | "unverified"; reason: string }): void {
+  setVerification(
+    taskId: string,
+    v: { verdict: "approved" | "rejected" | "not_applicable" | "unverified"; reason: string },
+  ): void {
     this.update(taskId, (x) => {
       x.verification = v;
     });
@@ -550,14 +580,19 @@ export class Orchestrator {
       const parsed = JSON.parse(readFileSync(file, "utf8")) as { total?: Record<string, number> };
       const u = parsed.total;
       if (!u || typeof u.totalTokens !== "number") return;
-      const next = { input: u.input ?? 0, output: u.output ?? 0, cacheRead: u.cacheRead ?? 0, cacheWrite: u.cacheWrite ?? 0, totalTokens: u.totalTokens };
+      const next = {
+        input: u.input ?? 0,
+        output: u.output ?? 0,
+        cacheRead: u.cacheRead ?? 0,
+        cacheWrite: u.cacheWrite ?? 0,
+        totalTokens: u.totalTokens,
+      };
       const cur = this.get(taskId).usage;
       if (cur && JSON.stringify(cur) === JSON.stringify(next)) return;
       this.update(taskId, (x) => {
         x.usage = next;
       });
-    } catch {
-    }
+    } catch {}
   }
 
   async relaunch(taskId: string, model?: string): Promise<TaskRecord> {
@@ -569,13 +604,15 @@ export class Orchestrator {
     const old = this.get(taskId);
     if (isActive(old.status)) throw new Error(`tarefa ${taskId} ainda está ativa; cancele antes de relançar`);
     if (old.status !== "failed") throw new Error(`só relança tarefa falha (status: ${old.status})`);
-    if (!old.delegate_input) throw new Error(`tarefa ${taskId} não tem o pedido guardado; lance de novo com orch_delegate`);
+    if (!old.delegate_input)
+      throw new Error(`tarefa ${taskId} não tem o pedido guardado; lance de novo com orch_delegate`);
     const reason = old.result ?? old.error ?? "";
     const kind = classifyFailure(reason);
     const report = [old.result, old.error].filter((s): s is string => !!s && s.trim() !== "").join("\n");
     const previous = workerSessionFile(old.task_dir);
     if (kind === "quota") {
-      if (!model) throw new Error(`falha por cota em ${old.model ?? "modelo padrão"}: informe o modelo do relançamento`);
+      if (!model)
+        throw new Error(`falha por cota em ${old.model ?? "modelo padrão"}: informe o modelo do relançamento`);
       if (model === old.model) throw new Error(`o modelo ${model} esgotou a cota; escolha outro`);
     }
     if (kind === "auth" && model && old.model && model.split("/")[0] === old.model.split("/")[0]) {
@@ -585,7 +622,7 @@ export class Orchestrator {
       ...(old.delegate_input as unknown as DelegateInput),
       model: model ?? old.model ?? undefined,
       constraints: [
-        ...(((old.delegate_input as unknown as DelegateInput).constraints) ?? []),
+        ...((old.delegate_input as unknown as DelegateInput).constraints ?? []),
         `Tentativa anterior (${taskId}) falhou. Relatório completo:\n${report || "sem detalhe"}\n${
           previous
             ? "A conversa da tentativa anterior foi copiada para esta sessão: leia o histórico antes de refazer. Confira o que já existe antes de refazer."
@@ -630,7 +667,9 @@ export class Orchestrator {
 
   private takePending(taskId: string): WatchEvent | null {
     const t = this.get(taskId);
-    const pending = !t.notified && (t.status === "blocked" || (!isActive(t.status) && t.status !== "cancelled" && t.status !== "planned"));
+    const pending =
+      !t.notified &&
+      (t.status === "blocked" || (!isActive(t.status) && t.status !== "cancelled" && t.status !== "planned"));
     if (!pending) return null;
     this.takeNotice(taskId);
     return this.toEvent(t);
@@ -671,7 +710,8 @@ export class Orchestrator {
   private async sendLocked(taskId: string, text: string): Promise<TaskRecord> {
     this.assertMine(taskId);
     const t = this.get(taskId);
-    if (t.status !== "running" && t.status !== "blocked" && t.status !== "done") throw new Error(`tarefa ${taskId} não aceita mensagem (status: ${t.status})`);
+    if (t.status !== "running" && t.status !== "blocked" && t.status !== "done")
+      throw new Error(`tarefa ${taskId} não aceita mensagem (status: ${t.status})`);
     if (text.trim() === "") throw new Error("mensagem vazia");
     const owner = await this.ownership(t);
     if (owner === "missing") throw new Error("o painel da tarefa não existe mais; nada foi enviado");
@@ -679,17 +719,25 @@ export class Orchestrator {
     if (t.status === "blocked") return this.answerLocked(taskId, text);
     if (t.status === "done") {
       const pane = (await this.d.herdr.panes()).find((p) => p.pane_id === t.pane_id && p.terminal_id === t.terminal_id);
-      if (!pane || pane.agent !== "pi" || pane.agent_status !== "idle") throw new Error("o worker não está disponível e ocioso; nada foi enviado");
+      if (!pane || pane.agent !== "pi" || pane.agent_status !== "idle")
+        throw new Error("o worker não está disponível e ocioso; nada foi enviado");
       if (t.delegate_input) this.assertNotActive(t.delegate_input as unknown as DelegateInput);
       const report = this.reportPath(t);
       const previous = join(t.task_dir, `report-${this.d.newHex()}.json`);
       if (existsSync(report)) renameSync(report, previous);
-      this.update(taskId, (x) => { x.status = "running"; x.notified = true; x.question = null; });
+      this.update(taskId, (x) => {
+        x.status = "running";
+        x.notified = true;
+        x.question = null;
+      });
       try {
         await this.d.herdr.prompt(t.pane_id, text);
       } catch (err) {
         if (existsSync(previous) && !existsSync(report)) renameSync(previous, report);
-        this.update(taskId, (x) => { x.status = "done"; x.notified = t.notified; });
+        this.update(taskId, (x) => {
+          x.status = "done";
+          x.notified = t.notified;
+        });
         throw err;
       }
       return this.get(taskId);
@@ -750,13 +798,17 @@ export class Orchestrator {
     } catch (err) {
       note = `falha ao devolver a worktree: ${String(err).slice(0, 160)}`;
     }
-    if (note !== null) this.update(taskId, (x) => { x.worktree_note = note; });
+    if (note !== null)
+      this.update(taskId, (x) => {
+        x.worktree_note = note;
+      });
   }
 
   release(taskId: string): TaskRecord {
     this.assertMine(taskId);
     const t = this.get(taskId);
-    if (isActive(t.status)) throw new Error(`tarefa ${taskId} ainda está ${t.status}; devolva a worktree só depois que terminar`);
+    if (isActive(t.status))
+      throw new Error(`tarefa ${taskId} ainda está ${t.status}; devolva a worktree só depois que terminar`);
     this.noteWorktree(taskId);
     return this.get(taskId);
   }

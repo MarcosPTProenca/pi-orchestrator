@@ -95,7 +95,7 @@ export function validateReport(input: unknown, taskId: string): Report {
     status,
     result: typeof r.result === "string" ? r.result : "",
     question,
-    artifacts: (r.artifacts as string[] | undefined) ?? [],
+    artifacts: r.artifacts ?? [],
     reported_at: typeof r.reported_at === "string" ? r.reported_at : "",
   };
 }

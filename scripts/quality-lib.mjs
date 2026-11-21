@@ -1,6 +1,6 @@
 import ts from "typescript";
 
-export const METRICS = ["duplication_pct", "dead_code", "comment_lines", "type_errors"];
+export const METRICS = ["duplication_pct", "dead_code", "comment_lines", "type_errors", "lint_errors", "format_files"];
 
 function commentRanges(text, fileName = "file.ts") {
   const kind = fileName.endsWith(".mjs") || fileName.endsWith(".js") ? ts.ScriptKind.JS : ts.ScriptKind.TS;
@@ -43,6 +43,14 @@ export function deadCodeCount(knipReport) {
     }
   }
   return total;
+}
+
+export function lintErrorCount(eslintReport) {
+  return eslintReport.reduce((sum, file) => sum + file.messages.length, 0);
+}
+
+export function unformattedCount(prettierOutput) {
+  return prettierOutput.split("\n").filter((line) => line.trim() !== "").length;
 }
 
 export function typeErrorCount(tscOutput) {

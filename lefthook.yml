@@ -1,0 +1,8 @@
+pre-commit:
+  parallel: true
+  commands:
+    tsc:
+      run: npx tsc --noEmit -p tsconfig.json
+    format:
+      glob: "*.{ts,mjs,json}"
+      run: npx prettier --check {staged_files}

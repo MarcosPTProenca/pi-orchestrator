@@ -54,11 +54,16 @@ export function repoFromRemote(remoteUrl: string): { owner: string; name: string
 }
 
 export function parseGraphqlRedPrs(json: unknown): RedPr[] {
-  const nodes = (json as { data?: { repository?: { pullRequests?: { nodes?: unknown[] } } } })?.data?.repository?.pullRequests?.nodes;
+  const nodes = (json as { data?: { repository?: { pullRequests?: { nodes?: unknown[] } } } })?.data?.repository
+    ?.pullRequests?.nodes;
   if (!Array.isArray(nodes)) throw new Error("resposta do GraphQL sem pullRequests");
   const flat = nodes.map((raw) => {
     const pr = raw as Record<string, unknown>;
-    const commit = (pr.commits as { nodes?: { commit?: { statusCheckRollup?: { contexts?: { nodes?: Record<string, unknown>[] } } } }[] })?.nodes?.[0]?.commit;
+    const commit = (
+      pr.commits as {
+        nodes?: { commit?: { statusCheckRollup?: { contexts?: { nodes?: Record<string, unknown>[] } } } }[];
+      }
+    )?.nodes?.[0]?.commit;
     const contexts = commit?.statusCheckRollup?.contexts?.nodes ?? [];
     return {
       number: Number(pr.number),
@@ -120,7 +125,9 @@ export function fixInputFor(pr: RedPr, projectPath: string, model?: string): Del
       "Não atualize baselines, não desabilite testes nem lint para passar.",
       `Push somente na branch ${pr.headRefName}; não abra outro PR.`,
       ...(pr.mergeStateStatus === "DIRTY" || pr.mergeable === "CONFLICTING"
-        ? [`A PR tem conflito com a base ${pr.baseRefName}: resolva-o no próprio branch da PR (merge ou rebase da base) e não force-push na base.`]
+        ? [
+            `A PR tem conflito com a base ${pr.baseRefName}: resolva-o no próprio branch da PR (merge ou rebase da base) e não force-push na base.`,
+          ]
         : []),
       "Use gh com a conta pessoal conforme a skill contas-credenciais: GH_TOKEN só no comando, sem trocar a conta global.",
       "Não feche PR e não faça merge.",
@@ -145,32 +152,49 @@ export interface PrState {
   checks: { name: string; conclusion: string | null; status: string | null }[];
 }
 
-export function fetchPrState(remoteUrl: string, number: number, owner: string, name: string, cwd: string): Promise<PrState> {
+export function fetchPrState(
+  remoteUrl: string,
+  number: number,
+  owner: string,
+  name: string,
+  cwd: string,
+): Promise<PrState> {
   const env = ghEnvFor(remoteUrl, process.env);
-  const q = "query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){number state mergeable mergeStateStatus headRefOid commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{__typename ... on CheckRun{name conclusion status} ... on StatusContext{context state}}}}}}}}}}";
+  const q =
+    "query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){number state mergeable mergeStateStatus headRefOid commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{__typename ... on CheckRun{name conclusion status} ... on StatusContext{context state}}}}}}}}}}";
   return new Promise((resolve, reject) => {
-    execFile("gh", ["api", "graphql", "-f", `query=${q}`, "-F", `owner=${owner}`, "-F", `name=${name}`, "-F", `n=${number}`], { cwd, env, timeout: 90_000 }, (err, stdout, stderr) => {
-      if (err) return reject(new Error(`gh api graphql falhou: ${(stderr || err.message).trim()}`));
-      try {
-        const pr = (JSON.parse(stdout) as { data: { repository: { pullRequest: Record<string, unknown> } } }).data.repository.pullRequest;
-        const commit = ((pr.commits as { nodes?: { commit?: { statusCheckRollup?: { contexts?: { nodes?: Record<string, unknown>[] } } } }[] })?.nodes?.[0]?.commit);
-        const ctx = commit?.statusCheckRollup?.contexts?.nodes ?? [];
-        resolve({
-          number,
-          state: String(pr.state),
-          mergeable: String(pr.mergeable),
-          mergeStateStatus: String(pr.mergeStateStatus),
-          headRefOid: String(pr.headRefOid),
-          checks: ctx.map((c) => ({
-            name: String(c.name ?? c.context ?? "check"),
-            conclusion: c.conclusion ? String(c.conclusion) : c.state ? String(c.state) : null,
-            status: c.status ? String(c.status) : null,
-          })),
-        });
-      } catch (e) {
-        reject(e);
-      }
-    });
+    execFile(
+      "gh",
+      ["api", "graphql", "-f", `query=${q}`, "-F", `owner=${owner}`, "-F", `name=${name}`, "-F", `n=${number}`],
+      { cwd, env, timeout: 90_000 },
+      (err, stdout, stderr) => {
+        if (err) return reject(new Error(`gh api graphql falhou: ${(stderr || err.message).trim()}`));
+        try {
+          const pr = (JSON.parse(stdout) as { data: { repository: { pullRequest: Record<string, unknown> } } }).data
+            .repository.pullRequest;
+          const commit = (
+            pr.commits as {
+              nodes?: { commit?: { statusCheckRollup?: { contexts?: { nodes?: Record<string, unknown>[] } } } }[];
+            }
+          )?.nodes?.[0]?.commit;
+          const ctx = commit?.statusCheckRollup?.contexts?.nodes ?? [];
+          resolve({
+            number,
+            state: String(pr.state),
+            mergeable: String(pr.mergeable),
+            mergeStateStatus: String(pr.mergeStateStatus),
+            headRefOid: String(pr.headRefOid),
+            checks: ctx.map((c) => ({
+              name: String(c.name ?? c.context ?? "check"),
+              conclusion: c.conclusion ? String(c.conclusion) : c.state ? String(c.state) : null,
+              status: c.status ? String(c.status) : null,
+            })),
+          });
+        } catch (e) {
+          reject(e);
+        }
+      },
+    );
   });
 }
 
@@ -200,6 +224,7 @@ export function verificationLine(s: PrState): string {
   if (s.state === "MERGED") return `Verificação da PR #${s.number}: VERIFICADA (já mesclada).`;
   const problems = verifyPr(s);
   const green = s.checks.filter((c) => GREEN.has((c.conclusion ?? "").toUpperCase())).length;
-  if (problems.length === 0) return `Verificação da PR #${s.number}: VERIFICADA (${green}/${s.checks.length} checks verdes, mergeable, sem conflito).`;
+  if (problems.length === 0)
+    return `Verificação da PR #${s.number}: VERIFICADA (${green}/${s.checks.length} checks verdes, mergeable, sem conflito).`;
   return `Verificação da PR #${s.number}: NÃO VERIFICADA. ${problems.join("; ")}.`;
 }

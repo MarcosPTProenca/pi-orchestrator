@@ -5,7 +5,11 @@ import type { HerdrPort, PaneInfo, TabResult, WorkspaceResult } from "../src/her
 import { Orchestrator } from "../src/orchestrator.ts";
 import { Store } from "../src/store.ts";
 
-export type WaitFn = (target: string, until: string[], timeoutMs: number) => Promise<{ reached: string } | { timeout: true }>;
+export type WaitFn = (
+  target: string,
+  until: string[],
+  timeoutMs: number,
+) => Promise<{ reached: string } | { timeout: true }>;
 
 export class FakeHerdr implements HerdrPort {
   calls: { op: string; args: unknown }[] = [];
@@ -39,7 +43,12 @@ export class FakeHerdr implements HerdrPort {
     return [...this.workspaces];
   }
 
-  async createTab(a: { workspaceId: string; cwd: string; label: string; env: Record<string, string> }): Promise<TabResult> {
+  async createTab(a: {
+    workspaceId: string;
+    cwd: string;
+    label: string;
+    env: Record<string, string>;
+  }): Promise<TabResult> {
     this.calls.push({ op: "createTab", args: a });
     const tab_id = `${a.workspaceId}:t${this.nextId++}`;
     const pane = this.newPane(a.cwd, tab_id);

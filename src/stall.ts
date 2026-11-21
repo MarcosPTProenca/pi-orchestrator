@@ -20,7 +20,11 @@ export class StallWatch {
   }
 }
 
-export function stallNoticeFor(stalled: { task_id: string; project_id: string }[], afterMin: number, label: (projectId: string) => string): string {
+export function stallNoticeFor(
+  stalled: { task_id: string; project_id: string }[],
+  afterMin: number,
+  label: (projectId: string) => string,
+): string {
   const items = stalled.map((s) => `${s.task_id} (${label(s.project_id)})`).join(", ");
   return `Workers em execução sem saída nova há ${afterMin} min: ${items}. Confira com orch_logs. Se estiver travado, decida: orch_send para destravar, ou orch_cancel e relançar. Se estiver só em processo longo, aguarde.`;
 }

@@ -9,7 +9,16 @@ import { HerdrCli } from "./herdr.ts";
 import { availableModels, resolveModel } from "./models.ts";
 import { Orchestrator, MODES, type DelegateInput, type WatchEvent } from "./orchestrator.ts";
 import { fixInputFor, listRedPrs, prFromUrl, fetchPrState, verificationLine, verifyPr, prStateLine } from "./prs.ts";
-import { PrActionWatch, ciInstruction, conflictInstruction, failingChecks, isPrWatched, prUrlOf, prVerdict, type PrAction } from "./pr-watch.ts";
+import {
+  PrActionWatch,
+  ciInstruction,
+  conflictInstruction,
+  failingChecks,
+  isPrWatched,
+  prUrlOf,
+  prVerdict,
+  type PrAction,
+} from "./pr-watch.ts";
 import { judgeDone, type VerifyEnv } from "./verify.ts";
 import { existsSync } from "node:fs";
 import { FixQueue } from "./queue.ts";
@@ -79,10 +88,9 @@ export function orphanNoticeFor(orphans: { path: string; holder: string; project
 }
 
 export function modelMessageFor(e: WatchEvent): string {
-  const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)} [truncado; relatório completo no arquivo do worker]` : text);
-  const lines = [
-    `[evento de worker] tarefa ${e.task_id} (${projectLabel(e.project_id)}): ${e.status}`,
-  ];
+  const clip = (text: string, max: number) =>
+    text.length > max ? `${text.slice(0, max)} [truncado; relatório completo no arquivo do worker]` : text;
+  const lines = [`[evento de worker] tarefa ${e.task_id} (${projectLabel(e.project_id)}): ${e.status}`];
   if (e.result) lines.push(`Resumo do worker: ${clip(e.result, 1200)}`);
   if (e.question) lines.push(`Pergunta do worker: ${clip(e.question, 600)}`);
   if (e.artifacts.length) lines.push(`Artefatos: ${e.artifacts.join(", ")}`);
@@ -124,7 +132,11 @@ function asText(value: unknown) {
 
 export function formatBrasilia(iso: string | null): string | null {
   if (!iso) return null;
-  return new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "medium" }).format(new Date(iso));
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    dateStyle: "short",
+    timeStyle: "medium",
+  }).format(new Date(iso));
 }
 
 const TERMINAL = new Set(["done", "failed", "timeout", "lost"]);
@@ -134,16 +146,43 @@ const DELEGATE_ITEM = {
   properties: {
     project_path: { type: "string", description: "Raiz absoluta do repositório git (checkout principal, com .git)." },
     role: { type: "string", description: "Papel curto, ex.: fix-pr, investigate." },
-    request: { type: "string", description: "O trabalho que o worker deve fazer, em palavras do usuário. Sem as instruções de lançamento: quantidade, modelo, projeto e modo ficam nos campos próprios." },
+    request: {
+      type: "string",
+      description:
+        "O trabalho que o worker deve fazer, em palavras do usuário. Sem as instruções de lançamento: quantidade, modelo, projeto e modo ficam nos campos próprios.",
+    },
     objective: { type: "string", description: "Como saber que terminou: critério verificável." },
-    mode: { type: "string", enum: [...MODES], description: "report: só relatório, sem push nem PR. direct-pr: implementa, dá push e abre/atualiza o PR. design: fluxo de especificação e issues." },
-    constraints: { type: "array", items: { type: "string" }, description: "Restrições do usuário, copiadas. Ex.: não tocar em outros arquivos." },
+    mode: {
+      type: "string",
+      enum: [...MODES],
+      description:
+        "report: só relatório, sem push nem PR. direct-pr: implementa, dá push e abre/atualiza o PR. design: fluxo de especificação e issues.",
+    },
+    constraints: {
+      type: "array",
+      items: { type: "string" },
+      description: "Restrições do usuário, copiadas. Ex.: não tocar em outros arquivos.",
+    },
     source: { type: "string", description: "URL da PR ou issue, quando houver." },
     branch: { type: "string", description: "Branch de trabalho. Omitida: o worker descobre a da PR citada." },
-    spec: { type: "string", description: "Especificação de construção, só quando o pedido precisa de passos próprios." },
-    model: { type: "string", description: "Modelo exato, ex.: claude-bridge/claude-haiku-5-5. Pedido explícito: se indisponível ou sem cota, a chamada falha. Omitido: escolha automática pela cota (haiku 5.5, luna 6, kiro/auto por último)." },
-    tracker: { type: "string", enum: ["github", "plane", "none"], description: "Onde ficam as issues deste projeto, descoberto pelo contexto (GitHub issues ou Plane)." },
-    timeout_minutes: { type: "number", description: "Prazo explícito pedido pelo usuário, em minutos. Omitir = sem prazo." },
+    spec: {
+      type: "string",
+      description: "Especificação de construção, só quando o pedido precisa de passos próprios.",
+    },
+    model: {
+      type: "string",
+      description:
+        "Modelo exato, ex.: claude-bridge/claude-haiku-5-5. Pedido explícito: se indisponível ou sem cota, a chamada falha. Omitido: escolha automática pela cota (haiku 5.5, luna 6, kiro/auto por último).",
+    },
+    tracker: {
+      type: "string",
+      enum: ["github", "plane", "none"],
+      description: "Onde ficam as issues deste projeto, descoberto pelo contexto (GitHub issues ou Plane).",
+    },
+    timeout_minutes: {
+      type: "number",
+      description: "Prazo explícito pedido pelo usuário, em minutos. Omitir = sem prazo.",
+    },
   },
   required: ["project_path", "role", "request", "objective", "mode"],
   additionalProperties: false,
@@ -158,7 +197,10 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   let ownerPid: number | undefined;
   let ownerDir: string | undefined;
   const assertWritable = (): void => {
-    if (!owner) throw new Error(`sessão somente leitura: a sessão do orquestrador (pid ${ownerPid ?? "?"}) já cuida deste projeto`);
+    if (!owner)
+      throw new Error(
+        `sessão somente leitura: a sessão do orquestrador (pid ${ownerPid ?? "?"}) já cuida deste projeto`,
+      );
   };
 
   const quotas = async (): Promise<ProviderQuota[]> => {
@@ -195,18 +237,32 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       const pr = input.source ? prFromUrl(input.source) : null;
       if (!pr) return input;
       try {
-        const remote = execFileSync("git", ["remote", "get-url", "origin"], { cwd: input.project_path, encoding: "utf8" }).trim();
+        const remote = execFileSync("git", ["remote", "get-url", "origin"], {
+          cwd: input.project_path,
+          encoding: "utf8",
+        }).trim();
         const state = await fetchPrState(remote, pr.number, pr.owner, pr.name, input.project_path);
         const conflict = state.mergeStateStatus === "DIRTY" || state.mergeable === "CONFLICTING";
         const note = `${prStateLine(state)} Consultado agora, no lançamento.`;
         return {
           ...input,
-          constraints: [...(input.constraints ?? []), note, ...(conflict ? [`A PR está com conflito com a base agora: resolva o conflito no branch da PR antes de corrigir os checks.`] : [])],
+          constraints: [
+            ...(input.constraints ?? []),
+            note,
+            ...(conflict
+              ? [
+                  `A PR está com conflito com a base agora: resolva o conflito no branch da PR antes de corrigir os checks.`,
+                ]
+              : []),
+          ],
         };
       } catch (e) {
         return {
           ...input,
-          constraints: [...(input.constraints ?? []), `Não consegui consultar o estado da PR agora (${String(e).slice(0, 160)}). Consulte o estado de merge antes de editar.`],
+          constraints: [
+            ...(input.constraints ?? []),
+            `Não consegui consultar o estado da PR agora (${String(e).slice(0, 160)}). Consulte o estado de merge antes de editar.`,
+          ],
         };
       }
     },
@@ -223,7 +279,12 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     Number(process.env.PI_ORCH_NOTICE_WINDOW_MS ?? 5000),
     (batch) => {
       pi.sendMessage(
-        { customType: "orch-event", content: batch.map((b) => b.text).join("\n\n---\n\n"), display: false, details: batch.map((b) => b.event) },
+        {
+          customType: "orch-event",
+          content: batch.map((b) => b.text).join("\n\n---\n\n"),
+          display: false,
+          details: batch.map((b) => b.event),
+        },
         { triggerTurn: true },
       );
     },
@@ -242,7 +303,10 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         prCheck: async (url) => {
           const pr = prFromUrl(url);
           if (!pr) return { ok: false, line: `${url} não é PR` };
-          const remote = execFileSync("git", ["remote", "get-url", "origin"], { cwd: task.project_path, encoding: "utf8" }).trim();
+          const remote = execFileSync("git", ["remote", "get-url", "origin"], {
+            cwd: task.project_path,
+            encoding: "utf8",
+          }).trim();
           const state = await fetchPrState(remote, pr.number, pr.owner, pr.name, task.project_path);
           return { ok: state.state === "MERGED" || verifyPr(state).length === 0, line: verificationLine(state) };
         },
@@ -258,8 +322,10 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       };
       const v = await judgeDone(task.mode ?? "", event.status, event.artifacts, env);
       orch.setVerification(event.task_id, v);
-      if (v.verdict === "rejected") prLine = `\nVerificação REPROVADA: ${v.reason}. Não diga que a tarefa está concluída; diga o que falta.`;
-      else if (v.verdict === "unverified") prLine = `\nVerificação não concluída: ${v.reason}. Não dê a tarefa por concluída.`;
+      if (v.verdict === "rejected")
+        prLine = `\nVerificação REPROVADA: ${v.reason}. Não diga que a tarefa está concluída; diga o que falta.`;
+      else if (v.verdict === "unverified")
+        prLine = `\nVerificação não concluída: ${v.reason}. Não dê a tarefa por concluída.`;
       else if (v.verdict === "approved") prLine = `\nVerificação aprovada: ${v.reason}`;
     }
     if (notifyEnabled(process.env)) {
@@ -272,7 +338,16 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       const kind = classifyFailure(reason);
       const next = kind === "quota" || kind === "auth" ? nextModelFor(task.model ?? "", kind, DEFAULT_PRIORITY) : null;
       const why = kind === "quota" ? "cota esgotada" : "erro de credencial";
-      if (next && chainDepth(task, (id) => { try { return orch.get(id); } catch { return undefined; } }) < MAX_AUTO_RELAUNCH) {
+      if (
+        next &&
+        chainDepth(task, (id) => {
+          try {
+            return orch.get(id);
+          } catch {
+            return undefined;
+          }
+        }) < MAX_AUTO_RELAUNCH
+      ) {
         try {
           const fresh = await orch.relaunch(event.task_id, next);
           prLine += `\nFalha por ${why} em ${task.model}. Relancei sozinho com ${next}: nova tarefa ${fresh.task_id}. Nenhum relatório confirma a correção do problema anterior; acompanhe a nova tarefa.`;
@@ -294,11 +369,22 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   let sweeping = false;
   const startSweep = (): void => {
     if (dryRun || sweepTimer) return;
-    sweepTimer = setInterval(() => {
-      if (sweeping) return;
-      sweeping = true;
-      orch.sweep().then(async (events) => { for (const e of events) await announce(e); }).catch(() => undefined).finally(() => { sweeping = false; });
-    }, Number(process.env.PI_ORCH_SWEEP_MS ?? 20_000));
+    sweepTimer = setInterval(
+      () => {
+        if (sweeping) return;
+        sweeping = true;
+        orch
+          .sweep()
+          .then(async (events) => {
+            for (const e of events) await announce(e);
+          })
+          .catch(() => undefined)
+          .finally(() => {
+            sweeping = false;
+          });
+      },
+      Number(process.env.PI_ORCH_SWEEP_MS ?? 20_000),
+    );
     sweepTimer.unref();
   };
 
@@ -308,16 +394,39 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   const stallWatch = new StallWatch();
   const prWatch = new PrActionWatch();
   const prChecked = new Map<string, number>();
-  const checkPr = async (t: TaskRecord, source: string, pr: { owner: string; name: string; number: number }): Promise<void> => {
-    const remote = execFileSync("git", ["remote", "get-url", "origin"], { cwd: t.project_path, encoding: "utf8" }).trim();
+  const checkPr = async (
+    t: TaskRecord,
+    source: string,
+    pr: { owner: string; name: string; number: number },
+  ): Promise<void> => {
+    const remote = execFileSync("git", ["remote", "get-url", "origin"], {
+      cwd: t.project_path,
+      encoding: "utf8",
+    }).trim();
     const s = await fetchPrState(remote, pr.number, pr.owner, pr.name, t.project_path);
     const label = projectLabel(t.project_id);
     const verdict = prVerdict(s);
     if (verdict === "merged") {
       prWatch.forget(t.task_id);
-      for (const m of planStore.markMerged(t.task_id)) pi.sendMessage({ customType: "orch-event", content: `Plano ${m.plan}, item ${m.item}: tarefa ${t.task_id} mergeada.`, display: true }, { triggerTurn: false });
+      for (const m of planStore.markMerged(t.task_id))
+        pi.sendMessage(
+          {
+            customType: "orch-event",
+            content: `Plano ${m.plan}, item ${m.item}: tarefa ${t.task_id} mergeada.`,
+            display: true,
+          },
+          { triggerTurn: false },
+        );
       const outcome = await orch.closeOutcome(t.task_id);
-      if (outcome.closed) pi.sendMessage({ customType: "orch-event", content: `PR #${pr.number} mergeada: fechei a aba de ${t.task_id} (${label}).`, display: true }, { triggerTurn: false });
+      if (outcome.closed)
+        pi.sendMessage(
+          {
+            customType: "orch-event",
+            content: `PR #${pr.number} mergeada: fechei a aba de ${t.task_id} (${label}).`,
+            display: true,
+          },
+          { triggerTurn: false },
+        );
       return;
     }
     if (verdict === "pending") return;
@@ -332,9 +441,23 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     try {
       await orch.send(t.task_id, text);
       prWatch.markActed(t.task_id, s.headRefOid, kind);
-      pi.sendMessage({ customType: "orch-event", content: `PR #${pr.number} de ${t.task_id} (${label}) ${what}. Acionei o próprio worker para corrigir; acompanho a PR.`, display: true }, { triggerTurn: true });
+      pi.sendMessage(
+        {
+          customType: "orch-event",
+          content: `PR #${pr.number} de ${t.task_id} (${label}) ${what}. Acionei o próprio worker para corrigir; acompanho a PR.`,
+          display: true,
+        },
+        { triggerTurn: true },
+      );
     } catch (err) {
-      pi.sendMessage({ customType: "orch-event", content: `PR #${pr.number} de ${t.task_id} (${label}) ${what}, e não consegui acionar o worker: ${err instanceof Error ? err.message : String(err)}. Decida: orch_send manual ou orch_relaunch.`, display: true }, { triggerTurn: true });
+      pi.sendMessage(
+        {
+          customType: "orch-event",
+          content: `PR #${pr.number} de ${t.task_id} (${label}) ${what}, e não consegui acionar o worker: ${err instanceof Error ? err.message : String(err)}. Decida: orch_send manual ou orch_relaunch.`,
+          display: true,
+        },
+        { triggerTurn: true },
+      );
     }
   };
   const checkIdle = async (): Promise<void> => {
@@ -375,7 +498,11 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     } catch {
       if (idleWatch.fail()) {
         pi.sendMessage(
-          { customType: "orch-event", content: "Não foi possível conferir superfícies ociosas no Herdr; nova tentativa no próximo ciclo.", display: true },
+          {
+            customType: "orch-event",
+            content: "Não foi possível conferir superfícies ociosas no Herdr; nova tentativa no próximo ciclo.",
+            display: true,
+          },
           { triggerTurn: false },
         );
       }
@@ -391,10 +518,14 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 
   const startHook = async (): Promise<void> => {
     if (dryRun || hookHandle) return;
-    hookHandle = await startHook0(hookToken, async (taskId) => {
-      const event = await orch.noticeFor(taskId);
-      if (event) await announce(event);
-    }, Number(process.env.PI_ORCH_HOOK_PORT ?? 0));
+    hookHandle = await startHook0(
+      hookToken,
+      async (taskId) => {
+        const event = await orch.noticeFor(taskId);
+        if (event) await announce(event);
+      },
+      Number(process.env.PI_ORCH_HOOK_PORT ?? 0),
+    );
     orch.setHook(hookHandle.url, hookToken);
   };
 
@@ -412,7 +543,11 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     ownerPid = own.holder?.pid;
     if (!owner) {
       pi.sendMessage(
-        { customType: "orch-event", content: `Outra sessão do orquestrador (pid ${ownerPid}) já cuida deste projeto (${ctx.cwd}). Esta sessão está em modo somente leitura: consulta sim; não lança, não responde, não cancela e não avisa.`, display: true },
+        {
+          customType: "orch-event",
+          content: `Outra sessão do orquestrador (pid ${ownerPid}) já cuida deste projeto (${ctx.cwd}). Esta sessão está em modo somente leitura: consulta sim; não lança, não responde, não cancela e não avisa.`,
+          display: true,
+        },
         { triggerTurn: false },
       );
       return;
@@ -420,24 +555,35 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     orch.setScope(key, (projectPath) => ownsByRepo(projectPath, key, ctx.cwd));
     orch.adoptUnowned(legacyAdopter({ key, cwd: ctx.cwd, stateDir }));
     try {
-      const terminal = new Set(orch.owned().filter((t) => !isActive(t.status)).map((t) => t.task_id));
+      const terminal = new Set(
+        orch
+          .owned()
+          .filter((t) => !isActive(t.status))
+          .map((t) => t.task_id),
+      );
       const projects = [...new Set(orch.owned().map((t) => t.project_path))];
-      const orphans = projects.flatMap((p) => orphanLeases(treehouseOps, p, terminal).map((l) => ({ ...l, project: basename(p) })));
+      const orphans = projects.flatMap((p) =>
+        orphanLeases(treehouseOps, p, terminal).map((l) => ({ ...l, project: basename(p) })),
+      );
       if (orphans.length > 0) {
         pi.sendMessage(
           { customType: "orch-event", content: orphanNoticeFor(orphans), display: true },
           { triggerTurn: false },
         );
       }
-    } catch {
-    }
+    } catch {}
     await checkIdle();
     startIdleWatch();
     await startHook();
     startSweep();
     const pane = process.env.HERDR_PANE_ID;
     if (pane) {
-      execFile("herdr", ["agent", "rename", pane, orchestratorAgentName(ctx.cwd)], { timeout: 15_000 }, () => undefined);
+      execFile(
+        "herdr",
+        ["agent", "rename", pane, orchestratorAgentName(ctx.cwd)],
+        { timeout: 15_000 },
+        () => undefined,
+      );
     }
     await orch.reconcile();
     const pending = await orch.pendingNotices();
@@ -479,7 +625,13 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     parameters: {
       type: "object",
       properties: {
-        tasks: { type: "array", minItems: 1, maxItems: 8, items: DELEGATE_ITEM, description: "Um item por worker. Copie o pedido do usuário, sem reescrever." },
+        tasks: {
+          type: "array",
+          minItems: 1,
+          maxItems: 8,
+          items: DELEGATE_ITEM,
+          description: "Um item por worker. Copie o pedido do usuário, sem reescrever.",
+        },
       },
       required: ["tasks"],
       additionalProperties: false,
@@ -522,7 +674,10 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     parameters: {
       type: "object",
       properties: {
-        repo_path: { type: "string", description: "Raiz absoluta do checkout do repositório (com .git e remote origin)." },
+        repo_path: {
+          type: "string",
+          description: "Raiz absoluta do checkout do repositório (com .git e remote origin).",
+        },
         model: { type: "string", description: "Modelo exato dos workers. Se indisponível, nada é lançado." },
         concurrency: { type: "number", description: "Workers em paralelo, 1 a 4. Padrão 2." },
       },
@@ -532,7 +687,10 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     async execute(_id: string, params: { repo_path: string; model?: string; concurrency?: number }) {
       assertWritable();
       resolveModel(params.model, availableModels());
-      const remote = execFileSync("git", ["remote", "get-url", "origin"], { cwd: params.repo_path, encoding: "utf8" }).trim();
+      const remote = execFileSync("git", ["remote", "get-url", "origin"], {
+        cwd: params.repo_path,
+        encoding: "utf8",
+      }).trim();
       const prs = await listRedPrs(params.repo_path, remote);
       if (prs.length === 0) return asText({ red_prs: 0, message: "nenhuma PR aberta com check vermelho" });
       const concurrency = Math.min(Math.max(params.concurrency ?? 2, 1), 4);
@@ -541,7 +699,11 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
           canStart: () => orch.activeCount() < maxActive,
           onFailed: (f) => {
             pi.sendMessage(
-              { customType: "orch-event", content: `Fila de PRs (${projectLabel(basename(f.item.project_path))}): não consegui iniciar a correção de ${f.item.role} após ${f.attempts} tentativas. Erro: ${f.error.slice(0, 300)}`, display: true },
+              {
+                customType: "orch-event",
+                content: `Fila de PRs (${projectLabel(basename(f.item.project_path))}): não consegui iniciar a correção de ${f.item.role} após ${f.attempts} tentativas. Erro: ${f.error.slice(0, 300)}`,
+                display: true,
+              },
               { triggerTurn: true },
             );
           },
@@ -573,7 +735,9 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       "Procura repositórios git em ~/github pelo nome ou pelo conteúdo de README, AGENTS, CLAUDE e package.json. Devolve candidatos com caminho, remote e termos encontrados. Use antes de pedir ao usuário o caminho de um projeto.",
     parameters: {
       type: "object",
-      properties: { query: { type: "string", description: "Nome ou termos do projeto, ex.: ensalamento, job oferta." } },
+      properties: {
+        query: { type: "string", description: "Nome ou termos do projeto, ex.: ensalamento, job oferta." },
+      },
       required: ["query"],
       additionalProperties: false,
     },
@@ -612,7 +776,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "orch_inbox",
     label: "orch inbox",
-    description: "Mostra decisões abertas (bloqueadas) e tarefas concluídas, falhas ou expiradas ainda não avisadas. Cada aviso terminal aparece uma vez.",
+    description:
+      "Mostra decisões abertas (bloqueadas) e tarefas concluídas, falhas ou expiradas ainda não avisadas. Cada aviso terminal aparece uma vez.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
     async execute() {
       assertWritable();
@@ -627,7 +792,10 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       "Mostra as últimas linhas do terminal de um worker (padrão 40, máximo 200), para acompanhar sem abrir a tab. Só lê se o painel ainda for da tarefa. Não consome LLM e não altera o estado.",
     parameters: {
       type: "object",
-      properties: { task_id: { type: "string" }, lines: { type: "number", description: "Linhas, de 1 a 200. Padrão 40." } },
+      properties: {
+        task_id: { type: "string" },
+        lines: { type: "number", description: "Linhas, de 1 a 200. Padrão 40." },
+      },
       required: ["task_id"],
       additionalProperties: false,
     },
@@ -665,14 +833,22 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       "Relança uma tarefa que falhou, como tarefa nova ligada à anterior. Falha por cota exige um modelo diferente do que esgotou; outras falhas mantêm o modelo. Nunca roda sozinho: só quando o usuário pede. O novo worker recebe o relatório completo da anterior e, se a sessão dela ainda estiver em disco, uma cópia (fork) da conversa. A tarefa anterior e a sua worktree não mudam.",
     parameters: {
       type: "object",
-      properties: { task_id: { type: "string" }, model: { type: "string", description: "Modelo exato do relançamento. Obrigatório após falha por cota." } },
+      properties: {
+        task_id: { type: "string" },
+        model: { type: "string", description: "Modelo exato do relançamento. Obrigatório após falha por cota." },
+      },
       required: ["task_id"],
       additionalProperties: false,
     },
     async execute(_id: string, params: { task_id: string; model?: string }) {
       assertWritable();
       const task = await orch.relaunch(params.task_id, params.model);
-      return asText({ task_id: task.task_id, relaunched_from: task.relaunched_from ?? null, status: task.status, model: task.model });
+      return asText({
+        task_id: task.task_id,
+        relaunched_from: task.relaunched_from ?? null,
+        status: task.status,
+        model: task.model,
+      });
     },
   });
 
@@ -697,10 +873,15 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "orch_plan_create",
     label: "orch plan create",
-    description: "Registra um plano entregue pelo usuário: id (minúsculas, hífen), título e a lista de itens, todos pendentes. Fica fora dos repositórios.",
+    description:
+      "Registra um plano entregue pelo usuário: id (minúsculas, hífen), título e a lista de itens, todos pendentes. Fica fora dos repositórios.",
     parameters: {
       type: "object",
-      properties: { id: { type: "string" }, title: { type: "string" }, items: { type: "array", items: { type: "string" } } },
+      properties: {
+        id: { type: "string" },
+        title: { type: "string" },
+        items: { type: "array", items: { type: "string" } },
+      },
       required: ["id", "title", "items"],
       additionalProperties: false,
     },
@@ -752,7 +933,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "orch_close",
     label: "orch close",
-    description: "Fecha a tab de uma tarefa já concluída, falha ou expirada, depois que o usuário validou o resultado. Não apaga relatórios.",
+    description:
+      "Fecha a tab de uma tarefa já concluída, falha ou expirada, depois que o usuário validou o resultado. Não apaga relatórios.",
     parameters: {
       type: "object",
       properties: { task_id: { type: "string" } },
@@ -765,14 +947,20 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       const blocked = current ? closeBlocker(current) : null;
       if (blocked) throw new Error(blocked);
       const outcome = await orch.closeOutcome(params.task_id);
-      return asText({ task_id: outcome.task.task_id, status: outcome.task.status, tab_closed: outcome.closed, ...(outcome.reason ? { reason: outcome.reason } : {}) });
+      return asText({
+        task_id: outcome.task.task_id,
+        status: outcome.task.status,
+        tab_closed: outcome.closed,
+        ...(outcome.reason ? { reason: outcome.reason } : {}),
+      });
     },
   });
 
   pi.registerTool({
     name: "orch_idle",
     label: "orch idle",
-    description: "Mostra, sem fechar nada, quais tarefas desta sessão são candidatas a fechar (concluídas, entregues, com tab confirmada) e o motivo de cada uma das outras não ser candidata.",
+    description:
+      "Mostra, sem fechar nada, quais tarefas desta sessão são candidatas a fechar (concluídas, entregues, com tab confirmada) e o motivo de cada uma das outras não ser candidata.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
     async execute() {
       const herdr = new HerdrCli();
@@ -784,7 +972,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "orch_release",
     label: "orch release",
-    description: "Devolve ao pool a worktree de uma tarefa já terminal, só se não houver alterações não commitadas e o HEAD já estiver num remoto. Nunca força. Não fecha a tab e não apaga relatórios.",
+    description:
+      "Devolve ao pool a worktree de uma tarefa já terminal, só se não houver alterações não commitadas e o HEAD já estiver num remoto. Nunca força. Não fecha a tab e não apaga relatórios.",
     parameters: {
       type: "object",
       properties: { task_id: { type: "string" } },

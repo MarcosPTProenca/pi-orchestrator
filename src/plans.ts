@@ -27,7 +27,10 @@ function checkId(id: string, what: string): void {
 }
 
 export class PlanStore {
-  constructor(private readonly dir: string, private readonly now: () => string = () => new Date().toISOString()) {}
+  constructor(
+    private readonly dir: string,
+    private readonly now: () => string = () => new Date().toISOString(),
+  ) {}
 
   private file(id: string): string {
     checkId(id, "id do plano");
@@ -46,7 +49,14 @@ export class PlanStore {
     if (existsSync(this.file(id))) throw new Error(`plano ${id} já existe`);
     if (itemTitles.length === 0) throw new Error("plano sem itens");
     const at = this.now();
-    const items = itemTitles.map((t, i) => ({ id: `${i + 1}`, title: t, status: "pending" as ItemStatus, task_id: null, pr: null, updated_at: at }));
+    const items: PlanItem[] = itemTitles.map((t, i) => ({
+      id: `${i + 1}`,
+      title: t,
+      status: "pending",
+      task_id: null,
+      pr: null,
+      updated_at: at,
+    }));
     const plan: Plan = { id, title, created_at: at, items };
     this.write(plan);
     return plan;
@@ -60,16 +70,22 @@ export class PlanStore {
 
   list(): string[] {
     if (!existsSync(this.dir)) return [];
-    return readdirSync(this.dir).filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -5)).sort();
+    return readdirSync(this.dir)
+      .filter((f) => f.endsWith(".json"))
+      .map((f) => f.slice(0, -5))
+      .sort();
   }
 
   update(planId: string, itemId: string, fields: { status?: ItemStatus; task_id?: string; pr?: string }): PlanItem {
     const plan = this.show(planId);
     const item = plan.items.find((i) => i.id === itemId);
     if (!item) throw new Error(`item ${itemId} não existe no plano ${planId}`);
-    if (fields.status !== undefined && !(ITEM_STATUSES as readonly string[]).includes(fields.status)) throw new Error(`status inválido: ${fields.status}`);
-    if (fields.task_id !== undefined && !/^t-[0-9a-f]{8}$/.test(fields.task_id)) throw new Error(`task_id inválido: ${fields.task_id} (formato t-xxxxxxxx)`);
-    if (fields.pr !== undefined && !/^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+$/.test(fields.pr)) throw new Error(`pr inválida: ${fields.pr} (URL de PR do GitHub)`);
+    if (fields.status !== undefined && !(ITEM_STATUSES as readonly string[]).includes(fields.status))
+      throw new Error(`status inválido: ${fields.status}`);
+    if (fields.task_id !== undefined && !/^t-[0-9a-f]{8}$/.test(fields.task_id))
+      throw new Error(`task_id inválido: ${fields.task_id} (formato t-xxxxxxxx)`);
+    if (fields.pr !== undefined && !/^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+$/.test(fields.pr))
+      throw new Error(`pr inválida: ${fields.pr} (URL de PR do GitHub)`);
     if (fields.status !== undefined) item.status = fields.status;
     if (fields.task_id !== undefined) item.task_id = fields.task_id;
     if (fields.pr !== undefined) item.pr = fields.pr;

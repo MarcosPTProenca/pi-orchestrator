@@ -1,6 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { closeBlocker, deadTabTaskIds, idleReport, IdleWatch, idleAnnouncement, idleSurfaces, whyNotIdle, type LiveSurfaces } from "../src/idle.ts";
+import {
+  closeBlocker,
+  deadTabTaskIds,
+  idleReport,
+  IdleWatch,
+  idleAnnouncement,
+  idleSurfaces,
+  whyNotIdle,
+  type LiveSurfaces,
+} from "../src/idle.ts";
 import { parseTabIds } from "../src/herdr.ts";
 import type { TaskRecord } from "../src/contract.ts";
 
@@ -21,13 +30,22 @@ function task(over: Partial<TaskRecord>): TaskRecord {
 function liveFor(...tasks: TaskRecord[]): LiveSurfaces {
   return {
     tabIds: new Set(tasks.map((t) => t.tab_id)),
-    panes: tasks.map((t) => ({ pane_id: t.pane_id, terminal_id: t.terminal_id, cwd: null, agent: null, agent_status: null })),
+    panes: tasks.map((t) => ({
+      pane_id: t.pane_id,
+      terminal_id: t.terminal_id,
+      cwd: null,
+      agent: null,
+      agent_status: null,
+    })),
   };
 }
 
 test("done e já entregue com tab confirmada no Herdr é candidata a fechar", () => {
   const t = task({ task_id: "t-a" });
-  assert.deepEqual(idleSurfaces([t], liveFor(t)).map((s) => s.task_id), ["t-a"]);
+  assert.deepEqual(
+    idleSurfaces([t], liveFor(t)).map((s) => s.task_id),
+    ["t-a"],
+  );
 });
 
 test("tarefas que ainda pedem atenção ficam de fora", () => {
@@ -54,15 +72,31 @@ test("tab registrada que o Herdr não lista mais não é lembrada", () => {
 
 test("tab reutilizada por outro terminal não conta como da tarefa", () => {
   const t = task({ task_id: "t-reusada", terminal_id: "term-antigo" });
-  const live = { tabIds: new Set([t.tab_id]), panes: [{ pane_id: t.pane_id, terminal_id: "term-novo", cwd: null, agent: null, agent_status: null }] };
+  const live = {
+    tabIds: new Set([t.tab_id]),
+    panes: [{ pane_id: t.pane_id, terminal_id: "term-novo", cwd: null, agent: null, agent_status: null }],
+  };
   assert.deepEqual(idleSurfaces([t], live), []);
 });
 
 test("ordena pela data de atualização, a mais antiga primeiro, e marca workspace próprio", () => {
   const nova = task({ task_id: "t-nova", updated_at: "2026-11-18T12:00:00.000Z" });
-  const velha = task({ task_id: "t-velha", updated_at: "2026-11-16T09:00:00.000Z", projected: true, tab_id: "w2:t1", pane_id: "w2:t1-1", terminal_id: "term-2" });
+  const velha = task({
+    task_id: "t-velha",
+    updated_at: "2026-11-16T09:00:00.000Z",
+    projected: true,
+    tab_id: "w2:t1",
+    pane_id: "w2:t1-1",
+    terminal_id: "term-2",
+  });
   const out = idleSurfaces([nova, velha], liveFor(nova, velha));
-  assert.deepEqual(out.map((s) => [s.task_id, s.projected]), [["t-velha", true], ["t-nova", false]]);
+  assert.deepEqual(
+    out.map((s) => [s.task_id, s.projected]),
+    [
+      ["t-velha", true],
+      ["t-nova", false],
+    ],
+  );
 });
 
 test("parseTabIds lê os tab_id de tab list", () => {
@@ -110,10 +144,17 @@ test("whyNotIdle explica cada inelegibilidade e é null para candidata", () => {
 });
 
 test("whyNotIdle e idleSurfaces concordam: candidata é exatamente a que não tem motivo", () => {
-  const tasks = [task({ task_id: "t-a" }), task({ task_id: "t-b", status: "failed" }), task({ task_id: "t-c", notified: false })];
+  const tasks = [
+    task({ task_id: "t-a" }),
+    task({ task_id: "t-b", status: "failed" }),
+    task({ task_id: "t-c", notified: false }),
+  ];
   const live = liveFor(...tasks);
   const candidatas = tasks.filter((t) => whyNotIdle(t, live) === null).map((t) => t.task_id);
-  assert.deepEqual(idleSurfaces(tasks, live).map((s) => s.task_id), candidatas);
+  assert.deepEqual(
+    idleSurfaces(tasks, live).map((s) => s.task_id),
+    candidatas,
+  );
 });
 
 test("closeBlocker recusa tarefa ativa e libera as demais", () => {
@@ -160,7 +201,10 @@ test("idleReport lista candidatas e o motivo de cada não candidata, em ordem es
   const tasks = [failed, run, ok];
   const rep = idleReport(tasks, liveFor(ok));
   assert.deepEqual(rep.eligible, ["t-ok"]);
-  assert.deepEqual(rep.not_eligible.map((x) => x.task_id), ["t-fail", "t-run"]);
+  assert.deepEqual(
+    rep.not_eligible.map((x) => x.task_id),
+    ["t-fail", "t-run"],
+  );
   assert.match(rep.not_eligible[1].reason, /em andamento/);
   assert.match(rep.not_eligible[0].reason, /failed/);
 });
@@ -182,7 +226,11 @@ test("orch_close com pane ausente não fecha nada e não diz que fechou (#62)", 
   const out = await h.orch.closeOutcome(t.task_id);
   assert.equal(out.closed, false);
   assert.match(out.reason ?? "", /nada foi fechado/);
-  assert.equal(h.herdr.calls.some((c) => c.op === "closeTab"), false, "nenhuma tab foi fechada");
+  assert.equal(
+    h.herdr.calls.some((c) => c.op === "closeTab"),
+    false,
+    "nenhuma tab foi fechada",
+  );
 });
 
 test("env de prazo inválida cai no padrão, nunca vira NaN (revisão da #85)", async () => {
@@ -196,7 +244,7 @@ test("env de prazo inválida cai no padrão, nunca vira NaN (revisão da #85)", 
 
 test("registro morto só é limpo com aba e pane ausentes e o Herdr respondendo (revisão da #93)", () => {
   const morta = task({ task_id: "t-morta", status: "done", tab_id: "w1:t9", pane_id: "w1:p9", notified: true });
-  const ativa = task({ task_id: "t-ativa", status: "running" as TaskRecord["status"], tab_id: "w1:t8", pane_id: "w1:p8" });
+  const ativa = task({ task_id: "t-ativa", status: "running", tab_id: "w1:t8", pane_id: "w1:p8" });
   const pane = (pane_id: string) => ({ pane_id, terminal_id: "x", cwd: null, agent: null, agent_status: null });
   assert.deepEqual(deadTabTaskIds([morta, ativa], { tabIds: new Set(["w1:t1"]), panes: [pane("w1:p1")] }), ["t-morta"]);
   assert.deepEqual(deadTabTaskIds([morta], { tabIds: new Set(), panes: [pane("w1:p1")] }), []);
@@ -211,6 +259,10 @@ test("tarefa entregue por PR não é candidata a fechar: quem fecha é o merge (
 });
 
 test("tarefa de issue cuja PR está nos artefatos aguarda o merge, não vira candidata a fechar", () => {
-  const t = task({ task_id: "t-iss", source: "https://github.com/o/r/issues/118", artifacts: ["https://github.com/o/r/pull/172"] });
+  const t = task({
+    task_id: "t-iss",
+    source: "https://github.com/o/r/issues/118",
+    artifacts: ["https://github.com/o/r/pull/172"],
+  });
   assert.match(whyNotIdle(t, liveFor(t)) ?? "", /aguarda merge da PR/);
 });

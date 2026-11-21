@@ -24,7 +24,10 @@ export function nextModelFor(failed: string, kind: FailureKind, priority: readon
   return suggestModel(failed, priority);
 }
 
-export function chainDepth(task: { relaunched_from?: string | null }, get: (id: string) => { relaunched_from?: string | null } | undefined): number {
+export function chainDepth(
+  task: { relaunched_from?: string | null },
+  get: (id: string) => { relaunched_from?: string | null } | undefined,
+): number {
   let depth = 0;
   let cur: { relaunched_from?: string | null } | undefined = task;
   while (cur?.relaunched_from && depth < 10) {

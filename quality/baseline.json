@@ -1,6 +1,8 @@
 {
-  "duplication_pct": 0.99,
+  "duplication_pct": 1.33,
   "dead_code": 25,
   "comment_lines": 0,
-  "type_errors": 0
+  "type_errors": 0,
+  "lint_errors": 149,
+  "format_files": 0
 }

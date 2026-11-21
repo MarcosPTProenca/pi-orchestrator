@@ -19,7 +19,11 @@ export function queryTerms(query: string): string[] {
 
 function remoteOf(path: string): string | null {
   try {
-    return execFileSync("git", ["remote", "get-url", "origin"], { cwd: path, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return execFileSync("git", ["remote", "get-url", "origin"], {
+      cwd: path,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
   } catch {
     return null;
   }

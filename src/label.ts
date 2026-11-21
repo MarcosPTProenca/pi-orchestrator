@@ -11,7 +11,12 @@ export function workerTabName(role: string, taskSuffix: string): string {
 }
 
 function shortTaskId(taskSuffix: string): string {
-  return taskSuffix.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 6) || "x";
+  return (
+    taskSuffix
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "")
+      .slice(0, 6) || "x"
+  );
 }
 
 function slug(text: string, max: number): string {

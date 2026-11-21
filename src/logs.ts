@@ -10,7 +10,10 @@ const SECRET_PATTERNS: RegExp[] = [
 ];
 
 export function maskSecrets(text: string): string {
-  return SECRET_PATTERNS.reduce((acc, re) => acc.replace(re, (m, pre?: string) => (pre ? `${pre}[mascarado]` : "[mascarado]")), text);
+  return SECRET_PATTERNS.reduce(
+    (acc, re) => acc.replace(re, (m, pre?: string) => (pre ? `${pre}[mascarado]` : "[mascarado]")),
+    text,
+  );
 }
 
 export function clampLines(n: number | undefined): number {

@@ -5,7 +5,14 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, utimesSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TaskRecord } from "../src/contract.ts";
-import { acquireOwnership, hasLiveOwner, legacyAdopter, releaseOwnership, scopeKey, scopeOwnerDir } from "../src/lock.ts";
+import {
+  acquireOwnership,
+  hasLiveOwner,
+  legacyAdopter,
+  releaseOwnership,
+  scopeKey,
+  scopeOwnerDir,
+} from "../src/lock.ts";
 import { Store } from "../src/store.ts";
 import { makeHarness } from "./fakes.ts";
 import { idleSurfaces } from "../src/idle.ts";
@@ -51,7 +58,9 @@ test("projetos diferentes têm posse simultânea; o mesmo projeto em outro proce
   try {
     assert.equal(acquireOwnership(dirA).owner, true);
     assert.equal(acquireOwnership(dirB).owner, true, "projeto B não pode ser bloqueado pelo A");
-    const sameAsA = child(`import("./src/lock.ts").then(m=>{console.log(JSON.stringify(m.acquireOwnership(${JSON.stringify(dirA)})));process.exit(0)})`) as { owner: boolean };
+    const sameAsA = child(
+      `import("./src/lock.ts").then(m=>{console.log(JSON.stringify(m.acquireOwnership(${JSON.stringify(dirA)})));process.exit(0)})`,
+    ) as { owner: boolean };
     assert.equal(sameAsA.owner, false, "segunda sessão viva do mesmo projeto fica somente leitura");
   } finally {
     releaseOwnership(dirA);
@@ -64,7 +73,9 @@ test("duas sessões gravando o mesmo estado não perdem atualizações (trava en
   const dir = mkdtempSync(join(tmpdir(), "orch-mutate-"));
   const file = join(dir, "state.json");
   const script = `import("./src/store.ts").then(({Store})=>{const s=new Store(${JSON.stringify(file)});for(let i=0;i<60;i++){s.mutate(st=>{st.workspaces["k"+i+"-"+process.pid]={workspace_id:"w",seeded_tab_id:null};});}console.log("{}");process.exit(0)})`;
-  const runs = [0, 1].map(() => spawnSync(process.execPath, ["--import", "tsx", "-e", script], { cwd: ROOT, encoding: "utf8" }));
+  const runs = [0, 1].map(() =>
+    spawnSync(process.execPath, ["--import", "tsx", "-e", script], { cwd: ROOT, encoding: "utf8" }),
+  );
   for (const r of runs) assert.equal(r.status, 0, r.stderr);
   const total = Object.keys(new Store(file).load().workspaces).length;
   assert.equal(total, 120, "cada escrita sobreviveu: 2 processos x 60");
@@ -120,8 +131,18 @@ test("orquestrador: cada sessão vê, avisa e altera só as tarefas do próprio 
     s.tasks["t-legacy"] = task({ task_id: "t-legacy", project_path: "/proj-a" });
   });
   h.orch.setScope("A");
-  assert.equal(h.orch.adoptUnowned((p) => p === "/proj-a"), 1, "legado do projeto A é adotado");
-  assert.deepEqual(h.orch.owned().map((t) => t.task_id).sort(), ["t-a", "t-legacy"]);
+  assert.equal(
+    h.orch.adoptUnowned((p) => p === "/proj-a"),
+    1,
+    "legado do projeto A é adotado",
+  );
+  assert.deepEqual(
+    h.orch
+      .owned()
+      .map((t) => t.task_id)
+      .sort(),
+    ["t-a", "t-legacy"],
+  );
   assert.equal(h.orch.list().length, 3, "list continua mostrando todas");
 
   const events = await h.orch.sweep();
@@ -139,7 +160,11 @@ test("sem escopo definido (simulação e testes) todas as tarefas são desta ses
     s.tasks["t-a"] = task({ task_id: "t-a", owner_key: "A" });
   });
   assert.equal(h.orch.owned().length, 1);
-  assert.equal(h.orch.adoptUnowned(() => true), 0, "sem escopo não adota nada");
+  assert.equal(
+    h.orch.adoptUnowned(() => true),
+    0,
+    "sem escopo não adota nada",
+  );
 });
 
 test("sessão da pasta-pai (fora de git) adota legada de repo dentro dela só se o repo não tem sessão viva", () => {
@@ -168,7 +193,10 @@ test("sessão da pasta-pai (fora de git) adota legada de repo dentro dela só se
     });
     h.orch.setScope(scopeKey(parent));
     assert.equal(h.orch.adoptUnowned(adopt), 1);
-    assert.deepEqual(h.orch.owned().map((t) => t.task_id), ["t-free"]);
+    assert.deepEqual(
+      h.orch.owned().map((t) => t.task_id),
+      ["t-free"],
+    );
   } finally {
     releaseOwnership(liveDir);
   }
@@ -194,11 +222,31 @@ test("superfícies ociosas: cada sessão só vê as candidatas do próprio escop
   };
   const done = { status: "done" as const, notified: true, updated_at: "2026-11-18T10:00:00.000Z" };
   new Store(join(h.stateDir, "state.json")).mutate((s) => {
-    s.tasks["t-a"] = task({ ...done, task_id: "t-a", owner_key: "A", tab_id: "w1:t1", pane_id: "w1:t1-1", terminal_id: "term-a" });
-    s.tasks["t-b"] = task({ ...done, task_id: "t-b", owner_key: "B", tab_id: "w2:t1", pane_id: "w2:t1-1", terminal_id: "term-b" });
+    s.tasks["t-a"] = task({
+      ...done,
+      task_id: "t-a",
+      owner_key: "A",
+      tab_id: "w1:t1",
+      pane_id: "w1:t1-1",
+      terminal_id: "term-a",
+    });
+    s.tasks["t-b"] = task({
+      ...done,
+      task_id: "t-b",
+      owner_key: "B",
+      tab_id: "w2:t1",
+      pane_id: "w2:t1-1",
+      terminal_id: "term-b",
+    });
   });
   h.orch.setScope("A");
-  assert.deepEqual(idleSurfaces(h.orch.owned(), live).map((s) => s.task_id), ["t-a"]);
+  assert.deepEqual(
+    idleSurfaces(h.orch.owned(), live).map((s) => s.task_id),
+    ["t-a"],
+  );
   h.orch.setScope("B");
-  assert.deepEqual(idleSurfaces(h.orch.owned(), live).map((s) => s.task_id), ["t-b"]);
+  assert.deepEqual(
+    idleSurfaces(h.orch.owned(), live).map((s) => s.task_id),
+    ["t-b"],
+  );
 });

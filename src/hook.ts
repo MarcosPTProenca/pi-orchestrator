@@ -7,11 +7,7 @@ export interface HookHandle {
   close(): void;
 }
 
-export function startHook(
-  token: string,
-  onPost: (taskId: string) => Promise<void>,
-  port = 0,
-): Promise<HookHandle> {
+export function startHook(token: string, onPost: (taskId: string) => Promise<void>, port = 0): Promise<HookHandle> {
   return new Promise((resolve, reject) => {
     const server = createServer((req, res) => {
       if (req.method !== "POST" || req.url !== "/hook" || req.headers.authorization !== `Bearer ${token}`) {

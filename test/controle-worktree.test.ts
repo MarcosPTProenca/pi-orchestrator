@@ -16,7 +16,19 @@ function layout() {
   for (const r of [main, other]) {
     mkdirSync(r);
     execFileSync("git", ["-C", r, "init", "-q"]);
-    execFileSync("git", ["-C", r, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"]);
+    execFileSync("git", [
+      "-C",
+      r,
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@t",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "init",
+    ]);
   }
   execFileSync("git", ["-C", main, "worktree", "add", "-q", wt, "-b", "lease-test"]);
   return { main, other, wt, state };

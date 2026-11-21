@@ -36,14 +36,16 @@ function alive(pid: number): boolean {
 export function scopeKey(cwd: string): string {
   let root = cwd;
   try {
-    root = execFileSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() || cwd;
-  } catch {
-  }
+    root =
+      execFileSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim() || cwd;
+  } catch {}
   let real = root;
   try {
     real = realpathSync(root);
-  } catch {
-  }
+  } catch {}
   return createHash("sha256").update(real).digest("hex").slice(0, 16);
 }
 
@@ -136,7 +138,10 @@ export function repoIdentity(path: string): string | undefined {
   if (identityCache.has(path)) return identityCache.get(path);
   let id: string | undefined;
   try {
-    const out = execFileSync("git", ["-C", path, "rev-parse", "--git-common-dir"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    const out = execFileSync("git", ["-C", path, "rev-parse", "--git-common-dir"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
     id = realpathSync(resolve(path, out));
   } catch {
     id = undefined;
