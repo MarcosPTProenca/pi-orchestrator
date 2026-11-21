@@ -28,7 +28,9 @@ test("painel que sumiu: mensagem clara", async () => {
 });
 
 test("segredos conhecidos são mascarados antes de devolver", () => {
-  const out = maskSecrets("ok\nghp_abcdefghijklmnopqrstuvwxyz0123456789\nAuthorization: Bearer abc.def.ghi\napi_key=sk-1234567890abcdefghij\nfim");
+  const out = maskSecrets(
+    "ok\nghp_abcdefghijklmnopqrstuvwxyz0123456789\nAuthorization: Bearer abc.def.ghi\napi_key=sk-1234567890abcdefghij\nfim",
+  );
   assert.doesNotMatch(out, /ghp_abcdef/);
   assert.doesNotMatch(out, /abc\.def\.ghi/);
   assert.doesNotMatch(out, /1234567890abcdef/);

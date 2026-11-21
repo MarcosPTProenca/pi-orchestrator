@@ -1,8 +1,3 @@
-/**
- * Notificação nativa do Herdr (`herdr notification show`) quando uma tarefa precisa de atenção.
- * Sem LLM e sem PowerShell. Só para bloqueio, conclusão e falha; andamento e cancelamento não avisam.
- * Falha ao notificar nunca afeta o orquestrador.
- */
 import type { WatchEvent } from "./orchestrator.ts";
 
 export interface Notification {
@@ -13,11 +8,17 @@ export interface Notification {
 
 const MAX_BODY = 160;
 
-export function notificationFor(e: Pick<WatchEvent, "status" | "project_id" | "question" | "result" | "error">): Notification | null {
+export function notificationFor(
+  e: Pick<WatchEvent, "status" | "project_id" | "question" | "result" | "error">,
+): Notification | null {
   const clip = (text: string) => (text.length > MAX_BODY ? `${text.slice(0, MAX_BODY - 1)}…` : text);
   switch (e.status) {
     case "blocked":
-      return { title: `Decisão necessária: ${e.project_id}`, body: clip(e.question ?? "o worker aguarda uma resposta"), sound: "request" };
+      return {
+        title: `Decisão necessária: ${e.project_id}`,
+        body: clip(e.question ?? "o worker aguarda uma resposta"),
+        sound: "request",
+      };
     case "done":
       return { title: `Concluída: ${e.project_id}`, body: clip(e.result ?? "tarefa concluída"), sound: "done" };
     case "failed":
@@ -31,7 +32,6 @@ export function notifyEnabled(env: Record<string, string | undefined>): boolean 
   return env.PI_ORCH_NOTIFY !== "0";
 }
 
-/** Argumentos para `herdr` (sem shell: cada item é um argumento). */
 export function notifyArgs(n: Notification): string[] {
   return ["notification", "show", n.title, "--body", n.body, "--sound", n.sound];
 }

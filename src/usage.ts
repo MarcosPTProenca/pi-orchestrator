@@ -1,8 +1,3 @@
-/**
- * Uso de tokens de um worker, lido do próprio evento de fim de turno (agent_end). O evento traz a sessão
- * inteira, e uma mesma pasta de tarefa pode ter mais de um processo; por isso cada mensagem do assistente
- * é identificada pelo timestamp e só entra na soma uma vez.
- */
 export interface Usage {
   input: number;
   output: number;
@@ -21,7 +16,6 @@ interface UsageMessage {
   usage?: Partial<Usage>;
 }
 
-/** Soma as mensagens do assistente ainda não contadas. Devolve o total e a lista atualizada de timestamps contados. */
 export function addNewUsage(total: Usage, messages: unknown[], counted: number[]): { total: Usage; counted: number[] } {
   const seen = new Set(counted);
   const out = { ...total };

@@ -37,18 +37,37 @@ test("parsers leem o formato real do Herdr 0.9.1 (capturado em execução)", () 
     '{"id":"cli:tab:create","result":{"root_pane":{"pane_id":"w16:p2","terminal_id":"term_66066a3186bfb10","tab_id":"w16:t2"},"tab":{"label":"probe-task","tab_id":"w16:t2","workspace_id":"w16"},"type":"tab_created"}}',
   );
   assert.deepEqual(parseTabCreate(tab), { tab_id: "w16:t2", pane_id: "w16:p2", terminal_id: "term_66066a3186bfb10" });
-  assert.deepEqual(parseWorkspaceIds({ result: { workspaces: [{ workspace_id: "w15" }, { workspace_id: "w16" }] } }), ["w15", "w16"]);
-  const snap = { result: { snapshot: { panes: [{ pane_id: "w15:p1", terminal_id: "term_1", cwd: "/x", agent: "pi", agent_status: "working" }] } } };
+  assert.deepEqual(parseWorkspaceIds({ result: { workspaces: [{ workspace_id: "w15" }, { workspace_id: "w16" }] } }), [
+    "w15",
+    "w16",
+  ]);
+  const snap = {
+    result: {
+      snapshot: {
+        panes: [{ pane_id: "w15:p1", terminal_id: "term_1", cwd: "/x", agent: "pi", agent_status: "working" }],
+      },
+    },
+  };
   assert.equal(parsePanes(snap)[0].agent, "pi");
   assert.throws(() => parseTabCreate({}), /sem tab/);
 });
 
 test("delegate cria workspace do projeto, tab da tarefa e inicia o worker na tab", async () => {
   const h = makeHarness();
-  const t = await h.orch.delegate({ project_path: h.project, role: "investigate", request: "Analise o login", objective: "Analise o login", mode: "report" });
+  const t = await h.orch.delegate({
+    project_path: h.project,
+    role: "investigate",
+    request: "Analise o login",
+    objective: "Analise o login",
+    mode: "report",
+  });
   assert.equal(t.status, "running");
   assert.equal(h.herdr.opsOf("createWorkspace").length, 1);
-  const tabArgs = h.herdr.opsOf("createTab")[0].args as { workspaceId: string; cwd: string; env: Record<string, string> };
+  const tabArgs = h.herdr.opsOf("createTab")[0].args as {
+    workspaceId: string;
+    cwd: string;
+    env: Record<string, string>;
+  };
   assert.equal(tabArgs.cwd, h.project, "tab abre no checkout do projeto; o worker arrenda a worktree dele");
   assert.equal(tabArgs.env.PI_ORCH_ROLE, "worker");
   assert.equal(tabArgs.env.PI_ORCH_TASK_ID, t.task_id);
@@ -85,8 +104,20 @@ test("se o workspace do projeto sumiu, cria outro (estado não aponta para works
 
 test("várias tarefas ativas ao mesmo tempo são aceitas, cada uma com sua tab", async () => {
   const h = makeHarness();
-  const a = await h.orch.delegate({ project_path: h.project, role: "a", request: "um", objective: "um", mode: "report" });
-  const b = await h.orch.delegate({ project_path: h.project, role: "b", request: "dois", objective: "dois", mode: "report" });
+  const a = await h.orch.delegate({
+    project_path: h.project,
+    role: "a",
+    request: "um",
+    objective: "um",
+    mode: "report",
+  });
+  const b = await h.orch.delegate({
+    project_path: h.project,
+    role: "b",
+    request: "dois",
+    objective: "dois",
+    mode: "report",
+  });
   assert.equal(a.status, "running");
   assert.equal(b.status, "running");
   assert.notEqual(a.tab_id, b.tab_id);
@@ -95,13 +126,19 @@ test("várias tarefas ativas ao mesmo tempo são aceitas, cada uma com sua tab",
 
 test("delegate rejeita caminho relativo", async () => {
   const h = makeHarness();
-  await assert.rejects(h.orch.delegate({ project_path: "relativo", role: "a", request: "x", objective: "x", mode: "report" }), /absoluto/);
+  await assert.rejects(
+    h.orch.delegate({ project_path: "relativo", role: "a", request: "x", objective: "x", mode: "report" }),
+    /absoluto/,
+  );
 });
 
 test("falha ao iniciar o worker fecha só a tab da tarefa e marca failed", async () => {
   const h = makeHarness();
   h.herdr.failStart = true;
-  await assert.rejects(h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report" }), /falhou \(simulado\)/);
+  await assert.rejects(
+    h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report" }),
+    /falhou \(simulado\)/,
+  );
   const closes = h.herdr.opsOf("closeTab").map((o) => o.args);
   const failed = h.orch.list()[0];
   assert.equal(closes.at(-1), failed.tab_id);
@@ -130,12 +167,22 @@ test("brief manda o worker arrendar a própria worktree; o orquestrador não arr
   assert.match(brief, /treehouse get --lease --lease-holder t-/);
   assert.match(brief, new RegExp(`--lease-holder ${t.task_id}`));
   assert.match(brief, /pwd -P/, "verificação de isolamento no setup");
-  assert.equal(h.herdr.opsOf("createTab")[0].args && (h.herdr.opsOf("createTab")[0].args as { cwd: string }).cwd, h.project);
+  assert.equal(
+    h.herdr.opsOf("createTab")[0].args && (h.herdr.opsOf("createTab")[0].args as { cwd: string }).cwd,
+    h.project,
+  );
 });
 
 test("delegate passa o modelo pedido ao pi e registra na tarefa", async () => {
   const h = makeHarness();
-  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report", model: "claude-bridge/claude-haiku-5-5" });
+  const t = await h.orch.delegate({
+    project_path: h.project,
+    role: "a",
+    request: "x",
+    objective: "x",
+    mode: "report",
+    model: "claude-bridge/claude-haiku-5-5",
+  });
   const run = (h.herdr.opsOf("runInPane")[0].args as { command: string }).command;
   assert.match(run, /--model claude-bridge\/claude-haiku-5-5/);
   assert.equal(t.model, "claude-bridge/claude-haiku-5-5");
@@ -151,10 +198,12 @@ test("delegate sem model não passa --model (padrão do Pi)", async () => {
 test("delegate recusa project_path que não é raiz de repositório git (ex.: diretório pai)", async () => {
   const h = makeHarness();
   const parent = mkdtempSync(join(tmpdir(), "orch-parent-"));
-  await assert.rejects(h.orch.delegate({ project_path: parent, role: "a", request: "x", objective: "x", mode: "report" }), /não é a raiz de um repositório git/);
+  await assert.rejects(
+    h.orch.delegate({ project_path: parent, role: "a", request: "x", objective: "x", mode: "report" }),
+    /não é a raiz de um repositório git/,
+  );
   assert.equal(h.herdr.opsOf("createTab").length, 0);
 });
-
 
 test("cancel fecha só a tab da tarefa; outra tarefa e o workspace permanecem", async () => {
   const h = makeHarness();
@@ -164,7 +213,10 @@ test("cancel fecha só a tab da tarefa; outra tarefa e o workspace permanecem", 
   assert.equal(c.status, "cancelled");
   assert.equal(h.herdr.opsOf("closeTab").at(-1)?.args, a.tab_id);
   assert.ok(!h.herdr.panesList.some((p) => p.pane_id === a.pane_id), "pane da tarefa cancelada fechado");
-  assert.ok(h.herdr.panesList.some((p) => p.pane_id === b.pane_id), "pane da outra tarefa preservado");
+  assert.ok(
+    h.herdr.panesList.some((p) => p.pane_id === b.pane_id),
+    "pane da outra tarefa preservado",
+  );
   assert.equal(h.orch.get(b.task_id).status, "running");
   assert.ok(h.herdr.workspaces.has(a.workspace_id));
 });
@@ -181,9 +233,27 @@ test("cancel recusa pane trocado (terminal_id diferente) sem fechar nada", async
 
 test("reconcile: pane vivo mantém; pane sumido com relatório vira done; sem relatório vira lost", async () => {
   const h = makeHarness();
-  const live = await h.orch.delegate({ project_path: h.project, role: "a", request: "1", objective: "1", mode: "report" });
-  const gone = await h.orch.delegate({ project_path: h.project, role: "a", request: "2", objective: "2", mode: "report" });
-  const lost = await h.orch.delegate({ project_path: h.project, role: "a", request: "3", objective: "3", mode: "report" });
+  const live = await h.orch.delegate({
+    project_path: h.project,
+    role: "a",
+    request: "1",
+    objective: "1",
+    mode: "report",
+  });
+  const gone = await h.orch.delegate({
+    project_path: h.project,
+    role: "a",
+    request: "2",
+    objective: "2",
+    mode: "report",
+  });
+  const lost = await h.orch.delegate({
+    project_path: h.project,
+    role: "a",
+    request: "3",
+    objective: "3",
+    mode: "report",
+  });
   writeReport(gone.task_dir, gone.task_id, { status: "done", result: "salvo antes" });
   h.herdr.panesList = h.herdr.panesList.filter((p) => p.pane_id !== gone.pane_id && p.pane_id !== lost.pane_id);
   await h.orch.reconcile();
@@ -212,9 +282,14 @@ test("estado persiste entre instâncias do orquestrador (reinício)", async () =
 test("brief traz pedido literal, objetivo, fonte, restrições, critérios e especificação quando dada", async () => {
   const h = makeHarness();
   const t = await h.orch.delegate({
-    project_path: h.project, role: "fix", request: "Corrige a PR #137 que está com lint vermelho.",
-    objective: "Lint verde na PR #137.", spec: "1. Rodar pnpm quality:lint. 2. Não atualizar o baseline.",
-    constraints: ["Não tocar em outros arquivos."], source: "https://github.com/o/r/pull/137", mode: "report",
+    project_path: h.project,
+    role: "fix",
+    request: "Corrige a PR #137 que está com lint vermelho.",
+    objective: "Lint verde na PR #137.",
+    spec: "1. Rodar pnpm quality:lint. 2. Não atualizar o baseline.",
+    constraints: ["Não tocar em outros arquivos."],
+    source: "https://github.com/o/r/pull/137",
+    mode: "report",
   });
   const brief = readFileSync(t.brief_path, "utf8");
   assert.match(brief, /## Pedido do usuário \(literal\)\nCorrige a PR #137/);
@@ -238,8 +313,12 @@ test("brief sem spec não tem seção de especificação, mas mantém o contrato
 test("direct-pr com branch: critérios de push, PR, checks e checkout da branch", async () => {
   const h = makeHarness();
   const t = await h.orch.delegate({
-    project_path: h.project, role: "fix", request: "PR 137", objective: "checks verdes",
-    mode: "direct-pr", branch: "fm/al-issue-63-q1",
+    project_path: h.project,
+    role: "fix",
+    request: "PR 137",
+    objective: "checks verdes",
+    mode: "direct-pr",
+    branch: "fm/al-issue-63-q1",
   });
   const brief = readFileSync(t.brief_path, "utf8");
   assert.match(brief, /modo: direct-pr/);
@@ -254,7 +333,10 @@ test("delegate recusa pedido, objetivo ou modo inválidos e placeholders, sem la
   await assert.rejects(h.orch.delegate({ ...base, request: " ", objective: "y" }), /request vazio/);
   await assert.rejects(h.orch.delegate({ ...base, request: "x", objective: "" }), /objective vazio/);
   await assert.rejects(h.orch.delegate({ ...base, request: "{TASK}", objective: "y" }), /placeholder/);
-  await assert.rejects(h.orch.delegate({ ...base, request: "x", objective: "y", mode: "ship" as never }), /mode inválido/);
+  await assert.rejects(
+    h.orch.delegate({ ...base, request: "x", objective: "y", mode: "ship" as never }),
+    /mode inválido/,
+  );
   assert.equal(h.herdr.opsOf("createTab").length, 0);
   assert.equal(h.orch.list().length, 0);
 });
@@ -262,7 +344,14 @@ test("delegate recusa pedido, objetivo ou modo inválidos e placeholders, sem la
 test("modelo pedido e indisponível: erro explícito, sem substituição e sem worker", async () => {
   const h = makeHarness();
   await assert.rejects(
-    h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report", model: "claude-bridge/modelo-que-nao-existe" }),
+    h.orch.delegate({
+      project_path: h.project,
+      role: "a",
+      request: "x",
+      objective: "y",
+      mode: "report",
+      model: "claude-bridge/modelo-que-nao-existe",
+    }),
     /modelo indisponível: "claude-bridge\/modelo-que-nao-existe"\. Nada foi lançado/,
   );
   assert.equal(h.herdr.opsOf("createTab").length, 0);
@@ -271,7 +360,14 @@ test("modelo pedido e indisponível: erro explícito, sem substituição e sem w
 
 test("modelo pedido disponível vai para o pi e fica registrado", async () => {
   const h = makeHarness();
-  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report", model: "claude-bridge/claude-haiku-5-5" });
+  const t = await h.orch.delegate({
+    project_path: h.project,
+    role: "a",
+    request: "x",
+    objective: "y",
+    mode: "report",
+    model: "claude-bridge/claude-haiku-5-5",
+  });
   assert.equal(t.model, "claude-bridge/claude-haiku-5-5");
   const run = (h.herdr.opsOf("runInPane")[0].args as { command: string }).command;
   assert.match(run, /--model claude-bridge\/claude-haiku-5-5/);
@@ -280,11 +376,23 @@ test("modelo pedido disponível vai para o pi e fica registrado", async () => {
 test("modo simulação (dryRun): valida, monta o brief e não toca no Herdr", async () => {
   const h = makeHarness();
   const planned = new Orchestrator({
-    herdr: h.herdr, store: new Store(join(h.stateDir, "dry.json")), tasksDir: join(h.stateDir, "dry-tasks"),
-    workerExtPath: "/x", now: () => h.clock.ms, newHex: () => "dddddddd",
-    availableModels: () => ["claude-bridge/claude-haiku-5-5"], dryRun: true,
+    herdr: h.herdr,
+    store: new Store(join(h.stateDir, "dry.json")),
+    tasksDir: join(h.stateDir, "dry-tasks"),
+    workerExtPath: "/x",
+    now: () => h.clock.ms,
+    newHex: () => "dddddddd",
+    availableModels: () => ["claude-bridge/claude-haiku-5-5"],
+    dryRun: true,
   });
-  const t = await planned.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report", model: "claude-bridge/claude-haiku-5-5" });
+  const t = await planned.delegate({
+    project_path: h.project,
+    role: "a",
+    request: "x",
+    objective: "y",
+    mode: "report",
+    model: "claude-bridge/claude-haiku-5-5",
+  });
   assert.equal(t.status, "planned");
   assert.equal(h.herdr.calls.length, 0);
   assert.match(readFileSync(t.brief_path, "utf8"), /## Pedido do usuário \(literal\)/);
@@ -292,7 +400,13 @@ test("modo simulação (dryRun): valida, monta o brief e não toca no Herdr", as
 
 test("direct-pr sem branch: o brief manda o worker descobrir a branch da PR citada", async () => {
   const h = makeHarness();
-  const t = await h.orch.delegate({ project_path: h.project, role: "fix", request: "PR #137", objective: "checks", mode: "direct-pr" });
+  const t = await h.orch.delegate({
+    project_path: h.project,
+    role: "fix",
+    request: "PR #137",
+    objective: "checks",
+    mode: "direct-pr",
+  });
   const brief = readFileSync(t.brief_path, "utf8");
   assert.match(brief, /gh pr view <número> --json headRefName/);
   assert.match(brief, /descubra a branch da PR citada/);
@@ -308,7 +422,13 @@ test("brief pede resumo de até 5 linhas no result e proíbe comentar em PR sem 
 
 test("o brief vai ao worker pela extensão (contexto), e o argumento de lançamento é curto", async () => {
   const h = makeHarness();
-  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "Pedido único XYZ", objective: "y", mode: "report" });
+  const t = await h.orch.delegate({
+    project_path: h.project,
+    role: "a",
+    request: "Pedido único XYZ",
+    objective: "y",
+    mode: "report",
+  });
   const sent = readFileSync(t.brief_path, "utf8");
   assert.match(sent, /## Pedido do usuário \(literal\)\nPedido único XYZ/);
   assert.match(sent, /## Critérios de conclusão/);
@@ -342,7 +462,14 @@ test("tab do worker tem prefixo worker-, role legível e o mesmo id do pane", as
 
 test("modo design: fluxo grill/plan/spec/tickets, oracle com regra de fatias verticais, tracker no brief", async () => {
   const h = makeHarness();
-  const t = await h.orch.delegate({ project_path: h.project, role: "design", request: "Quero o módulo de simulação", objective: "Issues prontas para implementação", mode: "design", tracker: "plane" });
+  const t = await h.orch.delegate({
+    project_path: h.project,
+    role: "design",
+    request: "Quero o módulo de simulação",
+    objective: "Issues prontas para implementação",
+    mode: "design",
+    tracker: "plane",
+  });
   const brief = readFileSync(t.brief_path, "utf8");
   assert.match(brief, /grill-with-docs/);
   assert.match(brief, /to-tickets/);
@@ -371,7 +498,10 @@ test("bloqueio: refresh traz a pergunta; resposta reabre; novo relatório conclu
   const ev = await h.orch.refresh(t.task_id);
   assert.equal(ev?.status, "blocked");
   assert.equal(ev?.question, "Usar A ou B?");
-  assert.deepEqual((await h.orch.inbox()).map((i) => i.status), ["blocked"]);
+  assert.deepEqual(
+    (await h.orch.inbox()).map((i) => i.status),
+    ["blocked"],
+  );
   await h.orch.answer(t.task_id, "Use A");
   writeReport(t.task_dir, t.task_id, { status: "done", result: "feito com A" }, "2");
   assert.equal((await h.orch.refresh(t.task_id))?.status, "done");
@@ -420,8 +550,14 @@ test("onTerminal avisa a fila quando a tarefa termina", async () => {
   const h = makeHarness();
   const seen: string[] = [];
   const orch = new Orchestrator({
-    herdr: h.herdr, store: new Store(join(h.stateDir, "ot.json")), tasksDir: join(h.stateDir, "ot-tasks"),
-    workerExtPath: "/x", now: () => h.clock.ms, newHex: () => "eeeeeeee", availableModels: () => ["claude-bridge/claude-haiku-5-5"], dryRun: false,
+    herdr: h.herdr,
+    store: new Store(join(h.stateDir, "ot.json")),
+    tasksDir: join(h.stateDir, "ot-tasks"),
+    workerExtPath: "/x",
+    now: () => h.clock.ms,
+    newHex: () => "eeeeeeee",
+    availableModels: () => ["claude-bridge/claude-haiku-5-5"],
+    dryRun: false,
     onTerminal: (id) => seen.push(id),
   });
   const t = await orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
@@ -442,7 +578,15 @@ test("ao abrir a sessão só avisa o que é novo: bloqueio já anunciado não vo
 
 test("brief de PR: primeiro consultar o estado de merge e resolver conflito antes de editar", async () => {
   const h = makeHarness();
-  const t = await h.orch.delegate({ project_path: h.project, role: "fix", request: "PR 136", objective: "checks verdes", mode: "direct-pr", source: "https://github.com/o/r/pull/136", branch: "fm/x" });
+  const t = await h.orch.delegate({
+    project_path: h.project,
+    role: "fix",
+    request: "PR 136",
+    objective: "checks verdes",
+    mode: "direct-pr",
+    source: "https://github.com/o/r/pull/136",
+    branch: "fm/x",
+  });
   const brief = readFileSync(t.brief_path, "utf8");
   assert.match(brief, /3\. Antes de editar, consulte o estado de merge da PR/);
   assert.match(brief, /resolva o conflito no branch da PR primeiro/);
@@ -453,8 +597,14 @@ test("enrichSource lê o estado da PR no lançamento (não na listagem)", async 
   const { Orchestrator } = await import("../src/orchestrator.ts");
   const { Store } = await import("../src/store.ts");
   const orch = new Orchestrator({
-    herdr: h.herdr, store: new Store(join(h.stateDir, "e.json")), tasksDir: join(h.stateDir, "e-tasks"),
-    workerExtPath: "/x", now: () => h.clock.ms, newHex: () => "fefefefe", availableModels: () => [], dryRun: false,
+    herdr: h.herdr,
+    store: new Store(join(h.stateDir, "e.json")),
+    tasksDir: join(h.stateDir, "e-tasks"),
+    workerExtPath: "/x",
+    now: () => h.clock.ms,
+    newHex: () => "fefefefe",
+    availableModels: () => [],
+    dryRun: false,
     enrichSource: async (i) => ({ ...i, constraints: [...(i.constraints ?? []), "PR com conflito agora"] }),
   });
   const t = await orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
@@ -464,7 +614,14 @@ test("enrichSource lê o estado da PR no lançamento (não na listagem)", async 
 test("relatório tardio reabre tarefa failed/timeout/lost: o estado segue o último relatório", async () => {
   for (const first of ["failed", "timeout", "lost"] as const) {
     const h = makeHarness();
-    const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report", timeout_minutes: first === "timeout" ? 1 : undefined });
+    const t = await h.orch.delegate({
+      project_path: h.project,
+      role: "a",
+      request: "x",
+      objective: "y",
+      mode: "report",
+      timeout_minutes: first === "timeout" ? 1 : undefined,
+    });
     if (first === "failed") writeReport(t.task_dir, t.task_id, { status: "failed", result: "erro 500 do modelo" }, "1");
     if (first === "lost") h.herdr.panesList = [];
     if (first === "timeout") h.clock.ms += 2 * 60_000;
@@ -491,7 +648,7 @@ test("noticeFor avisa uma vez, mesmo que outro refresh já tenha aplicado o rela
   const h = makeHarness();
   const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
   writeReport(t.task_dir, t.task_id, { status: "done", result: "ok" });
-  await h.orch.refresh(t.task_id); // ex.: o LLM chamou orch_status antes do webhook chegar
+  await h.orch.refresh(t.task_id);
   const ev = await h.orch.noticeFor(t.task_id);
   assert.equal(ev?.status, "done");
   assert.equal(await h.orch.noticeFor(t.task_id), null, "não repete");
@@ -502,7 +659,10 @@ test("sweep acha sozinho conclusões sem webhook, inclusive de tarefa que estava
   const a = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
   const b = await h.orch.delegate({ project_path: h.project, role: "b", request: "x", objective: "y", mode: "report" });
   writeReport(b.task_dir, b.task_id, { status: "failed", result: "500" }, "1");
-  assert.deepEqual((await h.orch.sweep()).map((e) => e.task_id), [b.task_id]);
+  assert.deepEqual(
+    (await h.orch.sweep()).map((e) => e.task_id),
+    [b.task_id],
+  );
   writeReport(a.task_dir, a.task_id, { status: "done", result: "ok" });
   writeReport(b.task_dir, b.task_id, { status: "done", result: "depois" }, "2");
   const got = (await h.orch.sweep()).map((e) => `${e.task_id}:${e.status}`).sort();
@@ -514,7 +674,11 @@ test("brief não proíbe subagents e skills internos do Pi, em nenhum modo", asy
   const { buildIntake, renderBrief, MODES } = await import("../src/intake.ts");
   const h = makeHarness();
   for (const mode of MODES) {
-    const brief = renderBrief("t-x", buildIntake({ project_path: h.project, role: "a", request: "x", objective: "y", mode }), "/r.json");
+    const brief = renderBrief(
+      "t-x",
+      buildIntake({ project_path: h.project, role: "a", request: "x", objective: "y", mode }),
+      "/r.json",
+    );
     assert.doesNotMatch(brief, /não delegue sub-tarefas/, `modo ${mode}`);
     assert.match(brief, /subagents internos do Pi e skills são permitidos/i, `modo ${mode}`);
     assert.match(brief, /não use orch_delegate/i, `modo ${mode}: continua sem poder lançar workers`);
@@ -524,7 +688,11 @@ test("brief não proíbe subagents e skills internos do Pi, em nenhum modo", asy
 test("brief de modo design: a instrução de oracle e o que o worker pode usar não se contradizem", async () => {
   const { buildIntake, renderBrief } = await import("../src/intake.ts");
   const h = makeHarness();
-  const brief = renderBrief("t-x", buildIntake({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "design" }), "/r.json");
+  const brief = renderBrief(
+    "t-x",
+    buildIntake({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "design" }),
+    "/r.json",
+  );
   assert.match(brief, /subagent `oracle`/);
   assert.doesNotMatch(brief, /não delegue/);
 });
@@ -533,34 +701,112 @@ const PR = "https://github.com/o/r/pull/9";
 
 test("não lança segundo worker para a mesma PR enquanto a primeira está ativa", async () => {
   const h = makeHarness();
-  const a = await h.orch.delegate({ project_path: h.project, role: "fix-pr-9", request: "x", objective: "y", mode: "direct-pr", source: PR });
-  assert.throws(() => h.orch.checkDelegate({ project_path: h.project, role: "fix-pr-9", request: "x", objective: "y", mode: "direct-pr", source: PR }), new RegExp(a.task_id));
-  await assert.rejects(h.orch.delegate({ project_path: h.project, role: "fix-pr-9", request: "x", objective: "y", mode: "direct-pr", source: PR }), new RegExp(a.task_id));
+  const a = await h.orch.delegate({
+    project_path: h.project,
+    role: "fix-pr-9",
+    request: "x",
+    objective: "y",
+    mode: "direct-pr",
+    source: PR,
+  });
+  assert.throws(
+    () =>
+      h.orch.checkDelegate({
+        project_path: h.project,
+        role: "fix-pr-9",
+        request: "x",
+        objective: "y",
+        mode: "direct-pr",
+        source: PR,
+      }),
+    new RegExp(a.task_id),
+  );
+  await assert.rejects(
+    h.orch.delegate({
+      project_path: h.project,
+      role: "fix-pr-9",
+      request: "x",
+      objective: "y",
+      mode: "direct-pr",
+      source: PR,
+    }),
+    new RegExp(a.task_id),
+  );
   assert.equal(h.herdr.opsOf("createTab").length, 1, "nenhum segundo pane criado");
 });
 
 test("mesma branch no mesmo projeto também bloqueia; outro projeto não", async () => {
   const h = makeHarness();
-  await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "direct-pr", branch: "fm/x" });
-  assert.throws(() => h.orch.checkDelegate({ project_path: h.project, role: "b", request: "x", objective: "y", mode: "direct-pr", branch: "fm/x" }), /fm\/x/);
+  await h.orch.delegate({
+    project_path: h.project,
+    role: "a",
+    request: "x",
+    objective: "y",
+    mode: "direct-pr",
+    branch: "fm/x",
+  });
+  assert.throws(
+    () =>
+      h.orch.checkDelegate({
+        project_path: h.project,
+        role: "b",
+        request: "x",
+        objective: "y",
+        mode: "direct-pr",
+        branch: "fm/x",
+      }),
+    /fm\/x/,
+  );
   const other = h.project + "-outro";
   mkdirSync(join(other, ".git"), { recursive: true });
-  assert.doesNotThrow(() => h.orch.checkDelegate({ project_path: other, role: "b", request: "x", objective: "y", mode: "direct-pr", branch: "fm/x" }));
+  assert.doesNotThrow(() =>
+    h.orch.checkDelegate({
+      project_path: other,
+      role: "b",
+      request: "x",
+      objective: "y",
+      mode: "direct-pr",
+      branch: "fm/x",
+    }),
+  );
 });
 
 test("lote com o mesmo item duas vezes é recusado inteiro, antes de lançar", async () => {
   const h = makeHarness();
-  const item = { project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" as const, source: PR };
+  const item = {
+    project_path: h.project,
+    role: "a",
+    request: "x",
+    objective: "y",
+    mode: "report" as const,
+    source: PR,
+  };
   assert.throws(() => h.orch.checkBatch([item, { ...item, role: "b" }]), /mesma PR/);
   assert.equal(h.orch.list().length, 0);
 });
 
 test("tarefa terminal ou cancelada não bloqueia novo lançamento para a mesma PR", async () => {
   const h = makeHarness();
-  const a = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "direct-pr", source: PR });
+  const a = await h.orch.delegate({
+    project_path: h.project,
+    role: "a",
+    request: "x",
+    objective: "y",
+    mode: "direct-pr",
+    source: PR,
+  });
   writeReport(a.task_dir, a.task_id, { status: "failed", result: "não deu" });
   await h.orch.refresh(a.task_id);
-  assert.doesNotThrow(() => h.orch.checkDelegate({ project_path: h.project, role: "b", request: "x", objective: "y", mode: "direct-pr", source: PR }));
+  assert.doesNotThrow(() =>
+    h.orch.checkDelegate({
+      project_path: h.project,
+      role: "b",
+      request: "x",
+      objective: "y",
+      mode: "direct-pr",
+      source: PR,
+    }),
+  );
   await h.orch.cancel(a.task_id).catch(() => undefined);
 });
 
@@ -568,8 +814,14 @@ test("cancelar registra a nota de devolução da worktree; perder o pane também
   const h = makeHarness();
   const notes: string[] = [];
   const orch = new Orchestrator({
-    herdr: h.herdr, store: new Store(join(h.stateDir, "wt.json")), tasksDir: join(h.stateDir, "wt-tasks"),
-    workerExtPath: "/x", now: () => h.clock.ms, newHex: () => "dddddddd", availableModels: () => ["claude-bridge/claude-haiku-5-5"], dryRun: false,
+    herdr: h.herdr,
+    store: new Store(join(h.stateDir, "wt.json")),
+    tasksDir: join(h.stateDir, "wt-tasks"),
+    workerExtPath: "/x",
+    now: () => h.clock.ms,
+    newHex: () => "dddddddd",
+    availableModels: () => ["claude-bridge/claude-haiku-5-5"],
+    dryRun: false,
     releaseWorktree: (t) => {
       notes.push(t.task_id);
       return `mantida: ${t.task_id}`;
@@ -588,7 +840,14 @@ test("cancelar registra a nota de devolução da worktree; perder o pane também
 
 test("resultado da verificação fica no registro da tarefa, separado do relatório", async () => {
   const h = makeHarness();
-  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "direct-pr", source: PR });
+  const t = await h.orch.delegate({
+    project_path: h.project,
+    role: "a",
+    request: "x",
+    objective: "y",
+    mode: "direct-pr",
+    source: PR,
+  });
   writeReport(t.task_dir, t.task_id, { status: "done", result: "feito", artifacts: [] });
   await h.orch.refresh(t.task_id);
   h.orch.setVerification(t.task_id, { verdict: "rejected", reason: "modo direct-pr sem PR em artefatos" });
@@ -603,14 +862,19 @@ test("registro de tarefa não tem campos mortos; estado antigo com eles carrega 
   const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
   const file = join(h.stateDir, "state.json");
   assert.equal(readFileSync(file, "utf8").includes("worker_started"), false, "tarefa nova não grava o campo");
-  // Estado antigo: o campo existe no arquivo.
   const old = JSON.parse(readFileSync(file, "utf8"));
   old.tasks[t.task_id].worker_started = true;
   old.tasks[t.task_id].prompt_attempts = 1;
   writeFileSync(file, JSON.stringify(old));
   const reopened = new Orchestrator({
-    herdr: h.herdr, store: new Store(file), tasksDir: join(h.stateDir, "tasks"),
-    workerExtPath: "/x", now: () => h.clock.ms, newHex: () => "eeeeeeee", availableModels: () => ["claude-bridge/claude-haiku-5-5"], dryRun: false,
+    herdr: h.herdr,
+    store: new Store(file),
+    tasksDir: join(h.stateDir, "tasks"),
+    workerExtPath: "/x",
+    now: () => h.clock.ms,
+    newHex: () => "eeeeeeee",
+    availableModels: () => ["claude-bridge/claude-haiku-5-5"],
+    dryRun: false,
   });
   assert.equal(reopened.get(t.task_id).task_id, t.task_id, "carrega sem erro");
   reopened.setVerification(t.task_id, { verdict: "not_applicable", reason: "x" });
@@ -622,7 +886,10 @@ test("uso de tokens do worker (usage.json) entra no registro da tarefa ao atuali
   const h = makeHarness();
   const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
   assert.equal(h.orch.get(t.task_id).usage ?? null, null);
-  writeFileSync(join(t.task_dir, "usage.json"), JSON.stringify({ total: { input: 10, output: 5, cacheRead: 100, cacheWrite: 20, totalTokens: 135 }, counted: [1] }));
+  writeFileSync(
+    join(t.task_dir, "usage.json"),
+    JSON.stringify({ total: { input: 10, output: 5, cacheRead: 100, cacheWrite: 20, totalTokens: 135 }, counted: [1] }),
+  );
   await h.orch.refresh(t.task_id);
   assert.equal(h.orch.get(t.task_id).usage?.totalTokens, 135);
 });
@@ -631,8 +898,14 @@ test("release s\u00f3 devolve worktree de tarefa terminal e recusa tarefa ativa"
   const h = makeHarness();
   const released: string[] = [];
   const orch = new Orchestrator({
-    herdr: h.herdr, store: new Store(join(h.stateDir, "rel.json")), tasksDir: join(h.stateDir, "rel-tasks"),
-    workerExtPath: "/x", now: () => h.clock.ms, newHex: () => "eeeeeeee", availableModels: () => ["claude-bridge/claude-haiku-5-5"], dryRun: false,
+    herdr: h.herdr,
+    store: new Store(join(h.stateDir, "rel.json")),
+    tasksDir: join(h.stateDir, "rel-tasks"),
+    workerExtPath: "/x",
+    now: () => h.clock.ms,
+    newHex: () => "eeeeeeee",
+    availableModels: () => ["claude-bridge/claude-haiku-5-5"],
+    dryRun: false,
     releaseWorktree: (t) => {
       released.push(t.task_id);
       return `devolvida: ${t.task_id}`;
@@ -650,8 +923,14 @@ test("release s\u00f3 devolve worktree de tarefa terminal e recusa tarefa ativa"
 test("forgetDeadTab limpa só a aba de tarefa concluída, sem tocar na worktree nem na pane (ruído de ociosas)", async () => {
   const h = makeHarness();
   const orch = new Orchestrator({
-    herdr: h.herdr, store: new Store(join(h.stateDir, "dead.json")), tasksDir: join(h.stateDir, "dead-tasks"),
-    workerExtPath: "/x", now: () => h.clock.ms, newHex: () => "ffffffff", availableModels: () => ["claude-bridge/claude-haiku-5-5"], dryRun: false,
+    herdr: h.herdr,
+    store: new Store(join(h.stateDir, "dead.json")),
+    tasksDir: join(h.stateDir, "dead-tasks"),
+    workerExtPath: "/x",
+    now: () => h.clock.ms,
+    newHex: () => "ffffffff",
+    availableModels: () => ["claude-bridge/claude-haiku-5-5"],
+    dryRun: false,
   });
   const a = await orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
   assert.equal(orch.forgetDeadTab(a.task_id), false, "tarefa ativa não tem aba esquecida");

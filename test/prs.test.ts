@@ -1,18 +1,55 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseRedPrs, parseGraphqlRedPrs, repoFromRemote, fixInputFor, ghEnvFor, conflictNote, prFromUrl, prStateLine, verifyPr, verificationLine } from "../src/prs.ts";
+import {
+  parseRedPrs,
+  parseGraphqlRedPrs,
+  repoFromRemote,
+  fixInputFor,
+  ghEnvFor,
+  conflictNote,
+  prFromUrl,
+  prStateLine,
+  verifyPr,
+  verificationLine,
+} from "../src/prs.ts";
 import { FixQueue } from "../src/queue.ts";
 
 const sample = [
-  { number: 137, title: "feat: rota", headRefName: "fm/al-issue-63-q1", url: "https://github.com/MarcosPTProenca/adaptative-learning/pull/137",
-    statusCheckRollup: [{ name: "check", conclusion: "SUCCESS" }, { name: "quality", conclusion: "FAILURE" }] },
-  { number: 138, title: "verde", headRefName: "x", url: "u", statusCheckRollup: [{ name: "check", conclusion: "SUCCESS" }] },
-  { number: 139, title: "status antigo", headRefName: "y", url: "u", statusCheckRollup: [{ context: "ci", state: "ERROR" }, { name: "pending", conclusion: null }] },
+  {
+    number: 137,
+    title: "feat: rota",
+    headRefName: "fm/al-issue-63-q1",
+    url: "https://github.com/MarcosPTProenca/adaptative-learning/pull/137",
+    statusCheckRollup: [
+      { name: "check", conclusion: "SUCCESS" },
+      { name: "quality", conclusion: "FAILURE" },
+    ],
+  },
+  {
+    number: 138,
+    title: "verde",
+    headRefName: "x",
+    url: "u",
+    statusCheckRollup: [{ name: "check", conclusion: "SUCCESS" }],
+  },
+  {
+    number: 139,
+    title: "status antigo",
+    headRefName: "y",
+    url: "u",
+    statusCheckRollup: [
+      { context: "ci", state: "ERROR" },
+      { name: "pending", conclusion: null },
+    ],
+  },
 ];
 
 test("parseRedPrs mantém só PRs com check falhando e lista os nomes", () => {
   const red = parseRedPrs(sample);
-  assert.deepEqual(red.map((p) => p.number), [137, 139]);
+  assert.deepEqual(
+    red.map((p) => p.number),
+    [137, 139],
+  );
   assert.deepEqual(red[0].failing, ["quality"]);
   assert.deepEqual(red[1].failing, ["ci"]);
 });
@@ -54,38 +91,111 @@ test("FixQueue mantém no máximo N em execução e avança quando um termina", 
 });
 
 test("FixQueue: falha ao iniciar um item não trava a fila", async () => {
-  const q = new FixQueue<string>(2, async (item) => {
-    if (item === "bad") throw new Error("delegação recusada");
-    return `t-${item}`;
-  }, { maxAttempts: 1 });
+  const q = new FixQueue<string>(
+    2,
+    async (item) => {
+      if (item === "bad") throw new Error("delegação recusada");
+      return `t-${item}`;
+    },
+    { maxAttempts: 1 },
+  );
   await q.enqueue(["bad", "a", "b"]);
   assert.equal(q.failed.length, 1);
   assert.deepEqual(q.runningIds.sort(), ["t-a", "t-b"]);
 });
 
 test("repoFromRemote reconhece https, ssh e alias de host", () => {
-  assert.deepEqual(repoFromRemote("git@github-pers:MarcosPTProenca/adaptative-learning.git"), { owner: "MarcosPTProenca", name: "adaptative-learning" });
+  assert.deepEqual(repoFromRemote("git@github-pers:MarcosPTProenca/adaptative-learning.git"), {
+    owner: "MarcosPTProenca",
+    name: "adaptative-learning",
+  });
   assert.deepEqual(repoFromRemote("https://github.com/owner/repo"), { owner: "owner", name: "repo" });
   assert.throws(() => repoFromRemote("nada-aqui"), /remote não reconhecido/);
 });
 
 test("parseGraphqlRedPrs traduz a resposta do GraphQL para PRs vermelhas", () => {
-  const gql = { data: { repository: { pullRequests: { nodes: [
-    { number: 129, title: "t", url: "https://github.com/o/r/pull/129", headRefName: "fm/x",
-      commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: [{ __typename: "CheckRun", name: "quality", conclusion: "FAILURE" }] } } } }] } },
-    { number: 93, title: "ok", url: "u", headRefName: "y",
-      commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: [{ __typename: "CheckRun", name: "check", conclusion: "SUCCESS" }] } } } }] } },
-  ] } } } };
+  const gql = {
+    data: {
+      repository: {
+        pullRequests: {
+          nodes: [
+            {
+              number: 129,
+              title: "t",
+              url: "https://github.com/o/r/pull/129",
+              headRefName: "fm/x",
+              commits: {
+                nodes: [
+                  {
+                    commit: {
+                      statusCheckRollup: {
+                        contexts: { nodes: [{ __typename: "CheckRun", name: "quality", conclusion: "FAILURE" }] },
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+            {
+              number: 93,
+              title: "ok",
+              url: "u",
+              headRefName: "y",
+              commits: {
+                nodes: [
+                  {
+                    commit: {
+                      statusCheckRollup: {
+                        contexts: { nodes: [{ __typename: "CheckRun", name: "check", conclusion: "SUCCESS" }] },
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+    },
+  };
   const red = parseGraphqlRedPrs(gql);
-  assert.deepEqual(red.map((p) => [p.number, p.failing]), [[129, ["quality"]]]);
+  assert.deepEqual(
+    red.map((p) => [p.number, p.failing]),
+    [[129, ["quality"]]],
+  );
 });
 
 test("conflictNote avisa o worker quando a PR tem conflito com a base", () => {
-  const [pr] = parseGraphqlRedPrs({ data: { repository: { pullRequests: { nodes: [
-    { number: 131, title: "t", url: "https://github.com/o/r/pull/131", headRefName: "fm/al-issue-52-q1", baseRefName: "fm/al-issue-51-q1",
-      mergeable: "CONFLICTING", mergeStateStatus: "DIRTY",
-      commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: [{ __typename: "CheckRun", name: "quality", conclusion: "FAILURE" }] } } } }] } },
-    ] } } } });
+  const [pr] = parseGraphqlRedPrs({
+    data: {
+      repository: {
+        pullRequests: {
+          nodes: [
+            {
+              number: 131,
+              title: "t",
+              url: "https://github.com/o/r/pull/131",
+              headRefName: "fm/al-issue-52-q1",
+              baseRefName: "fm/al-issue-51-q1",
+              mergeable: "CONFLICTING",
+              mergeStateStatus: "DIRTY",
+              commits: {
+                nodes: [
+                  {
+                    commit: {
+                      statusCheckRollup: {
+                        contexts: { nodes: [{ __typename: "CheckRun", name: "quality", conclusion: "FAILURE" }] },
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+    },
+  });
   assert.equal(pr.mergeStateStatus, "DIRTY");
   assert.match(conflictNote(pr), /conflito de merge contra a base fm\/al-issue-51-q1/);
   const input = fixInputFor(pr, "/repo");
@@ -94,17 +204,57 @@ test("conflictNote avisa o worker quando a PR tem conflito com a base", () => {
 });
 
 test("PR limpa não ganha aviso de conflito", () => {
-  const [pr] = parseGraphqlRedPrs({ data: { repository: { pullRequests: { nodes: [
-    { number: 9, title: "t", url: "u", headRefName: "x", baseRefName: "main", mergeable: "MERGEABLE", mergeStateStatus: "CLEAN",
-      commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: [{ __typename: "CheckRun", name: "q", conclusion: "FAILURE" }] } } } }] } },
-    ] } } } });
+  const [pr] = parseGraphqlRedPrs({
+    data: {
+      repository: {
+        pullRequests: {
+          nodes: [
+            {
+              number: 9,
+              title: "t",
+              url: "u",
+              headRefName: "x",
+              baseRefName: "main",
+              mergeable: "MERGEABLE",
+              mergeStateStatus: "CLEAN",
+              commits: {
+                nodes: [
+                  {
+                    commit: {
+                      statusCheckRollup: {
+                        contexts: { nodes: [{ __typename: "CheckRun", name: "q", conclusion: "FAILURE" }] },
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+    },
+  });
   assert.equal(conflictNote(pr), "");
 });
 
 test("prFromUrl e prStateLine", () => {
-  assert.deepEqual(prFromUrl("https://github.com/MarcosPTProenca/adaptative-learning/pull/131"), { owner: "MarcosPTProenca", name: "adaptative-learning", number: 131 });
+  assert.deepEqual(prFromUrl("https://github.com/MarcosPTProenca/adaptative-learning/pull/131"), {
+    owner: "MarcosPTProenca",
+    name: "adaptative-learning",
+    number: 131,
+  });
   assert.equal(prFromUrl("https://example.com/x"), null);
-  assert.match(prStateLine({ number: 131, state: "OPEN", mergeable: "CONFLICTING", mergeStateStatus: "DIRTY", headRefOid: "x", checks: [] }), /CONFLITO/);
+  assert.match(
+    prStateLine({
+      number: 131,
+      state: "OPEN",
+      mergeable: "CONFLICTING",
+      mergeStateStatus: "DIRTY",
+      headRefOid: "x",
+      checks: [],
+    }),
+    /CONFLITO/,
+  );
 });
 
 const green = (name: string) => ({ name, conclusion: "SUCCESS", status: "COMPLETED" });
@@ -117,11 +267,18 @@ test("verificação: PR aberta, mergeável e com checks verdes é VERIFICADA", (
 });
 
 test("verificação: check vermelho, em andamento ou conflito impedem a verificação", () => {
-  assert.deepEqual(verifyPr({ ...base, checks: [{ name: "quality", conclusion: "FAILURE", status: "COMPLETED" }] }), ['check "quality" FAILURE']);
-  assert.deepEqual(verifyPr({ ...base, checks: [{ name: "quality", conclusion: null, status: "IN_PROGRESS" }] }), ['check "quality" ainda IN_PROGRESS']);
+  assert.deepEqual(verifyPr({ ...base, checks: [{ name: "quality", conclusion: "FAILURE", status: "COMPLETED" }] }), [
+    'check "quality" FAILURE',
+  ]);
+  assert.deepEqual(verifyPr({ ...base, checks: [{ name: "quality", conclusion: null, status: "IN_PROGRESS" }] }), [
+    'check "quality" ainda IN_PROGRESS',
+  ]);
   const conflict = verifyPr({ ...base, mergeable: "CONFLICTING", mergeStateStatus: "DIRTY", checks: [green("q")] });
   assert.deepEqual(conflict, ["conflito de merge com a base"]);
-  assert.match(verificationLine({ ...base, mergeable: "CONFLICTING", mergeStateStatus: "DIRTY", checks: [green("q")] }), /NÃO VERIFICADA/);
+  assert.match(
+    verificationLine({ ...base, mergeable: "CONFLICTING", mergeStateStatus: "DIRTY", checks: [green("q")] }),
+    /NÃO VERIFICADA/,
+  );
 });
 
 test("verificação: PR fechada ou sem checks não é verificada", () => {
@@ -136,12 +293,17 @@ test("verificação: PR já mesclada conta como verificada", () => {
 
 test("FixQueue tenta de novo um início que falhou e só desiste depois do limite", async () => {
   const calls: string[] = [];
-  const q = new FixQueue<string>(2, async (item) => {
-    calls.push(item);
-    if (item === "flaky" && calls.filter((c) => c === "flaky").length === 1) throw new Error("timeout de inicialização");
-    if (item === "dead") throw new Error("sempre falha");
-    return `t-${item}`;
-  }, { maxAttempts: 2 });
+  const q = new FixQueue<string>(
+    2,
+    async (item) => {
+      calls.push(item);
+      if (item === "flaky" && calls.filter((c) => c === "flaky").length === 1)
+        throw new Error("timeout de inicialização");
+      if (item === "dead") throw new Error("sempre falha");
+      return `t-${item}`;
+    },
+    { maxAttempts: 2 },
+  );
   await q.enqueue(["flaky", "dead", "a"]);
   assert.deepEqual(q.runningIds.sort(), ["t-a", "t-flaky"].sort(), "flaky entrou na segunda tentativa");
   await q.settle("t-a");

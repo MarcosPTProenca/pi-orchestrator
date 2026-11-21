@@ -8,8 +8,9 @@ const STATUS = `A new version of treehouse is available
 3     leased       ~/.treehouse/al-0802e3/3/al  (held by implement-x)
 `;
 
-/** Ops simulados: árvore com estado controlado por teste. */
-function fakeOps(over: Partial<{ dirty: string; remoteContains: string; returned: string[] }> = {}): WorktreeOps & { returned: string[] } {
+function fakeOps(
+  over: Partial<{ dirty: string; remoteContains: string; returned: string[] }> = {},
+): WorktreeOps & { returned: string[] } {
   const returned: string[] = [];
   return {
     returned,
@@ -27,19 +28,25 @@ function fakeOps(over: Partial<{ dirty: string; remoteContains: string; returned
 
 test("parseLeases pega só arrendamentos com titular e expande ~", () => {
   const leases = parseLeases(STATUS, "/home/u");
-  assert.deepEqual(leases.map((l) => [l.holder, l.path]), [
-    ["t-e19b2fae", "/home/u/.treehouse/al-0802e3/1/al"],
-    ["implement-x", "/home/u/.treehouse/al-0802e3/3/al"],
-  ]);
+  assert.deepEqual(
+    leases.map((l) => [l.holder, l.path]),
+    [
+      ["t-e19b2fae", "/home/u/.treehouse/al-0802e3/1/al"],
+      ["implement-x", "/home/u/.treehouse/al-0802e3/3/al"],
+    ],
+  );
 });
 
 test("parseLeases aceita a saída do treehouse 3.x com branch entre colchetes", () => {
   const v3 = `base  master  (repository default)\n1     leased       ~/.treehouse/al-0802e3/1/al  [feat/x]  (held by t-e19b2fae)\n2     available    ~/.treehouse/al-0802e3/2/al  (detached)\n3     leased       ~/.treehouse/al-0802e3/3/al  (detached)  (held by implement-x)\n`;
   const leases = parseLeases(v3, "/home/u");
-  assert.deepEqual(leases.map((l) => [l.holder, l.path]), [
-    ["t-e19b2fae", "/home/u/.treehouse/al-0802e3/1/al"],
-    ["implement-x", "/home/u/.treehouse/al-0802e3/3/al"],
-  ]);
+  assert.deepEqual(
+    leases.map((l) => [l.holder, l.path]),
+    [
+      ["t-e19b2fae", "/home/u/.treehouse/al-0802e3/1/al"],
+      ["implement-x", "/home/u/.treehouse/al-0802e3/3/al"],
+    ],
+  );
 });
 
 test("devolve a worktree de uma tarefa limpa e já enviada", () => {

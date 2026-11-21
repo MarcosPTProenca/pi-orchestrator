@@ -38,22 +38,41 @@ test("sem cota em Claude nem Codex: kiro/auto como último recurso", () => {
 test("cota desconhecida não conta como disponível; sem nenhum modelo, erro explícito", () => {
   const r = pickModel(DEFAULT_PRIORITY, [q("claude", null), q("codex", 50)], AVAIL);
   assert.equal(r.model, "openai-codex/gpt-6-luna");
-  assert.throws(() => pickModel(["claude-bridge/claude-haiku-5-5"], [q("claude", 1)], AVAIL), /nenhum modelo com cota disponível/);
+  assert.throws(
+    () => pickModel(["claude-bridge/claude-haiku-5-5"], [q("claude", 1)], AVAIL),
+    /nenhum modelo com cota disponível/,
+  );
 });
 
 test("modelo pedido com cota esgotada é recusado, sem troca", () => {
-  assert.throws(() => checkRequestedQuota("claude-bridge/claude-haiku-5-5", [q("claude", 3)]), /cota de claude esgotada.*não foi lançado/);
+  assert.throws(
+    () => checkRequestedQuota("claude-bridge/claude-haiku-5-5", [q("claude", 3)]),
+    /cota de claude esgotada.*não foi lançado/,
+  );
   assert.doesNotThrow(() => checkRequestedQuota("claude-bridge/claude-haiku-5-5", [q("claude", 40)]));
   assert.doesNotThrow(() => checkRequestedQuota("kiro/auto", [q("claude", 0)]));
 });
 
 test("parseQuota usa o menor percentual efetivo e marca stale", () => {
-  const json = { providers: [
-    { provider: "claude", state: { stale: true }, quotaSemantics: { effectiveAvailability: [{ scope: "all_models", effectivePercentRemaining: 59 }] }, windows: [{ percentRemaining: 59 }, { percentRemaining: 72 }] },
-    { provider: "codex", windows: [{ percentRemaining: 30 }, { percentRemaining: 12 }] },
-  ] };
+  const json = {
+    providers: [
+      {
+        provider: "claude",
+        state: { stale: true },
+        quotaSemantics: { effectiveAvailability: [{ scope: "all_models", effectivePercentRemaining: 59 }] },
+        windows: [{ percentRemaining: 59 }, { percentRemaining: 72 }],
+      },
+      { provider: "codex", windows: [{ percentRemaining: 30 }, { percentRemaining: 12 }] },
+    ],
+  };
   const r = parseQuota(json);
-  assert.deepEqual(r.map((x) => [x.provider, x.percentRemaining, x.stale]), [["claude", 59, true], ["codex", 12, false]]);
+  assert.deepEqual(
+    r.map((x) => [x.provider, x.percentRemaining, x.stale]),
+    [
+      ["claude", 59, true],
+      ["codex", 12, false],
+    ],
+  );
 });
 
 test("relatório de falha distingue cota de outros erros do modelo", () => {
@@ -67,7 +86,9 @@ test("relatório de falha distingue cota de outros erros do modelo", () => {
 
 test("webhook: sem token é 401; corpo inválido é 400; POST válido chama o handler", async () => {
   const seen: string[] = [];
-  const hook = await startHook("tok", async (id) => { seen.push(id); });
+  const hook = await startHook("tok", async (id) => {
+    seen.push(id);
+  });
   try {
     const noAuth = await fetch(hook.url, { method: "POST", body: JSON.stringify({ task_id: "t-1" }) });
     assert.equal(noAuth.status, 401);
@@ -94,12 +115,22 @@ test("orquestrador: escolha de modelo que falha impede o lançamento de qualquer
   const { Orchestrator } = await import("../src/orchestrator.ts");
   const { Store } = await import("../src/store.ts");
   const orch = new Orchestrator({
-    herdr: h.herdr, store: new Store(join(h.stateDir, "q.json")), tasksDir: join(h.stateDir, "q-tasks"),
-    workerExtPath: "/x", now: () => h.clock.ms, newHex: () => "abababab",
-    availableModels: () => AVAIL, dryRun: false,
-    chooseModel: async () => { throw new Error("cota esgotada (teste)"); },
+    herdr: h.herdr,
+    store: new Store(join(h.stateDir, "q.json")),
+    tasksDir: join(h.stateDir, "q-tasks"),
+    workerExtPath: "/x",
+    now: () => h.clock.ms,
+    newHex: () => "abababab",
+    availableModels: () => AVAIL,
+    dryRun: false,
+    chooseModel: async () => {
+      throw new Error("cota esgotada (teste)");
+    },
   });
-  await assert.rejects(orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" }), /cota esgotada/);
+  await assert.rejects(
+    orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" }),
+    /cota esgotada/,
+  );
   assert.equal(h.herdr.opsOf("createTab").length, 0);
   assert.equal(orch.list().length, 0);
 });

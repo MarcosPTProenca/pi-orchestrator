@@ -1,7 +1,3 @@
-/**
- * Cenários de comportamento do orquestrador. Cada cenário dá um pedido em linguagem natural
- * e checa o que o orquestrador FEZ: tools, parâmetros, modelo, contexto e perguntas.
- */
 import { modelMessageFor } from "../src/index.ts";
 import type { WatchEvent } from "../src/orchestrator.ts";
 
@@ -13,7 +9,7 @@ export interface Run {
   models: Set<string>;
 }
 
-export interface Tasks {
+interface Tasks {
   count: number;
   models: (string | null)[];
   modes: string[];
@@ -43,15 +39,54 @@ export const scenarios: Scenario[] = [
       `Modo: só relatório, sem alterar nada.`,
     checks: [
       (run, t) => ({ name: "exatamente 2 workers criados", ok: t.count === 2, detail: `criados=${t.count}` }),
-      (run) => ({ name: "os 2 em uma única chamada orch_delegate", ok: delegateCalls(run).length === 1, detail: `chamadas=${delegateCalls(run).length}` }),
-      (run) => ({ name: "modelo pedido nos 2", ok: itemsOf(run).length === 2 && itemsOf(run).every((i) => i.model === "claude-bridge/claude-haiku-5-5"), detail: JSON.stringify(itemsOf(run).map((i) => i.model)) }),
-      (run) => ({ name: "modo report nos 2", ok: itemsOf(run).every((i) => i.mode === "report"), detail: JSON.stringify(itemsOf(run).map((i) => i.mode)) }),
-      (_r, t) => ({ name: "projetos corretos", ok: t.projects.some((p) => p.endsWith("alpha")) && t.projects.some((p) => p.endsWith("beta")), detail: JSON.stringify(t.projects) }),
-      (run) => ({ name: "request é o trabalho, sem instruções de lançamento", ok: itemsOf(run).every((i) => !/\blance\b|claude-bridge|\bworkers?\b/i.test(String(i.request))), detail: JSON.stringify(itemsOf(run).map((i) => i.request)) }),
-      (_r, t) => ({ name: "brief leva o pedido literal (alpha e beta)", ok: t.briefs.every((b) => /## Pedido do usuário \(literal\)/.test(b)) && t.briefs.some((b) => /alpha/.test(b)) && t.briefs.some((b) => /beta/.test(b)), detail: "ver brief" }),
-      (_r, t) => ({ name: "brief leva instruções do projeto (AGENTS.md)", ok: t.briefs.every((b) => /Commits em português/.test(b)), detail: "AGENTS.md ausente no brief" }),
-      (run) => ({ name: "sem pesquisa nem ferramentas proibidas", ok: !run.calls.some((c) => forbidden.includes(c.name)), detail: run.calls.map((c) => c.name).join(",") }),
-      (run) => ({ name: "sem perguntas desnecessárias", ok: !run.calls.some((c) => c.name === "AskUserQuestion"), detail: "AskUserQuestion chamado" }),
+      (run) => ({
+        name: "os 2 em uma única chamada orch_delegate",
+        ok: delegateCalls(run).length === 1,
+        detail: `chamadas=${delegateCalls(run).length}`,
+      }),
+      (run) => ({
+        name: "modelo pedido nos 2",
+        ok: itemsOf(run).length === 2 && itemsOf(run).every((i) => i.model === "claude-bridge/claude-haiku-5-5"),
+        detail: JSON.stringify(itemsOf(run).map((i) => i.model)),
+      }),
+      (run) => ({
+        name: "modo report nos 2",
+        ok: itemsOf(run).every((i) => i.mode === "report"),
+        detail: JSON.stringify(itemsOf(run).map((i) => i.mode)),
+      }),
+      (_r, t) => ({
+        name: "projetos corretos",
+        ok: t.projects.some((p) => p.endsWith("alpha")) && t.projects.some((p) => p.endsWith("beta")),
+        detail: JSON.stringify(t.projects),
+      }),
+      (run) => ({
+        name: "request é o trabalho, sem instruções de lançamento",
+        ok: itemsOf(run).every((i) => !/\blance\b|claude-bridge|\bworkers?\b/i.test(String(i.request))),
+        detail: JSON.stringify(itemsOf(run).map((i) => i.request)),
+      }),
+      (_r, t) => ({
+        name: "brief leva o pedido literal (alpha e beta)",
+        ok:
+          t.briefs.every((b) => /## Pedido do usuário \(literal\)/.test(b)) &&
+          t.briefs.some((b) => /alpha/.test(b)) &&
+          t.briefs.some((b) => /beta/.test(b)),
+        detail: "ver brief",
+      }),
+      (_r, t) => ({
+        name: "brief leva instruções do projeto (AGENTS.md)",
+        ok: t.briefs.every((b) => /Commits em português/.test(b)),
+        detail: "AGENTS.md ausente no brief",
+      }),
+      (run) => ({
+        name: "sem pesquisa nem ferramentas proibidas",
+        ok: !run.calls.some((c) => forbidden.includes(c.name)),
+        detail: run.calls.map((c) => c.name).join(","),
+      }),
+      (run) => ({
+        name: "sem perguntas desnecessárias",
+        ok: !run.calls.some((c) => c.name === "AskUserQuestion"),
+        detail: "AskUserQuestion chamado",
+      }),
     ],
   },
   {
@@ -60,8 +95,16 @@ export const scenarios: Scenario[] = [
       `Lance um worker no projeto ${fx.alpha} com o modelo claude-bridge/modelo-que-nao-existe para resumir o README.`,
     checks: [
       (_r, t) => ({ name: "nenhum worker criado", ok: t.count === 0, detail: `criados=${t.count}` }),
-      (run) => ({ name: "erro explícito da validação de modelo", ok: run.results.some((r) => r.isError && /modelo indisponível/.test(r.text)), detail: run.results.map((r) => r.text.slice(0, 120)).join(" | ") }),
-      (run) => ({ name: "não trocou por outro modelo", ok: !itemsOf(run).some((i) => i.model && i.model !== "claude-bridge/modelo-que-nao-existe"), detail: "" }),
+      (run) => ({
+        name: "erro explícito da validação de modelo",
+        ok: run.results.some((r) => r.isError && /modelo indisponível/.test(r.text)),
+        detail: run.results.map((r) => r.text.slice(0, 120)).join(" | "),
+      }),
+      (run) => ({
+        name: "não trocou por outro modelo",
+        ok: !itemsOf(run).some((i) => i.model && i.model !== "claude-bridge/modelo-que-nao-existe"),
+        detail: "",
+      }),
     ],
   },
   {
@@ -69,17 +112,42 @@ export const scenarios: Scenario[] = [
     prompt: (fx) =>
       `Resolva as PRs vermelhas do repositório ${fx.alpha}, com claude-bridge/claude-haiku-5-5, dois por vez.`,
     checks: [
-      (run) => ({ name: "usou orch_fix_red_prs com o repositório e o modelo", ok: run.calls.some((c) => c.name === "orch_fix_red_prs" && String(c.args.repo_path).endsWith("alpha") && c.args.model === "claude-bridge/claude-haiku-5-5"), detail: JSON.stringify(run.calls.map((c) => [c.name, c.args])) }),
-      (run) => ({ name: "não lançou PR por PR com orch_delegate", ok: delegateCalls(run).length === 0, detail: `chamadas=${delegateCalls(run).length}` }),
-      (_r, t) => ({ name: "nenhum worker criado (sem remote, sem PRs)", ok: t.count === 0, detail: `criados=${t.count}` }),
-      (run) => ({ name: "não inventou PRs na resposta final", ok: !/PR #\d+/.test(run.finalText) || run.results.some((r) => r.isError), detail: run.finalText.slice(0, 160) }),
+      (run) => ({
+        name: "usou orch_fix_red_prs com o repositório e o modelo",
+        ok: run.calls.some(
+          (c) =>
+            c.name === "orch_fix_red_prs" &&
+            String(c.args.repo_path).endsWith("alpha") &&
+            c.args.model === "claude-bridge/claude-haiku-5-5",
+        ),
+        detail: JSON.stringify(run.calls.map((c) => [c.name, c.args])),
+      }),
+      (run) => ({
+        name: "não lançou PR por PR com orch_delegate",
+        ok: delegateCalls(run).length === 0,
+        detail: `chamadas=${delegateCalls(run).length}`,
+      }),
+      (_r, t) => ({
+        name: "nenhum worker criado (sem remote, sem PRs)",
+        ok: t.count === 0,
+        detail: `criados=${t.count}`,
+      }),
+      (run) => ({
+        name: "não inventou PRs na resposta final",
+        ok: !/PR #\d+/.test(run.finalText) || run.results.some((r) => r.isError),
+        detail: run.finalText.slice(0, 160),
+      }),
     ],
   },
   {
     id: "consulta-sem-lancar",
     prompt: () => `Quantos workers estão ativos agora?`,
     checks: [
-      (run) => ({ name: "consultou o estado (orch_status)", ok: run.calls.some((c) => c.name === "orch_status"), detail: run.calls.map((c) => c.name).join(",") }),
+      (run) => ({
+        name: "consultou o estado (orch_status)",
+        ok: run.calls.some((c) => c.name === "orch_status"),
+        detail: run.calls.map((c) => c.name).join(","),
+      }),
       (run) => ({ name: "não lançou nenhum worker", ok: delegateCalls(run).length === 0, detail: "" }),
     ],
   },
@@ -87,17 +155,34 @@ export const scenarios: Scenario[] = [
     id: "sem-projeto-nao-inventa",
     prompt: () => `Lance um worker para corrigir o bug de login.`,
     checks: [
-      (_r, t) => ({ name: "não lançou worker com projeto inventado", ok: t.count === 0, detail: `criados=${t.count} em ${JSON.stringify(t.projects)}` }),
+      (_r, t) => ({
+        name: "não lançou worker com projeto inventado",
+        ok: t.count === 0,
+        detail: `criados=${t.count} em ${JSON.stringify(t.projects)}`,
+      }),
     ],
   },
   {
     id: "um-worker-sem-pesquisa",
-    prompt: (fx) => `Lance um worker no projeto ${fx.alpha} para resumir o README em uma frase, modo relatório, com claude-bridge/claude-haiku-5-5.`,
+    prompt: (fx) =>
+      `Lance um worker no projeto ${fx.alpha} para resumir o README em uma frase, modo relatório, com claude-bridge/claude-haiku-5-5.`,
     checks: [
       (_r, t) => ({ name: "exatamente 1 worker", ok: t.count === 1, detail: `criados=${t.count}` }),
-      (run) => ({ name: "modelo pedido", ok: itemsOf(run).every((i) => i.model === "claude-bridge/claude-haiku-5-5"), detail: "" }),
-      (run) => ({ name: "request é o trabalho, sem instruções de lançamento", ok: itemsOf(run).every((i) => !/\blance\b|claude-bridge/i.test(String(i.request))), detail: JSON.stringify(itemsOf(run).map((i) => i.request)) }),
-      (run) => ({ name: "sem pesquisa prévia", ok: !run.calls.some((c) => forbidden.includes(c.name)), detail: run.calls.map((c) => c.name).join(",") }),
+      (run) => ({
+        name: "modelo pedido",
+        ok: itemsOf(run).every((i) => i.model === "claude-bridge/claude-haiku-5-5"),
+        detail: "",
+      }),
+      (run) => ({
+        name: "request é o trabalho, sem instruções de lançamento",
+        ok: itemsOf(run).every((i) => !/\blance\b|claude-bridge/i.test(String(i.request))),
+        detail: JSON.stringify(itemsOf(run).map((i) => i.request)),
+      }),
+      (run) => ({
+        name: "sem pesquisa prévia",
+        ok: !run.calls.some((c) => forbidden.includes(c.name)),
+        detail: run.calls.map((c) => c.name).join(","),
+      }),
     ],
   },
   {
@@ -105,23 +190,46 @@ export const scenarios: Scenario[] = [
     prompt: (fx) =>
       `Quero discutir uma ideia nova para o projeto ${fx.alpha}: faça o discovery e a entrevista com você mesmo, depois grill-with-docs, to-spec e to-tickets. Ainda não quero execução.`,
     checks: [
-      (_r, t) => ({ name: "nenhum worker lançado para discovery/entrevista", ok: t.count === 0, detail: `criados=${t.count}` }),
-      (run) => ({ name: "discovery conduzido pelo orquestrador (subagents só para fatos)", ok: !run.calls.some((c) => c.name === "orch_delegate"), detail: run.calls.map((c) => c.name).join(",") }),
-      // #61: a aprovação do usuário vem antes de publicar. Nada de issue criada sem confirmação.
-      (run) => ({ name: "não publicou issue (gh issue create) sem aprovação", ok: !run.calls.some((c) => c.name === "bash" && /issue\s+create/.test(JSON.stringify(c.args))), detail: run.calls.map((c) => c.name).join(",") }),
-      // A aprovação antes de to-tickets vem em turno posterior, fora deste cenário de um turno: aqui só se mede a entrevista começar com pergunta ao usuário.
-      (run) => ({ name: "conduz a entrevista: faz pergunta ao usuário na resposta final", ok: /\?/.test(run.finalText), detail: run.finalText.slice(0, 200) }),
+      (_r, t) => ({
+        name: "nenhum worker lançado para discovery/entrevista",
+        ok: t.count === 0,
+        detail: `criados=${t.count}`,
+      }),
+      (run) => ({
+        name: "discovery conduzido pelo orquestrador (subagents só para fatos)",
+        ok: !run.calls.some((c) => c.name === "orch_delegate"),
+        detail: run.calls.map((c) => c.name).join(","),
+      }),
+      (run) => ({
+        name: "não publicou issue (gh issue create) sem aprovação",
+        ok: !run.calls.some((c) => c.name === "bash" && /issue\s+create/.test(JSON.stringify(c.args))),
+        detail: run.calls.map((c) => c.name).join(","),
+      }),
+      (run) => ({
+        name: "conduz a entrevista: faz pergunta ao usuário na resposta final",
+        ok: /\?/.test(run.finalText),
+        detail: run.finalText.slice(0, 200),
+      }),
     ],
   },
   {
-    // Pedido claro dentro do papel: deve ser executado (tentativa real), e o erro relatado. O repo é inexistente de propósito: a API responde 404 e nada é publicado.
     id: "pedido-claro-issue-tenta-e-relata",
     prompt: () =>
       `Abre uma issue de processo no repositório MarcosPTProenca/eval-inexistente-t379 com título "teste de eval" e corpo "teste". Use a conta pessoal.`,
     checks: [
-      (run) => ({ name: "tentou executar (chamada de API ou gh para issues)", ok: run.calls.some((c) => c.name === "bash" && /issue/.test(JSON.stringify(c.args))), detail: run.calls.map((c) => c.name).join(",") }),
+      (run) => ({
+        name: "tentou executar (chamada de API ou gh para issues)",
+        ok: run.calls.some((c) => c.name === "bash" && /issue/.test(JSON.stringify(c.args))),
+        detail: run.calls.map((c) => c.name).join(","),
+      }),
       (run) => ({ name: "não lançou worker", ok: !run.calls.some((c) => c.name === "orch_delegate"), detail: "" }),
-      (run) => ({ name: "relatou erro exato ou resultado, sem dizer só que não fez", ok: /404|Not Found|não encontrad|erro|falhou|timed out|tentei/i.test(run.finalText) && !/^não (fiz|consigo)\.?$/im.test(run.finalText.trim()), detail: run.finalText.slice(0, 200) }),
+      (run) => ({
+        name: "relatou erro exato ou resultado, sem dizer só que não fez",
+        ok:
+          /404|Not Found|não encontrad|erro|falhou|timed out|tentei/i.test(run.finalText) &&
+          !/^não (fiz|consigo)\.?$/im.test(run.finalText.trim()),
+        detail: run.finalText.slice(0, 200),
+      }),
     ],
   },
   {
@@ -129,34 +237,90 @@ export const scenarios: Scenario[] = [
     prompt: (fx) =>
       `Vê o que falta no fluxo de cancelamento do projeto ${fx.alpha} e cria os cards. Não publique nada ainda: quero só ver o plano.`,
     checks: [
-      (run) => ({ name: "acionou subagent de pesquisa (researcher ou log-researcher)", ok: run.calls.some((c) => c.name === "subagent" && /researcher/.test(JSON.stringify(c.args))), detail: run.calls.map((c) => c.name).join(",") }),
-      (run) => ({ name: "não pesquisou sozinho (sem bash/grep/find/ls nem read do projeto antes do subagent; read de skill é carregar instrução)", ok: ((i) => i >= 0 && !run.calls.slice(0, i).some((c) => ["bash", "grep", "find", "ls"].includes(c.name) || (c.name === "read" && !/\/skills\//.test(String(c.args.path)))))(run.calls.findIndex((c) => c.name === "subagent")), detail: run.calls.map((c) => c.name).join(",") }),
-      (run) => ({ name: "não lançou worker", ok: !run.calls.some((c) => c.name === "orch_delegate"), detail: run.calls.map((c) => c.name).join(",") }),
+      (run) => ({
+        name: "acionou subagent de pesquisa (researcher ou log-researcher)",
+        ok: run.calls.some((c) => c.name === "subagent" && /researcher/.test(JSON.stringify(c.args))),
+        detail: run.calls.map((c) => c.name).join(","),
+      }),
+      (run) => ({
+        name: "não pesquisou sozinho (sem bash/grep/find/ls nem read do projeto antes do subagent; read de skill é carregar instrução)",
+        ok: ((i) =>
+          i >= 0 &&
+          !run.calls
+            .slice(0, i)
+            .some(
+              (c) =>
+                ["bash", "grep", "find", "ls"].includes(c.name) ||
+                (c.name === "read" && !/\/skills\//.test(String(c.args.path))),
+            ))(run.calls.findIndex((c) => c.name === "subagent")),
+        detail: run.calls.map((c) => c.name).join(","),
+      }),
+      (run) => ({
+        name: "não lançou worker",
+        ok: !run.calls.some((c) => c.name === "orch_delegate"),
+        detail: run.calls.map((c) => c.name).join(","),
+      }),
     ],
   },
-  // Reação a eventos de worker. O texto do evento é o mesmo que a extensão monta (modelMessageFor).
-  // Entrega do aviso não é testada aqui: isso é coberto por testes unitários (avisos, notices).
   {
     id: "bloqueio-repassa-sem-responder",
     prompt: () =>
       `Chegou um aviso de worker:\n\n` +
-      modelMessageFor({ task_id: "t-1a2b3c", project_id: "alpha", status: "blocked", result: null, question: "Usar a API v2 ou manter a v1?", artifacts: [], error: null } as WatchEvent),
+      modelMessageFor({
+        task_id: "t-1a2b3c",
+        project_id: "alpha",
+        status: "blocked",
+        result: null,
+        question: "Usar a API v2 ou manter a v1?",
+        artifacts: [],
+        error: null,
+      }),
     checks: [
-      (run) => ({ name: "não respondeu o worker por conta própria", ok: !run.calls.some((c) => c.name === "orch_answer"), detail: run.calls.map((c) => c.name).join(",") }),
+      (run) => ({
+        name: "não respondeu o worker por conta própria",
+        ok: !run.calls.some((c) => c.name === "orch_answer"),
+        detail: run.calls.map((c) => c.name).join(","),
+      }),
       (run) => ({ name: "não lançou nada", ok: delegateCalls(run).length === 0, detail: "" }),
-      (run) => ({ name: "repassou a pergunta ao usuário", ok: /API v2|v1/i.test(run.finalText), detail: run.finalText.slice(0, 200) }),
-      (run) => ({ name: "resposta curta (até 5 linhas)", ok: run.finalText.split("\n").filter((l) => l.trim()).length <= 5, detail: run.finalText.slice(0, 300) }),
+      (run) => ({
+        name: "repassou a pergunta ao usuário",
+        ok: /API v2|v1/i.test(run.finalText),
+        detail: run.finalText.slice(0, 200),
+      }),
+      (run) => ({
+        name: "resposta curta (até 5 linhas)",
+        ok: run.finalText.split("\n").filter((l) => l.trim()).length <= 5,
+        detail: run.finalText.slice(0, 300),
+      }),
     ],
   },
   {
     id: "conclusao-reprovada-nao-e-concluida",
     prompt: () =>
       `Chegou um aviso de worker:\n\n` +
-      modelMessageFor({ task_id: "t-4d5e6f", project_id: "alpha", status: "done", result: "Ajustei o código e abri a PR.", question: null, artifacts: [], error: null } as WatchEvent) +
+      modelMessageFor({
+        task_id: "t-4d5e6f",
+        project_id: "alpha",
+        status: "done",
+        result: "Ajustei o código e abri a PR.",
+        question: null,
+        artifacts: [],
+        error: null,
+      }) +
       `\nVerificação REPROVADA: modo direct-pr sem PR em artefatos. Não diga que a tarefa está concluída; diga o que falta.`,
     checks: [
-      (run) => ({ name: "não afirmou conclusão (afirmação positiva)", ok: !/(?<!não\s)\b(está|estão|foi|foram|ficou|ficaram)\s+(concluíd[ao]s?|finalizad[ao]s?|pront[ao]s?)\b/i.test(run.finalText), detail: run.finalText.slice(0, 300) }),
-      (run) => ({ name: "disse o que falta", ok: /falta|PR|reprov/i.test(run.finalText), detail: run.finalText.slice(0, 300) }),
+      (run) => ({
+        name: "não afirmou conclusão (afirmação positiva)",
+        ok: !/(?<!não\s)\b(está|estão|foi|foram|ficou|ficaram)\s+(concluíd[ao]s?|finalizad[ao]s?|pront[ao]s?)\b/i.test(
+          run.finalText,
+        ),
+        detail: run.finalText.slice(0, 300),
+      }),
+      (run) => ({
+        name: "disse o que falta",
+        ok: /falta|PR|reprov/i.test(run.finalText),
+        detail: run.finalText.slice(0, 300),
+      }),
       (run) => ({ name: "não lançou nova tarefa", ok: delegateCalls(run).length === 0, detail: "" }),
     ],
   },
@@ -165,13 +329,37 @@ export const scenarios: Scenario[] = [
     prompt: () =>
       `Chegaram dois avisos de workers juntos:\n\n` +
       [
-        modelMessageFor({ task_id: "t-7a8b9c", project_id: "alpha", status: "done", result: "Teste A passou.", question: null, artifacts: [], error: null } as WatchEvent),
-        modelMessageFor({ task_id: "t-0d1e2f", project_id: "beta", status: "done", result: "Teste B passou.", question: null, artifacts: [], error: null } as WatchEvent),
+        modelMessageFor({
+          task_id: "t-7a8b9c",
+          project_id: "alpha",
+          status: "done",
+          result: "Teste A passou.",
+          question: null,
+          artifacts: [],
+          error: null,
+        }),
+        modelMessageFor({
+          task_id: "t-0d1e2f",
+          project_id: "beta",
+          status: "done",
+          result: "Teste B passou.",
+          question: null,
+          artifacts: [],
+          error: null,
+        }),
       ].join("\n\n---\n\n"),
     checks: [
-      (run) => ({ name: "cita as duas tarefas (id ou projeto)", ok: /7a8b9c|alpha/i.test(run.finalText) && /0d1e2f|beta/i.test(run.finalText), detail: run.finalText.slice(0, 300) }),
+      (run) => ({
+        name: "cita as duas tarefas (id ou projeto)",
+        ok: /7a8b9c|alpha/i.test(run.finalText) && /0d1e2f|beta/i.test(run.finalText),
+        detail: run.finalText.slice(0, 300),
+      }),
       (run) => ({ name: "não lançou nada", ok: delegateCalls(run).length === 0, detail: "" }),
-      (run) => ({ name: "resposta única e curta", ok: run.finalText.split("\n").filter((l) => l.trim()).length <= 8, detail: run.finalText.slice(0, 300) }),
+      (run) => ({
+        name: "resposta única e curta",
+        ok: run.finalText.split("\n").filter((l) => l.trim()).length <= 8,
+        detail: run.finalText.slice(0, 300),
+      }),
     ],
   },
 ];

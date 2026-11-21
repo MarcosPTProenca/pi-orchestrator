@@ -17,7 +17,13 @@ test("relatório válido que chega durante coleta com relatório inválido não 
   const h = makeHarness();
   const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
   writeFileSync(join(t.task_dir, "report.json"), JSON.stringify({ status: "done", result: "sem id" }));
-  const [a, b] = await Promise.all([h.orch.refresh(t.task_id), (async () => { writeReport(t.task_dir, t.task_id, { status: "done", result: "corrigido" }, "2"); return h.orch.refresh(t.task_id); })()]);
+  const [a, b] = await Promise.all([
+    h.orch.refresh(t.task_id),
+    (async () => {
+      writeReport(t.task_dir, t.task_id, { status: "done", result: "corrigido" }, "2");
+      return h.orch.refresh(t.task_id);
+    })(),
+  ]);
   const final = h.orch.get(t.task_id);
   assert.notEqual(final.status, "failed", `não pode terminar falha: ${final.error ?? ""}`);
   assert.equal(final.status, "done");

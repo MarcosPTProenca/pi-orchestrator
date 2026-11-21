@@ -8,7 +8,7 @@
     "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "types": ["node"],
-    
+
     "baseUrl": "."
   },
   "include": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts", "evals/**/*.ts"]

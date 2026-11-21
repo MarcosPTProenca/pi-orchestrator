@@ -1,8 +1,3 @@
-/**
- * Agrupa avisos de worker que chegam dentro de uma janela curta. Cada envio ao orquestrador vira um turno
- * do LLM; sem agrupar, uma rajada de conclusões gerava um turno (e uma releitura do contexto) por evento.
- * Mesmo item (mesma chave) na janela entra uma vez. Falha de envio tenta de novo e desiste após o limite.
- */
 export interface Scheduler {
   set(fn: () => void, ms: number): unknown;
   clear(handle: unknown): void;
@@ -55,7 +50,6 @@ export class NoticeBatcher<T extends { key: string }> {
     }
   }
 
-  /** Encerra sem enviar: devolve o que estava na janela, para quem chamou reabrir o aviso. */
   drain(): T[] {
     if (this.timer !== undefined) this.sched.clear(this.timer);
     this.timer = undefined;

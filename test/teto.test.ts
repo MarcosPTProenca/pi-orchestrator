@@ -16,9 +16,9 @@ test("capError recusa quando o lote estoura, dizendo ativos, teto e o que fazer"
   assert.equal(capError(4, 2, 6), null);
   const msg = capError(5, 3, 6);
   assert.ok(msg);
-  assert.match(msg!, /5 ativos/);
-  assert.match(msg!, /teto é 6/);
-  assert.match(msg!, /[Aa]guarde|cancele|PI_ORCH_MAX_ACTIVE/);
+  assert.match(msg, /5 ativos/);
+  assert.match(msg, /teto é 6/);
+  assert.match(msg, /[Aa]guarde|cancele|PI_ORCH_MAX_ACTIVE/);
 });
 
 test("orchestrator conta só tarefas ativas (starting, running, blocked)", async () => {
@@ -31,12 +31,16 @@ test("orchestrator conta só tarefas ativas (starting, running, blocked)", async
 });
 
 test("fila só inicia item quando canStart permite; liberar vaga e pump retoma", async () => {
-  let room = 1; // vagas globais disponíveis (teto menos tarefas já ativas)
+  let room = 1;
   const started: string[] = [];
-  const q = new FixQueue<string>(3, async (item) => {
-    started.push(item);
-    return `t-${item}`;
-  }, { canStart: () => started.length < room });
+  const q = new FixQueue<string>(
+    3,
+    async (item) => {
+      started.push(item);
+      return `t-${item}`;
+    },
+    { canStart: () => started.length < room },
+  );
   await q.enqueue(["a", "b", "c"]);
   assert.deepEqual(started, ["a"]);
   room = 2;

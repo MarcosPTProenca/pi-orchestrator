@@ -12,12 +12,26 @@ function sessionWith(entries: Entry[]) {
 }
 
 function persist(entries: Entry[], result: { message?: Entry } | undefined) {
-  if (result?.message) entries.push({ type: "custom_message", customType: result.message.customType, content: result.message.content, details: result.message.details });
+  if (result?.message)
+    entries.push({
+      type: "custom_message",
+      customType: result.message.customType,
+      content: result.message.content,
+      details: result.message.details,
+    });
 }
 
-function loadWorker(): Record<string, Function> {
-  const handlers: Record<string, Function> = {};
-  workerExtension({ on: (name: string, fn: Function) => { handlers[name] = fn; }, registerTool: () => {} } as never);
+type Result = { systemPrompt?: string; message?: Entry } | undefined;
+type Handler = (event: { systemPrompt: string; messageType?: string; prompt?: string }, ctx?: unknown) => Result;
+
+function loadWorker(): Record<string, Handler> {
+  const handlers: Record<string, Handler> = {};
+  workerExtension({
+    on: (name: string, fn: Handler) => {
+      handlers[name] = fn;
+    },
+    registerTool: () => {},
+  } as never);
   return handlers;
 }
 
@@ -41,7 +55,8 @@ test("brief entregue uma vez: turnos seguintes e orch_send não acrescentam cóp
     const entries: Entry[] = [];
     const s = sessionWith(entries);
     const h = loadWorker();
-    for (let turn = 0; turn < 3; turn++) persist(entries, h.before_agent_start({ systemPrompt: "base", messageType: "user", prompt: "continue" }, s.ctx));
+    for (let turn = 0; turn < 3; turn++)
+      persist(entries, h.before_agent_start({ systemPrompt: "base", messageType: "user", prompt: "continue" }, s.ctx));
     assert.equal(entries.filter((e) => e.customType === "orch-brief").length, 1);
   }));
 
@@ -65,5 +80,8 @@ test("brief alterado é nova versão e entra de forma incremental (#100)", () =>
 
 test("brief ausente é erro explícito: o worker não inicia sem o contexto obrigatório (#100)", () =>
   withTask(null, () => {
-    assert.throws(() => loadWorker().before_agent_start({ systemPrompt: "base" }, sessionWith([]).ctx), /brief\.md ausente/);
+    assert.throws(
+      () => loadWorker().before_agent_start({ systemPrompt: "base" }, sessionWith([]).ctx),
+      /brief\.md ausente/,
+    );
   }));

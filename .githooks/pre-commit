@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -e
+npx tsc --noEmit -p tsconfig.json
+git diff --cached --name-only -z --diff-filter=ACM | xargs -0 -r npx prettier --check --ignore-unknown
