@@ -22,6 +22,7 @@ import { locateProject } from "./locate.ts";
 import { orchestratorAgentName } from "./label.ts";
 import { execFile } from "node:child_process";
 import { Store, defaultStateDir } from "./store.ts";
+import { PlanStore, ITEM_STATUSES, type ItemStatus } from "./plans.ts";
 import { NoticeBatcher } from "./notices.ts";
 import { notificationFor, notifyArgs, notifyEnabled } from "./notify.ts";
 import { buildStatus, oldHoursFrom } from "./status.ts";
@@ -361,6 +362,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     const verdict = prVerdict(s);
     if (verdict === "merged") {
       prWatch.forget(t.task_id);
+      for (const m of planStore.markMerged(t.task_id)) pi.sendMessage({ customType: "orch-event", content: `Plano ${m.plan}, item ${m.item}: tarefa ${t.task_id} mergeada.`, display: true }, { triggerTurn: false });
       const outcome = await orch.closeOutcome(t.task_id);
       if (outcome.closed) pi.sendMessage({ customType: "orch-event", content: `PR #${pr.number} mergeada: fechei a aba de ${t.task_id} (${label}).`, display: true }, { triggerTurn: false });
       return;
@@ -752,6 +754,64 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       assertWritable();
       const task = await orch.answer(params.task_id, params.answer);
       return asText({ task_id: task.task_id, status: task.status });
+    },
+  });
+
+  // Plano entregue pelo usuário, fora dos repos (ver plans.ts). Mesmo caminho de estado do orquestrador.
+  const planStore = new PlanStore(join(defaultStateDir(), "plans"));
+  pi.registerTool({
+    name: "orch_plan_create",
+    label: "orch plan create",
+    description: "Registra um plano entregue pelo usuário: id (minúsculas, hífen), título e a lista de itens, todos pendentes. Fica fora dos repositórios.",
+    parameters: {
+      type: "object",
+      properties: { id: { type: "string" }, title: { type: "string" }, items: { type: "array", items: { type: "string" } } },
+      required: ["id", "title", "items"],
+      additionalProperties: false,
+    },
+    async execute(_id: string, params: { id: string; title: string; items: string[] }) {
+      assertWritable();
+      const plan = planStore.create(params.id, params.title, params.items);
+      return asText({ id: plan.id, items: plan.items.length });
+    },
+  });
+
+  pi.registerTool({
+    name: "orch_plan_show",
+    label: "orch plan show",
+    description: "Mostra um plano (itens, status, tarefa e PR de cada um) ou, sem id, lista os planos existentes.",
+    parameters: { type: "object", properties: { id: { type: "string" } }, additionalProperties: false },
+    async execute(_id: string, params: { id?: string }) {
+      return asText(params.id ? planStore.show(params.id) : { plans: planStore.list() });
+    },
+  });
+
+  pi.registerTool({
+    name: "orch_plan_update",
+    label: "orch plan update",
+    description: `Atualiza um item do plano: status (${ITEM_STATUSES.join(", ")}), tarefa e PR. Só os campos informados mudam.`,
+    parameters: {
+      type: "object",
+      properties: {
+        plan: { type: "string" },
+        item: { type: "string" },
+        status: { type: "string", enum: [...ITEM_STATUSES] },
+        task_id: { type: "string" },
+        pr: { type: "string" },
+      },
+      required: ["plan", "item"],
+      additionalProperties: false,
+    },
+    async execute(_id: string, raw: Record<string, unknown>) {
+      assertWritable();
+      // Campos validados em PlanStore.update (status em lista fechada); aqui só se troca o tipo genérico.
+      const plan = String(raw.plan ?? "");
+      const item = String(raw.item ?? "");
+      const fields: { status?: ItemStatus; task_id?: string; pr?: string } = {};
+      if (raw.status !== undefined) fields.status = String(raw.status) as ItemStatus;
+      if (raw.task_id !== undefined) fields.task_id = String(raw.task_id);
+      if (raw.pr !== undefined) fields.pr = String(raw.pr);
+      return asText(planStore.update(plan, item, fields));
     },
   });
 
