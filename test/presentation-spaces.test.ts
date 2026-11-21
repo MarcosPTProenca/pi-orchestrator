@@ -19,8 +19,20 @@ test("belowFloor compara versões numericamente, com piso 0.8.0", () => {
 
 test("presentation spaces: cada tarefa ganha workspace próprio, sem tab compartilhada", async () => {
   const h = makeHarness({ presentationSpaces: true });
-  const a = await h.orch.delegate({ project_path: h.project, role: "investigate", request: "Analise A", objective: "Analise A", mode: "report" });
-  const b = await h.orch.delegate({ project_path: h.project, role: "investigate", request: "Analise B", objective: "Analise B", mode: "report" });
+  const a = await h.orch.delegate({
+    project_path: h.project,
+    role: "investigate",
+    request: "Analise A",
+    objective: "Analise A",
+    mode: "report",
+  });
+  const b = await h.orch.delegate({
+    project_path: h.project,
+    role: "investigate",
+    request: "Analise B",
+    objective: "Analise B",
+    mode: "report",
+  });
   assert.equal(h.herdr.opsOf("createWorkspace").length, 2, "um workspace por tarefa");
   assert.equal(h.herdr.opsOf("createTab").length, 0, "não cria tab no workspace do projeto");
   assert.notEqual(a.workspace_id, b.workspace_id);
@@ -34,24 +46,48 @@ test("presentation spaces: cada tarefa ganha workspace próprio, sem tab compart
 
 test("presentation spaces: cancel fecha o workspace da tarefa, não só a tab", async () => {
   const h = makeHarness({ presentationSpaces: true });
-  const t = await h.orch.delegate({ project_path: h.project, role: "investigate", request: "Analise", objective: "Analise", mode: "report" });
+  const t = await h.orch.delegate({
+    project_path: h.project,
+    role: "investigate",
+    request: "Analise",
+    objective: "Analise",
+    mode: "report",
+  });
   await h.orch.cancel(t.task_id);
-  assert.deepEqual(h.herdr.opsOf("closeWorkspace").map((o) => o.args), [t.workspace_id]);
+  assert.deepEqual(
+    h.herdr.opsOf("closeWorkspace").map((o) => o.args),
+    [t.workspace_id],
+  );
   assert.equal(h.herdr.opsOf("closeTab").length, 0);
   assert.equal(h.herdr.workspaces.has(t.workspace_id), false);
 });
 
 test("presentation spaces: close também fecha o workspace da tarefa", async () => {
   const h = makeHarness({ presentationSpaces: true });
-  const t = await h.orch.delegate({ project_path: h.project, role: "investigate", request: "Analise", objective: "Analise", mode: "report" });
+  const t = await h.orch.delegate({
+    project_path: h.project,
+    role: "investigate",
+    request: "Analise",
+    objective: "Analise",
+    mode: "report",
+  });
   await h.orch.close(t.task_id);
-  assert.deepEqual(h.herdr.opsOf("closeWorkspace").map((o) => o.args), [t.workspace_id]);
+  assert.deepEqual(
+    h.herdr.opsOf("closeWorkspace").map((o) => o.args),
+    [t.workspace_id],
+  );
 });
 
 test("presentation spaces: abaixo de 0.8.0 recusa antes de qualquer efeito", async () => {
   const h = makeHarness({ presentationSpaces: true, herdrVersion: "0.7.5" });
   await assert.rejects(
-    h.orch.delegate({ project_path: h.project, role: "investigate", request: "Analise", objective: "Analise", mode: "report" }),
+    h.orch.delegate({
+      project_path: h.project,
+      role: "investigate",
+      request: "Analise",
+      objective: "Analise",
+      mode: "report",
+    }),
     /0\.8\.0/,
   );
   assert.equal(h.herdr.opsOf("createWorkspace").length, 0, "nenhum workspace criado");
@@ -60,7 +96,13 @@ test("presentation spaces: abaixo de 0.8.0 recusa antes de qualquer efeito", asy
 
 test("modo padrão continua flat: tab no workspace do projeto, sem marca de projeção", async () => {
   const h = makeHarness();
-  const t = await h.orch.delegate({ project_path: h.project, role: "investigate", request: "Analise", objective: "Analise", mode: "report" });
+  const t = await h.orch.delegate({
+    project_path: h.project,
+    role: "investigate",
+    request: "Analise",
+    objective: "Analise",
+    mode: "report",
+  });
   assert.equal(h.herdr.opsOf("createTab").length, 1);
   assert.equal(h.herdr.opsOf("createWorkspace").length, 1);
   assert.ok(!t.projected);

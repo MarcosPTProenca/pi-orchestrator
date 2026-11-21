@@ -1,7 +1,3 @@
-/**
- * Localiza repositórios locais pelo nome ou pelo conteúdo dos documentos de cada um.
- * Mecânica pura: lista diretórios com .git em uma raiz e pontua por termos. Não usa LLM.
- */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
@@ -16,7 +12,6 @@ export interface LocateCandidate {
 
 const DOC_FILES = ["README.md", "AGENTS.md", "CLAUDE.md", "package.json", "pyproject.toml"];
 
-/** Termos da consulta: palavras com 3+ letras, minúsculas, sem acento. */
 export function queryTerms(query: string): string[] {
   const norm = query.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   return [...new Set(norm.split(/[^a-z0-9]+/).filter((t) => t.length >= 3))];
@@ -24,7 +19,11 @@ export function queryTerms(query: string): string[] {
 
 function remoteOf(path: string): string | null {
   try {
-    return execFileSync("git", ["remote", "get-url", "origin"], { cwd: path, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return execFileSync("git", ["remote", "get-url", "origin"], {
+      cwd: path,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
   } catch {
     return null;
   }
@@ -40,7 +39,6 @@ function docText(path: string): string {
     .toLowerCase();
 }
 
-/** Procura repositórios git diretamente em `root` cujo nome ou documentos contenham os termos. */
 export function locateProject(query: string, root: string, limit = 8): LocateCandidate[] {
   const terms = queryTerms(query);
   if (terms.length === 0) throw new Error("consulta sem termos úteis (use ao menos uma palavra com 3 letras)");

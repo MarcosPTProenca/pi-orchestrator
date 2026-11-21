@@ -1,0 +1,4 @@
+{
+  "ignoreBinaries": ["treehouse", "herdr", "quota-axi"],
+  "entry": ["evals/*.ts", "scripts/smoke-herdr.ts", "src/index.ts"]
+}

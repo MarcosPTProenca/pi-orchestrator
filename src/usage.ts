@@ -1,22 +1,10 @@
-/**
- * Uso de tokens de um worker, lido do próprio evento de fim de turno (agent_end). O evento traz a sessão
- * inteira, e uma mesma pasta de tarefa pode ter mais de um processo; por isso cada mensagem do assistente
- * é identificada pelo timestamp e só entra na soma uma vez.
- *
- * Semântica dos campos (Pi, `usage` de cada mensagem do assistente): `input` é a entrada não cacheada,
- * `cacheRead` e `cacheWrite` são o cache lido e escrito, `output` é a saída, `totalTokens` é o total informado
- * pelo provedor (já inclui os três anteriores; não somar de novo). `cost` vem do catálogo do Pi, e só é
- * "reportado" quando `cost.totalFromProvider` é true; caso contrário é estimativa.
- */
 export interface Usage {
   input: number;
   output: number;
   cacheRead: number;
   cacheWrite: number;
   totalTokens: number;
-  /** Soma de `cost.total` das mensagens contadas (moeda do provedor/catálogo). */
   cost: number;
-  /** True só se todas as parcelas com custo vieram do provedor. */
   costFromProvider: boolean;
 }
 
@@ -32,7 +20,6 @@ interface UsageMessage {
   };
 }
 
-/** Soma as mensagens do assistente ainda não contadas. Devolve o total e a lista atualizada de timestamps contados. */
 export function addNewUsage(total: Usage, messages: unknown[], counted: number[]): { total: Usage; counted: number[] } {
   const seen = new Set(counted);
   const out: Usage = { ...newUsage(), ...total };
@@ -62,10 +49,6 @@ export function addNewUsage(total: Usage, messages: unknown[], counted: number[]
   return { total: out, counted: ids };
 }
 
-/**
- * Taxa de acerto do cache = cacheRead / (input + cacheRead + cacheWrite): fração da entrada servida pelo cache.
- * Devolve null sem entrada, para não confundir "sem dado" com "0% de acerto".
- */
 export function cacheHitRatio(u: Pick<Usage, "input" | "cacheRead" | "cacheWrite">): number | null {
   const denom = u.input + u.cacheRead + u.cacheWrite;
   return denom > 0 ? u.cacheRead / denom : null;

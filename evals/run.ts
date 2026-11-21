@@ -1,10 +1,3 @@
-/**
- * Avaliação comportamental do orquestrador. Roda o `pi` real em modo JSON, com a extensão
- * carregada e PI_ORCH_DRY_RUN=1: nada vai ao Herdr, mas as chamadas de tool, os parâmetros e o
- * brief são os reais. Mede: tools chamadas, argumentos, modelo, contexto enviado, perguntas e tokens.
- *
- *   node --import tsx evals/run.ts [--model openai-codex/gpt-6.1-sol] [--only <id>]
- */
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
@@ -15,16 +8,14 @@ import { scenarios, type Scenario, type Run, type Check } from "./scenarios.ts";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const EXCLUDED = "";
 const args = process.argv.slice(2);
-/** Valor de uma flag `--nome valor`. Sem a flag (indexOf = -1) devolve undefined, não o argumento anterior. */
-export function flagValue(argv: string[], name: string): string | undefined {
+function flagValue(argv: string[], name: string): string | undefined {
   const i = argv.indexOf(name);
   return i >= 0 ? argv[i + 1] : undefined;
 }
 const model = flagValue(args, "--model") ?? "openai-codex/gpt-6.1-sol";
 const only = flagValue(args, "--only");
 
-/** Cria projetos git descartáveis com README e AGENTS.md. Retorna caminhos por nome. */
-export function makeFixtures(): Record<string, string> {
+function makeFixtures(): Record<string, string> {
   const base = mkdtempSync(join(tmpdir(), "orch-eval-"));
   const out: Record<string, string> = { _base: base };
   for (const name of ["alpha", "beta", "norepo"]) {
@@ -35,7 +26,11 @@ export function makeFixtures(): Record<string, string> {
       writeFileSync(join(dir, "AGENTS.md"), `# Regras de ${name}\n- Commits em português.\n`);
       execFileSync("git", ["init", "-q"], { cwd: dir });
       execFileSync("git", ["-c", "user.name=eval", "-c", "user.email=eval@local", "add", "-A"], { cwd: dir });
-      execFileSync("git", ["-c", "user.name=eval", "-c", "user.email=eval@local", "commit", "-q", "-m", "chore: init"], { cwd: dir });
+      execFileSync(
+        "git",
+        ["-c", "user.name=eval", "-c", "user.email=eval@local", "commit", "-q", "-m", "chore: init"],
+        { cwd: dir },
+      );
     }
     out[name] = dir;
   }
@@ -47,9 +42,14 @@ interface Event {
   message?: Record<string, unknown>;
 }
 
-/** Extrai do stream JSON do pi: chamadas de tool, resultados, uso de tokens e texto final. */
 export function parseStream(text: string): Run {
-  const run: Run = { calls: [], results: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, finalText: "", models: new Set() };
+  const run: Run = {
+    calls: [],
+    results: [],
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    finalText: "",
+    models: new Set(),
+  };
   for (const line of text.split("\n")) {
     if (!line.trim().startsWith("{")) continue;
     let e: Event;
@@ -58,7 +58,7 @@ export function parseStream(text: string): Run {
     } catch {
       continue;
     }
-    const m = (e.message ?? {}) as Record<string, unknown>;
+    const m = e.message ?? {};
     if (e.type !== "message_end") continue;
     if (m.role === "assistant") {
       const u = (m.usage ?? {}) as Record<string, number>;
@@ -72,7 +72,8 @@ export function parseStream(text: string): Run {
       const texts = content.filter((c) => c.type === "text").map((c) => String(c.text ?? ""));
       if (texts.join("").trim()) run.finalText = texts.join("\n");
       for (const c of content) {
-        if (c.type === "toolCall") run.calls.push({ name: String(c.name), args: (c.arguments ?? {}) as Record<string, unknown> });
+        if (c.type === "toolCall")
+          run.calls.push({ name: String(c.name), args: (c.arguments ?? {}) as Record<string, unknown> });
       }
     }
     if (m.role === "toolResult") {
@@ -88,7 +89,17 @@ function runPi(prompt: string, env: NodeJS.ProcessEnv): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(
       "pi",
-      ["--mode", "json", "--model", model, ...(EXCLUDED ? ["--exclude-tools", EXCLUDED] : []), "-e", join(ROOT, "src", "index.ts"), "-p", prompt],
+      [
+        "--mode",
+        "json",
+        "--model",
+        model,
+        ...(EXCLUDED ? ["--exclude-tools", EXCLUDED] : []),
+        "-e",
+        join(ROOT, "src", "index.ts"),
+        "-p",
+        prompt,
+      ],
       { cwd: ROOT, env, stdio: ["ignore", "pipe", "pipe"] },
     );
     let out = "";
@@ -103,7 +114,13 @@ function runPi(prompt: string, env: NodeJS.ProcessEnv): Promise<string> {
   });
 }
 
-function taskRecords(stateDir: string): { models: (string | null)[]; modes: string[]; briefs: string[]; projects: string[]; count: number } {
+function taskRecords(stateDir: string): {
+  models: (string | null)[];
+  modes: string[];
+  briefs: string[];
+  projects: string[];
+  count: number;
+} {
   const file = join(stateDir, "state.json");
   if (!existsSync(file)) return { models: [], modes: [], briefs: [], projects: [], count: 0 };
   const tasks = Object.values(JSON.parse(readFileSync(file, "utf8")).tasks) as Record<string, unknown>[];
@@ -125,7 +142,12 @@ async function main(): Promise<void> {
     const stateDir = mkdtempSync(join(tmpdir(), "orch-eval-state-"));
     const prompt = sc.prompt(fx);
     const t0 = Date.now();
-    const stream = await runPi(prompt, { ...process.env, PI_ORCH_DRY_RUN: "1", PI_ORCH_STATE_DIR: stateDir, HOME: process.env.HOME ?? homedir() });
+    const stream = await runPi(prompt, {
+      ...process.env,
+      PI_ORCH_DRY_RUN: "1",
+      PI_ORCH_STATE_DIR: stateDir,
+      HOME: process.env.HOME ?? homedir(),
+    });
     const run = parseStream(stream);
     const tasks = taskRecords(stateDir);
     const checks: { name: string; ok: boolean; detail: string }[] = sc.checks.map((c: Check) => {
@@ -138,14 +160,27 @@ async function main(): Promise<void> {
     console.log(`\n== ${sc.id} (${seconds}s) ${failed.length === 0 ? "PASSOU" : "FALHOU"}`);
     for (const c of checks) console.log(`  ${c.ok ? "ok  " : "FAIL"} ${c.name}${c.ok ? "" : ` :: ${c.detail}`}`);
     console.log(`  tools: ${run.calls.map((c) => c.name).join(" > ") || "(nenhuma)"}`);
-    console.log(`  tokens orquestrador: total=${run.usage.total} entrada=${run.usage.input} saída=${run.usage.output} cacheLeitura=${run.usage.cacheRead} cacheEscrita=${run.usage.cacheWrite}`);
-    report.push({ id: sc.id, passed: failed.length === 0, seconds, checks, tools: run.calls, usage: run.usage, tasks: { count: tasks.count, models: tasks.models, modes: tasks.modes }, final: run.finalText.slice(0, 600) });
+    console.log(
+      `  tokens orquestrador: total=${run.usage.total} entrada=${run.usage.input} saída=${run.usage.output} cacheLeitura=${run.usage.cacheRead} cacheEscrita=${run.usage.cacheWrite}`,
+    );
+    report.push({
+      id: sc.id,
+      passed: failed.length === 0,
+      seconds,
+      checks,
+      tools: run.calls,
+      usage: run.usage,
+      tasks: { count: tasks.count, models: tasks.models, modes: tasks.modes },
+      final: run.finalText.slice(0, 600),
+    });
   }
   const outDir = join(homedir(), ".pi", "orchestrator", "evals");
   mkdirSync(outDir, { recursive: true });
   const outFile = join(outDir, `run-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
   writeFileSync(outFile, JSON.stringify({ model, scenarios: report }, null, 2));
-  console.log(`\nResumo: ${report.filter((r) => r.passed).length}/${report.length} cenários passaram, ${failedTotal} checagens falharam.`);
+  console.log(
+    `\nResumo: ${report.filter((r) => r.passed).length}/${report.length} cenários passaram, ${failedTotal} checagens falharam.`,
+  );
   console.log(`Relatório: ${outFile}`);
   process.exitCode = failedTotal === 0 ? 0 : 1;
 }

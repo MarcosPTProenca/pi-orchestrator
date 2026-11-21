@@ -19,7 +19,9 @@ test("mensagem a worker em execução segue para o painel e o status não muda",
 test("retoma tarefa concluída no mesmo painel e recebe novo relatório", async () => {
   const h = makeHarness();
   const t = await running(h);
-  h.herdr.panesList = h.herdr.panesList.map((p) => p.pane_id === t.pane_id ? { ...p, agent: "pi", agent_status: "idle" } : p);
+  h.herdr.panesList = h.herdr.panesList.map((p) =>
+    p.pane_id === t.pane_id ? { ...p, agent: "pi", agent_status: "idle" } : p,
+  );
   writeReport(t.task_dir, t.task_id, { status: "done", result: "revisado" }, "1");
   await h.orch.refresh(t.task_id);
   await h.orch.send(t.task_id, "corrija a revisão");
@@ -34,7 +36,7 @@ test("não retoma tarefa concluída com painel trocado", async () => {
   const t = await running(h);
   writeReport(t.task_dir, t.task_id, { status: "done", result: "ok" });
   await h.orch.refresh(t.task_id);
-  h.herdr.panesList = h.herdr.panesList.map((p) => p.pane_id === t.pane_id ? { ...p, terminal_id: "outro" } : p);
+  h.herdr.panesList = h.herdr.panesList.map((p) => (p.pane_id === t.pane_id ? { ...p, terminal_id: "outro" } : p));
   await assert.rejects(h.orch.send(t.task_id, "oi"), /trocou de agente/);
   assert.equal(h.herdr.opsOf("prompt").length, 0);
 });
@@ -42,10 +44,14 @@ test("não retoma tarefa concluída com painel trocado", async () => {
 test("falha de envio preserva relatório anterior e estado concluído", async () => {
   const h = makeHarness();
   const t = await running(h);
-  h.herdr.panesList = h.herdr.panesList.map((p) => p.pane_id === t.pane_id ? { ...p, agent: "pi", agent_status: "idle" } : p);
+  h.herdr.panesList = h.herdr.panesList.map((p) =>
+    p.pane_id === t.pane_id ? { ...p, agent: "pi", agent_status: "idle" } : p,
+  );
   writeReport(t.task_dir, t.task_id, { status: "done", result: "original" }, "1");
   await h.orch.refresh(t.task_id);
-  h.herdr.prompt = async () => { throw new Error("envio falhou"); };
+  h.herdr.prompt = async () => {
+    throw new Error("envio falhou");
+  };
   await assert.rejects(h.orch.send(t.task_id, "continue"), /envio falhou/);
   assert.equal(h.orch.get(t.task_id).status, "done");
   assert.equal(await h.orch.refresh(t.task_id), null);
@@ -57,7 +63,9 @@ test("não retoma worker concluído ainda ocupado", async () => {
   const t = await running(h);
   writeReport(t.task_dir, t.task_id, { status: "done", result: "ok" });
   await h.orch.refresh(t.task_id);
-  h.herdr.panesList = h.herdr.panesList.map((p) => p.pane_id === t.pane_id ? { ...p, agent: "pi", agent_status: "working" } : p);
+  h.herdr.panesList = h.herdr.panesList.map((p) =>
+    p.pane_id === t.pane_id ? { ...p, agent: "pi", agent_status: "working" } : p,
+  );
   await assert.rejects(h.orch.send(t.task_id, "oi"), /não está disponível e ocioso/);
   assert.equal(h.orch.get(t.task_id).status, "done");
   assert.equal(h.herdr.opsOf("prompt").length, 0);

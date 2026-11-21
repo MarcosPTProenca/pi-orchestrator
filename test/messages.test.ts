@@ -35,16 +35,24 @@ test("launcher não exclui ferramentas: subagents de pesquisa ficam disponíveis
   assert.doesNotMatch(bin, /--exclude-tools/);
 });
 
-// Depende do settings.json pessoal do usuário: ausente no CI, então só roda onde o arquivo existe.
 const userSettings = join(homedir(), ".pi", "agent", "settings.json");
-test("worker do pi-subagents está desabilitado no settings do usuário", { skip: !existsSync(userSettings) && "settings.json do usuário ausente" }, () => {
-  const settings = JSON.parse(readFileSync(userSettings, "utf8"));
-  assert.equal(settings.subagents.agentOverrides.worker.disabled, true);
-});
+test(
+  "worker do pi-subagents está desabilitado no settings do usuário",
+  { skip: !existsSync(userSettings) && "settings.json do usuário ausente" },
+  () => {
+    const settings = JSON.parse(readFileSync(userSettings, "utf8"));
+    assert.equal(settings.subagents.agentOverrides.worker.disabled, true);
+  },
+);
 
 test("mensagem ao orquestrador pede resumo curto e não cola o relatório", () => {
   const long = "x".repeat(5000);
-  const msg = modelMessageFor({ ...base, status: "done", result: long, artifacts: ["https://github.com/o/r/pull/1"] } as never);
+  const msg = modelMessageFor({
+    ...base,
+    status: "done",
+    result: long,
+    artifacts: ["https://github.com/o/r/pull/1"],
+  } as never);
   assert.match(msg, /\[evento de worker\]/);
   assert.match(msg, /Responda ao usuário em até 5 linhas/);
   assert.match(msg, /truncado/);
@@ -88,7 +96,14 @@ test("sem prazo pedido, refresh nunca marca timeout, mesmo após horas", async (
 test("prazo explícito: refresh marca timeout quando o usuário pediu", async () => {
   const { makeHarness } = await import("./fakes.ts");
   const h = makeHarness();
-  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report", timeout_minutes: 5 });
+  const t = await h.orch.delegate({
+    project_path: h.project,
+    role: "a",
+    request: "x",
+    objective: "y",
+    mode: "report",
+    timeout_minutes: 5,
+  });
   h.clock.ms += 6 * 60_000;
   const ev = await h.orch.refresh(t.task_id);
   assert.equal(ev?.status, "timeout");
@@ -131,14 +146,30 @@ test("pergunta de acompanhamento: responde com o que já existe, data e lacuna, 
 });
 
 test("aviso de falha com recuperação: o rodapé manda repetir a linha de recuperação ao usuário (#64)", () => {
-  const msg = modelMessageFor({ task_id: "t-r1", project_id: "p", status: "failed", result: "Encerrou com erro do modelo", question: null, artifacts: [], error: null, correction: null } as never);
+  const msg = modelMessageFor({
+    task_id: "t-r1",
+    project_id: "p",
+    status: "failed",
+    result: "Encerrou com erro do modelo",
+    question: null,
+    artifacts: [],
+    error: null,
+    correction: null,
+  } as never);
   assert.match(msg, /repita essa linha para o usuário/);
   assert.match(msg, /Nenhuma recuperação é executada sem o pedido dele/);
 });
 
 test("pergunta sem resposta depois do prazo: avisa uma vez, segue bloqueada, não cancela sozinha (#63)", async () => {
   const h = makeHarness();
-  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report", timeout_minutes: 5 } as never);
+  const t = await h.orch.delegate({
+    project_path: h.project,
+    role: "a",
+    request: "x",
+    objective: "y",
+    mode: "report",
+    timeout_minutes: 5,
+  } as never);
   writeReport(t.task_dir, t.task_id, { status: "blocked", question: "A ou B?" }, "1");
   await h.orch.refresh(t.task_id);
   h.clock.ms += 6 * 60_000;
@@ -152,7 +183,13 @@ test("pergunta sem resposta depois do prazo: avisa uma vez, segue bloqueada, nã
 
 test("pergunta repetida pelo worker não reabre o aviso; pergunta nova avisa de novo (#63)", async () => {
   const h = makeHarness();
-  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" } as never);
+  const t = await h.orch.delegate({
+    project_path: h.project,
+    role: "a",
+    request: "x",
+    objective: "y",
+    mode: "report",
+  } as never);
   writeReport(t.task_dir, t.task_id, { status: "blocked", question: "A ou B?" }, "1");
   assert.ok(await h.orch.noticeFor(t.task_id), "primeira pergunta avisa");
   writeReport(t.task_dir, t.task_id, { status: "blocked", question: "A ou B?" }, "2");
