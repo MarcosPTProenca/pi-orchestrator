@@ -87,9 +87,9 @@ test(
   withWorkerEnv("t-end1", mkdtempSync(join(tmpdir(), "orch-end-")), async (handlers) => {
     const dir = process.env.PI_ORCH_TASK_DIR as string;
     writeFileSync(join(dir, "report.json"), JSON.stringify({ status: "done", result: "sem id" }));
-    await handlers.agent_end({ messages: [] }, {});
+    await handlers.agent_end({ messages: [] }, { sessionManager: { getEntries: () => [] } });
     await handlers.agent_before_settle({ entries: [], continue: false, context: {}, outcome: {} }, {});
-    await handlers.agent_end({ messages: [] }, {});
+    await handlers.agent_end({ messages: [] }, { sessionManager: { getEntries: () => [] } });
     const r = JSON.parse(readFileSync(join(dir, "report.json"), "utf8"));
     assert.equal(r.task_id, "t-end1");
     assert.equal(r.status, "failed");
@@ -106,7 +106,7 @@ test(
   withWorkerEnv("t-end2", mkdtempSync(join(tmpdir(), "orch-end-")), async (handlers) => {
     const dir = process.env.PI_ORCH_TASK_DIR as string;
     writeReport(dir, "t-end2", { status: "done", result: "ok" });
-    await handlers.agent_end({ messages: [] }, {});
+    await handlers.agent_end({ messages: [] }, { sessionManager: { getEntries: () => [] } });
     assert.equal(JSON.parse(readFileSync(join(dir, "report.json"), "utf8")).status, "done");
   }),
 );

@@ -59,6 +59,7 @@ export interface TaskRecord {
     totalTokens: number;
     cost?: number;
     costFromProvider?: boolean;
+    cacheWarmCost?: number;
   } | null;
   model: string | null;
   mode?: string;

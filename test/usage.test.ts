@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { newUsage, addNewUsage, cacheHitRatio } from "../src/usage.ts";
+import { newUsage, addNewUsage, addCacheWarmUsage, cacheHitRatio } from "../src/usage.ts";
 
 const asst = (ts: number, input: number, output: number, cacheRead = 0, cacheWrite = 0) => ({
   role: "assistant",
@@ -8,7 +8,7 @@ const asst = (ts: number, input: number, output: number, cacheRead = 0, cacheWri
   usage: { input, output, cacheRead, cacheWrite, totalTokens: input + output + cacheRead + cacheWrite },
 });
 
-test("soma só mensagens que ainda não foram contadas (identificadas pelo timestamp)", () => {
+test("soma só mensagens que ainda não foram contadas (identificadas por resposta ou timestamp)", () => {
   const first = addNewUsage(newUsage(), [{ role: "user" }, asst(1, 10, 5, 100, 20)], []);
   assert.equal(first.total.input, 10);
   const second = addNewUsage(
@@ -18,12 +18,30 @@ test("soma só mensagens que ainda não foram contadas (identificadas pelo times
   );
   assert.equal(second.total.input, 13);
   assert.equal(second.total.output, 7);
-  assert.deepEqual(second.counted, [1, 2]);
+  assert.equal(second.counted.length, 2);
 });
 
 test("nova sessão na mesma pasta conta as mensagens novas, não zera nem repete", () => {
   const r = addNewUsage(addNewUsage(newUsage(), [asst(1, 10, 5)], []).total, [asst(1, 10, 5), asst(9, 4, 1)], [1]);
   assert.equal(r.total.input, 14);
+});
+
+test("dois turnos com o mesmo timestamp e responseId distintos contam ambos", () => {
+  const a = { ...asst(7, 10, 1), responseId: "resp-a" };
+  const b = { ...asst(7, 5, 1), responseId: "resp-b" };
+  assert.equal(addNewUsage(newUsage(), [a, b], []).total.input, 15);
+});
+
+test("mesma resposta reentregue com outro timestamp (fork ou reload) não é contada de novo", () => {
+  const first = addNewUsage(newUsage(), [{ ...asst(1, 10, 5), responseId: "resp-a" }], []);
+  const again = addNewUsage(first.total, [{ ...asst(99, 10, 5), responseId: "resp-a" }], first.counted);
+  assert.equal(again.total.input, 10);
+});
+
+test("usage.json legado (timestamp numérico) não recebe a mesma resposta de novo após o upgrade", () => {
+  const legado = { total: { ...newUsage(), input: 10, totalTokens: 15 }, counted: [1] };
+  const r = addNewUsage(legado.total, [{ ...asst(1, 10, 5), responseId: "resp-a" }], legado.counted);
+  assert.equal(r.total.input, 10);
 });
 
 test("mensagem sem usage (ferramenta, erro) não quebra a soma", () => {
@@ -81,4 +99,58 @@ test("taxa de acerto do cache: cacheRead / (input + cacheRead + cacheWrite)", ()
 
 test("taxa de acerto do cache sem entrada devolve null, não zero", () => {
   assert.equal(cacheHitRatio(newUsage()), null);
+});
+
+const warmEntry = (id: string, input: number, cacheWrite: number, cost: number) => ({
+  type: "usage",
+  id,
+  kind: "cache_warm",
+  usage: { input, output: 1, cacheRead: 0, cacheWrite, totalTokens: input + 1 + cacheWrite, cost: { total: cost } },
+});
+
+test("aquecimento de cache soma só entradas cache_warm, separadas das mensagens de assistant", () => {
+  const entries = [
+    { type: "message", id: "m1" },
+    { type: "usage", id: "u-turno", kind: "turno", usage: { input: 5, output: 5, totalTokens: 10 } },
+    warmEntry("w1", 100, 0, 0.02),
+  ];
+  const r = addCacheWarmUsage({}, entries);
+  assert.equal(r.warm.input, 100);
+  assert.equal(r.warm.output, 1);
+  assert.equal(r.warm.cost, 0.02);
+  assert.deepEqual(r.warmIds, ["w1"]);
+});
+
+test("reinício: estado salvo em JSON e sessão relida não recontabiliza aquecimento", () => {
+  const entries = [warmEntry("w1", 100, 0, 0.02)];
+  const first = addCacheWarmUsage({}, entries);
+  const saved = JSON.parse(JSON.stringify(first)) as { warm: typeof first.warm; warmIds: string[] };
+  const again = addCacheWarmUsage(saved, entries);
+  assert.equal(again.warm.input, 100);
+  assert.equal(again.warm.cost, 0.02);
+});
+
+test("dois processos: o segundo soma só o aquecimento novo ao estado gravado pelo primeiro", () => {
+  const processoA = addCacheWarmUsage({}, [warmEntry("w1", 100, 0, 0.02)]);
+  const gravado = JSON.parse(JSON.stringify(processoA)) as typeof processoA;
+  const processoB = addCacheWarmUsage(gravado, [warmEntry("w1", 100, 0, 0.02), warmEntry("w2", 50, 0, 0.01)]);
+  assert.equal(processoB.warm.input, 150);
+  assert.equal(processoB.warm.cost, 0.03);
+  assert.deepEqual(processoB.warmIds, ["w1", "w2"]);
+});
+
+test("fork: a mesma entrada vista em dois ramos conta uma vez", () => {
+  const ramoA = [warmEntry("w1", 100, 0, 0.02)];
+  const ramoB = [warmEntry("w1", 100, 0, 0.02), warmEntry("w9", 7, 0, 0)];
+  const r = addCacheWarmUsage(addCacheWarmUsage({}, ramoA), ramoB);
+  assert.equal(r.warm.input, 107);
+  assert.equal(r.warm.cost, 0.02);
+});
+
+test("cache 0 e campos ausentes viram zero, sem NaN nem custo inventado", () => {
+  const r = addCacheWarmUsage({}, [{ type: "usage", id: "w3", kind: "cache_warm", usage: { input: 3 } }]);
+  assert.equal(r.warm.input, 3);
+  assert.equal(r.warm.cacheRead, 0);
+  assert.equal(r.warm.cost, 0);
+  assert.equal(Number.isNaN(r.warm.totalTokens), false);
 });
