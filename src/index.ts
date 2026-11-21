@@ -369,6 +369,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     if (!conflictWatch.shouldAct(t.task_id, s.headRefOid, verdict === "conflict")) return;
     try {
       await orch.send(t.task_id, conflictInstruction(source));
+      conflictWatch.markActed(t.task_id, s.headRefOid);
       pi.sendMessage({ customType: "orch-event", content: `PR #${pr.number} de ${t.task_id} (${label}) está com conflito de merge. Acionei o próprio worker para corrigir; acompanho a PR.`, display: true }, { triggerTurn: true });
     } catch (err) {
       pi.sendMessage({ customType: "orch-event", content: `PR #${pr.number} de ${t.task_id} (${label}) tem conflito de merge e não consegui acionar o worker: ${err instanceof Error ? err.message : String(err)}. Decida: orch_send manual ou orch_relaunch.`, display: true }, { triggerTurn: true });

@@ -18,16 +18,24 @@ test("conflito por mergeable ou por DIRTY é conflito; PR limpa fica aberta", ()
   assert.equal(prVerdict(pr({ mergeable: "UNKNOWN" })), "pending", "UNKNOWN não é conflito nem PR limpa: GitHub ainda calcula");
 });
 
-test("aciona uma vez por cabeça de branch; push novo reabre o caso", () => {
+test("aciona uma vez por cabeça de branch, depois de marcar o envio; push novo reabre o caso", () => {
   const w = new ConflictWatch();
   assert.equal(w.shouldAct("t-1", "abc", true), true);
+  w.markActed("t-1", "abc");
   assert.equal(w.shouldAct("t-1", "abc", true), false, "mesmo commit não repete");
   assert.equal(w.shouldAct("t-1", "def", true), true, "commit novo ainda em conflito reabre");
 });
 
-test("sair do conflito zera o caso; voltar a conflitar aciona de novo", () => {
+test("envio que falhou não marca o head: a próxima consulta tenta de novo", () => {
   const w = new ConflictWatch();
   assert.equal(w.shouldAct("t-1", "abc", true), true);
+  // sem markActed: o envio falhou
+  assert.equal(w.shouldAct("t-1", "abc", true), true, "ainda não acionado para este commit");
+});
+
+test("sair do conflito zera o caso; voltar a conflitar aciona de novo", () => {
+  const w = new ConflictWatch();
+  w.markActed("t-1", "abc");
   assert.equal(w.shouldAct("t-1", "abc", false), false);
   assert.equal(w.shouldAct("t-1", "abc", true), true);
 });

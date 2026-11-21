@@ -31,15 +31,18 @@ export function isPrWatched(t: Pick<TaskRecord, "status" | "notified" | "source"
 export class ConflictWatch {
   private acted = new Map<string, string>();
 
-  /** Verdadeiro quando há conflito neste head e ainda não foi acionado para ele. */
+  /** Verdadeiro quando há conflito neste head e ainda não foi acionado para ele. Não marca nada: quem chama marca com `markActed`. */
   shouldAct(taskId: string, headOid: string, conflict: boolean): boolean {
     if (!conflict) {
       this.acted.delete(taskId);
       return false;
     }
-    if (this.acted.get(taskId) === headOid) return false;
+    return this.acted.get(taskId) !== headOid;
+  }
+
+  /** Marca o head como acionado. Chamar só depois do envio bem-sucedido, para uma falha poder ser tentada de novo. */
+  markActed(taskId: string, headOid: string): void {
     this.acted.set(taskId, headOid);
-    return true;
   }
 
   forget(taskId: string): void {
