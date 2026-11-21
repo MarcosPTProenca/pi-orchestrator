@@ -1,4 +1,5 @@
 import { isActive, type TaskRecord } from "./contract.ts";
+import { cacheHitRatio } from "./usage.ts";
 
 export const DEFAULT_OLD_HOURS = 24;
 const RESULT_MAX = 200;
@@ -36,6 +37,7 @@ interface StatusRow {
   model: string | null;
   deadline_at: string | null;
   tokens: number | null;
+  cache_hit_ratio: number | null;
 }
 
 export interface StatusGroup {
@@ -65,6 +67,7 @@ export function buildStatus(tasks: TaskRecord[], now: number, opts: StatusOption
       model: t.model,
       deadline_at: t.deadline_at,
       tokens: t.usage?.totalTokens ?? null,
+      cache_hit_ratio: t.usage ? cacheHitRatio(t.usage) : null,
     };
     const list = byProject.get(t.project_id) ?? [];
     list.push(row);

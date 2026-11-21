@@ -8,7 +8,7 @@ const asst = (ts: number, input: number, output: number, cacheRead = 0, cacheWri
   usage: { input, output, cacheRead, cacheWrite, totalTokens: input + output + cacheRead + cacheWrite },
 });
 
-test("soma só mensagens que ainda não foram contadas (identificadas pelo timestamp)", () => {
+test("soma só mensagens que ainda não foram contadas (identificadas por resposta ou timestamp)", () => {
   const first = addNewUsage(newUsage(), [{ role: "user" }, asst(1, 10, 5, 100, 20)], []);
   assert.equal(first.total.input, 10);
   const second = addNewUsage(
@@ -18,12 +18,30 @@ test("soma só mensagens que ainda não foram contadas (identificadas pelo times
   );
   assert.equal(second.total.input, 13);
   assert.equal(second.total.output, 7);
-  assert.deepEqual(second.counted, [1, 2]);
+  assert.equal(second.counted.length, 2);
 });
 
 test("nova sessão na mesma pasta conta as mensagens novas, não zera nem repete", () => {
   const r = addNewUsage(addNewUsage(newUsage(), [asst(1, 10, 5)], []).total, [asst(1, 10, 5), asst(9, 4, 1)], [1]);
   assert.equal(r.total.input, 14);
+});
+
+test("dois turnos com o mesmo timestamp e responseId distintos contam ambos", () => {
+  const a = { ...asst(7, 10, 1), responseId: "resp-a" };
+  const b = { ...asst(7, 5, 1), responseId: "resp-b" };
+  assert.equal(addNewUsage(newUsage(), [a, b], []).total.input, 15);
+});
+
+test("mesma resposta reentregue com outro timestamp (fork ou reload) não é contada de novo", () => {
+  const first = addNewUsage(newUsage(), [{ ...asst(1, 10, 5), responseId: "resp-a" }], []);
+  const again = addNewUsage(first.total, [{ ...asst(99, 10, 5), responseId: "resp-a" }], first.counted);
+  assert.equal(again.total.input, 10);
+});
+
+test("usage.json legado (timestamp numérico) não recebe a mesma resposta de novo após o upgrade", () => {
+  const legado = { total: { ...newUsage(), input: 10, totalTokens: 15 }, counted: [1] };
+  const r = addNewUsage(legado.total, [{ ...asst(1, 10, 5), responseId: "resp-a" }], legado.counted);
+  assert.equal(r.total.input, 10);
 });
 
 test("mensagem sem usage (ferramenta, erro) não quebra a soma", () => {

@@ -5,7 +5,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { REPORT_STATUSES, validateReport } from "./contract.ts";
 import { fallbackReportFor, lastModelError } from "./fallback.ts";
 import { postToHook } from "./hook.ts";
-import { addNewUsage, newUsage, type Usage } from "./usage.ts";
+import { addNewUsage, newUsage, type UsageState } from "./usage.ts";
 import { maskSecrets } from "./logs.ts";
 import { SESSION_POINTER } from "./session-file.ts";
 
@@ -107,10 +107,9 @@ export default function workerExtension(pi: ExtensionAPI): void {
 
   pi.on("agent_end", async (event) => {
     const usageFile = join(taskDir, "usage.json");
-    let prev: { total: Usage; counted: number[] } = { total: newUsage(), counted: [] };
+    let prev: UsageState = { total: newUsage(), counted: [] };
     try {
-      if (existsSync(usageFile))
-        prev = JSON.parse(readFileSync(usageFile, "utf8")) as { total: Usage; counted: number[] };
+      if (existsSync(usageFile)) prev = JSON.parse(readFileSync(usageFile, "utf8")) as UsageState;
     } catch {}
     const acc = addNewUsage(prev.total, (event as { messages?: unknown[] }).messages ?? [], prev.counted ?? []);
     writeFileSync(`${usageFile}.tmp`, JSON.stringify(acc));

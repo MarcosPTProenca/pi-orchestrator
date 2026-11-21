@@ -12,15 +12,23 @@ export function newUsage(): Usage {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: 0, costFromProvider: false };
 }
 
+export interface UsageState {
+  total: Usage;
+  counted: (number | string)[];
+}
+
 interface UsageMessage {
   role?: string;
   timestamp?: number;
+  responseId?: string;
+  provider?: string;
+  model?: string;
   usage?: Partial<Omit<Usage, "cost" | "costFromProvider">> & {
     cost?: { total?: number; totalFromProvider?: boolean };
   };
 }
 
-export function addNewUsage(total: Usage, messages: unknown[], counted: number[]): { total: Usage; counted: number[] } {
+export function addNewUsage(total: Usage, messages: unknown[], counted: (number | string)[]): UsageState {
   const seen = new Set(counted);
   const out: Usage = { ...newUsage(), ...total };
   const ids = [...counted];
@@ -28,10 +36,17 @@ export function addNewUsage(total: Usage, messages: unknown[], counted: number[]
   let anyCost = total.cost > 0;
   for (const m of messages as UsageMessage[]) {
     if (m?.role !== "assistant") continue;
-    if (typeof m.timestamp === "number") {
-      if (seen.has(m.timestamp)) continue;
-      seen.add(m.timestamp);
-      ids.push(m.timestamp);
+    const key =
+      typeof m.responseId === "string" && m.responseId !== ""
+        ? `r:${m.responseId}`
+        : typeof m.timestamp === "number"
+          ? `t:${m.timestamp}:${m.provider ?? ""}:${m.model ?? ""}`
+          : null;
+    const legacy = typeof m.timestamp === "number" && seen.has(m.timestamp);
+    if (key !== null) {
+      if (seen.has(key) || legacy) continue;
+      seen.add(key);
+      ids.push(key);
     }
     const u = m.usage ?? {};
     out.input += u.input ?? 0;

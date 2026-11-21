@@ -95,6 +95,19 @@ test("orch_status mostra o total de tokens quando medido, senão null", () => {
   assert.equal(rows.find((r) => r.task_id === "t-n")?.tokens, null);
 });
 
+test("orch_status expõe a taxa de acerto do cache e null quando não há entrada", () => {
+  const cached = t({
+    task_id: "t-c",
+    status: "done",
+    updated_at: "2026-11-17T11:50:00Z",
+    usage: { input: 20, output: 1, cacheRead: 80, cacheWrite: 0, totalTokens: 101 },
+  });
+  const semUso = t({ task_id: "t-s", status: "running" });
+  const rows = buildStatus([cached, semUso], NOW, {}).flatMap((g) => g.tasks);
+  assert.equal(rows.find((r) => r.task_id === "t-c")?.cache_hit_ratio, 0.8);
+  assert.equal(rows.find((r) => r.task_id === "t-s")?.cache_hit_ratio, null);
+});
+
 test("PI_ORCH_OLD_HOURS: 0 vale (esconde todas as terminais); valor inválido vira padrão, não zero", () => {
   assert.equal(oldHoursFrom("0"), 0);
   assert.equal(oldHoursFrom("12"), 12);
