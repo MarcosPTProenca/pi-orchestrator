@@ -1,9 +1,3 @@
-/**
- * Smoke test real contra o Herdr (não faz parte de `npm test`).
- * Requer HERDR_ENV=1 e HERDR_PANE_ID. Cria panes e workers Pi reais, em um
- * projeto descartável e com estado isolado. Cenários: conclusão, bloqueio com
- * resposta e cancelamento. Panes criados são fechados ao final.
- */
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -25,10 +19,22 @@ if (process.env.HERDR_ENV !== "1" || !process.env.HERDR_PANE_ID) {
 const stateDir = mkdtempSync(join(tmpdir(), "pi-orch-smoke-state-"));
 const project = mkdtempSync(join(tmpdir(), "pi-orch-smoke-proj-"));
 writeFileSync(join(project, "README.md"), "Projeto descartável do smoke test do pi-orchestrator.\n");
-// O intake exige a raiz de um repositório git (project_path precisa de .git).
 execFileSync("git", ["init", "-q"], { cwd: project });
 execFileSync("git", ["add", "README.md"], { cwd: project });
-execFileSync("git", ["-c", "user.name=smoke", "-c", "user.email=smoke@example.invalid", "commit", "-q", "-m", "chore: inicia projeto descartável do smoke"], { cwd: project });
+execFileSync(
+  "git",
+  [
+    "-c",
+    "user.name=smoke",
+    "-c",
+    "user.email=smoke@example.invalid",
+    "commit",
+    "-q",
+    "-m",
+    "chore: inicia projeto descartável do smoke",
+  ],
+  { cwd: project },
+);
 
 const orch = new Orchestrator({
   herdr: new HerdrCli(),
@@ -43,7 +49,6 @@ const orch = new Orchestrator({
 
 const log = (msg: string) => console.log(`[smoke ${new Date().toISOString()}] ${msg}`);
 
-/** Teste contra o Herdr real: consulta o estado a cada 5 s até haver evento. Em produção o worker avisa por webhook. */
 async function watchUntilSettled(taskId: string, label: string): Promise<WatchEvent> {
   let ev: WatchEvent | null = null;
   for (let i = 0; i < 240 && !ev; i++) {
@@ -51,7 +56,9 @@ async function watchUntilSettled(taskId: string, label: string): Promise<WatchEv
     ev = await orch.refresh(taskId);
   }
   if (!ev) throw new Error(`${label}: sem evento após 20 min`);
-  log(`${label}: evento=${ev.status} result=${JSON.stringify(ev.result)} question=${JSON.stringify(ev.question)} error=${JSON.stringify(ev.error)}`);
+  log(
+    `${label}: evento=${ev.status} result=${JSON.stringify(ev.result)} question=${JSON.stringify(ev.question)} error=${JSON.stringify(ev.error)}`,
+  );
   return ev;
 }
 
@@ -70,9 +77,9 @@ async function scenarioDone(): Promise<void> {
   log(`A: delegada task=${t.task_id} pane=${t.pane_id} worker=${t.worker_id}`);
   const ev = await watchUntilSettled(t.task_id, "A");
   if (ev.status !== "done") throw new Error(`A: esperado done, veio ${ev.status}`);
-  // Desde o #62 a tab de tarefa concluída fica aberta até o usuário validar (ou o fechamento automático do #51).
   const panesA = (await new HerdrCli().panes()).map((p) => p.pane_id);
-  if (!panesA.includes(t.pane_id)) throw new Error("A: tab de tarefa concluída deveria continuar aberta até a validação");
+  if (!panesA.includes(t.pane_id))
+    throw new Error("A: tab de tarefa concluída deveria continuar aberta até a validação");
   if (!orch.takeNotice(t.task_id)) throw new Error("A: aviso deveria estar pendente uma vez");
   if (orch.takeNotice(t.task_id)) throw new Error("A: aviso repetido");
   const outcome = await orch.closeOutcome(t.task_id);
@@ -99,7 +106,8 @@ async function scenarioBlockedAnswer(): Promise<void> {
   const ev = await watchUntilSettled(t.task_id, "B1");
   if (ev.status !== "blocked") throw new Error(`B: esperado blocked, veio ${ev.status}`);
   const pending = await orch.inbox();
-  if (!pending.some((p) => p.task_id === t.task_id && p.status === "blocked")) throw new Error("B: decisão não apareceu no inbox");
+  if (!pending.some((p) => p.task_id === t.task_id && p.status === "blocked"))
+    throw new Error("B: decisão não apareceu no inbox");
   await orch.answer(t.task_id, "Português.");
   log("B: resposta enviada");
   const done = await watchUntilSettled(t.task_id, "B2");
@@ -112,7 +120,9 @@ async function scenarioCancel(): Promise<void> {
   const t = await orch.delegate({
     project_path: project,
     role: "smoke-cancel",
-    request: "Escreva um poema de 20 linhas sobre pipes e depois chame orch_report com status done.", objective: "Escreva um poema de 20 linhas sobre pipes e depois chame orch_report com status done.", mode: "report",
+    request: "Escreva um poema de 20 linhas sobre pipes e depois chame orch_report com status done.",
+    objective: "Escreva um poema de 20 linhas sobre pipes e depois chame orch_report com status done.",
+    mode: "report",
     timeout_minutes: 8,
   });
   log(`C: delegada task=${t.task_id} workspace=${t.workspace_id} tab=${t.tab_id} pane=${t.pane_id}`);
@@ -125,16 +135,17 @@ async function scenarioCancel(): Promise<void> {
   log(`C: OK (tab da tarefa fechada; pane do orquestrador preservado; panes depois=${after.join(",")})`);
 }
 
-/** Fecha qualquer tarefa ativa que este smoke tenha criado (ownership por pane_id + terminal_id). */
 async function cleanup(): Promise<void> {
   for (const t of orch.list()) {
     if (t.status === "starting" || t.status === "running" || t.status === "blocked") {
-      await orch.cancel(t.task_id).then(() => log(`limpeza: ${t.task_id} cancelada`), (e) => log(`limpeza falhou: ${String(e)}`));
+      await orch.cancel(t.task_id).then(
+        () => log(`limpeza: ${t.task_id} cancelada`),
+        (e) => log(`limpeza falhou: ${String(e)}`),
+      );
     }
   }
 }
 
-/** Remove o workspace descartável criado pelo smoke (registrado no estado isolado). */
 function closeSmokeWorkspaces(): void {
   for (const ws of Object.values(new Store(join(stateDir, "state.json")).load().workspaces)) {
     try {
@@ -148,12 +159,25 @@ function closeSmokeWorkspaces(): void {
 
 async function scenarioConcurrent(): Promise<void> {
   log("D: duas tarefas simultâneas no mesmo projeto");
-  const briefs = ["Leia README.md e chame orch_report com status done e a primeira palavra do arquivo em result.", "Liste os arquivos do diretório atual e chame orch_report com status done e a quantidade de itens em result."];
+  const briefs = [
+    "Leia README.md e chame orch_report com status done e a primeira palavra do arquivo em result.",
+    "Liste os arquivos do diretório atual e chame orch_report com status done e a quantidade de itens em result.",
+  ];
   const tasks = [];
   for (const [i, brief] of briefs.entries()) {
-    tasks.push(await orch.delegate({ project_path: project, role: `smoke-par-${i}`, request: brief, objective: brief, mode: "report", timeout_minutes: 8 }));
+    tasks.push(
+      await orch.delegate({
+        project_path: project,
+        role: `smoke-par-${i}`,
+        request: brief,
+        objective: brief,
+        mode: "report",
+        timeout_minutes: 8,
+      }),
+    );
   }
-  if (tasks[0].workspace_id !== tasks[1].workspace_id) throw new Error("D: as duas deveriam estar no mesmo workspace do projeto");
+  if (tasks[0].workspace_id !== tasks[1].workspace_id)
+    throw new Error("D: as duas deveriam estar no mesmo workspace do projeto");
   if (tasks[0].tab_id === tasks[1].tab_id) throw new Error("D: cada tarefa deveria ter sua tab");
   log(`D: workspace=${tasks[0].workspace_id} tabs=${tasks[0].tab_id},${tasks[1].tab_id}`);
   const events = await Promise.all(tasks.map((t, i) => watchUntilSettled(t.task_id, `D${i}`)));

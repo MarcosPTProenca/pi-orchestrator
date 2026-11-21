@@ -2,7 +2,14 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { compare, countCommentLines, deadCodeCount, typeErrorCount } from "./quality-lib.mjs";
+import {
+  compare,
+  countCommentLines,
+  deadCodeCount,
+  lintErrorCount,
+  typeErrorCount,
+  unformattedCount,
+} from "./quality-lib.mjs";
 
 const root = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 const dir = join(root, "quality");
@@ -11,7 +18,10 @@ const readJson = (name) => JSON.parse(readFileSync(join(dir, name), "utf8"));
 
 function duplication() {
   const out = mkdtempSync(join(tmpdir(), "jscpd-"));
-  spawnSync("npx", ["jscpd", "src", "test", "scripts", "--silent", "--reporters", "json", "--output", out], { cwd: root, encoding: "utf8" });
+  spawnSync("npx", ["jscpd", "src", "test", "scripts", "--silent", "--reporters", "json", "--output", out], {
+    cwd: root,
+    encoding: "utf8",
+  });
   const report = JSON.parse(readFileSync(join(out, "jscpd-report.json"), "utf8"));
   return Math.round(report.statistics.total.percentage * 100) / 100;
 }
@@ -30,7 +40,22 @@ function commentLines() {
 
 function typeErrors() {
   const r = spawnSync("npx", ["tsc", "--noEmit", "-p", "tsconfig.json"], { cwd: root, encoding: "utf8" });
-  return typeErrorCount(`${r.stdout}\n${r.stderr}`);
+  const count = typeErrorCount(`${r.stdout}\n${r.stderr}`);
+  if (r.status !== 0 && count === 0)
+    throw new Error(`tsc saiu com ${r.status} sem diagnóstico reconhecível; não dá para medir type_errors`);
+  return count;
+}
+
+function lintErrors() {
+  const out = join(mkdtempSync(join(tmpdir(), "eslint-")), "eslint.json");
+  spawnSync("npx", ["eslint", ".", "-f", "json", "-o", out], { cwd: root, encoding: "utf8" });
+  return lintErrorCount(JSON.parse(readFileSync(out, "utf8")));
+}
+
+function formatFiles() {
+  const r = spawnSync("npx", ["prettier", "--list-different", "."], { cwd: root, encoding: "utf8" });
+  if (r.status !== 0 && r.status !== 1) throw new Error(`prettier falhou (${r.status}): ${r.stderr}`);
+  return unformattedCount(r.stdout);
 }
 
 const current = {
@@ -38,6 +63,8 @@ const current = {
   dead_code: deadCode(),
   comment_lines: commentLines(),
   type_errors: typeErrors(),
+  lint_errors: lintErrors(),
+  format_files: formatFiles(),
 };
 
 if (update) {
@@ -58,7 +85,8 @@ for (const r of rows) {
   console.log(`${pad(r.metric, 16)}${pad(r.current, 10)}${pad(r.baseline ?? "-", 11)}${pad(r.target, 8)}${situacao}`);
 }
 
-for (const r of regressions) console.error(`${r.metric}: ${r.baseline} -> ${r.current} (piorou em relação ao baseline)`);
+for (const r of regressions)
+  console.error(`${r.metric}: ${r.baseline} -> ${r.current} (piorou em relação ao baseline)`);
 if (regressions.length > 0) {
   console.error("\nqualidade: regressão. Corrija o código; não regrave o baseline para esconder.");
   process.exit(1);

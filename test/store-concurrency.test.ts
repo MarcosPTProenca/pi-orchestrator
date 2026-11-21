@@ -10,15 +10,17 @@ import { Store } from "../src/store.ts";
 const STORE = fileURLToPath(new URL("../src/store.ts", import.meta.url));
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
-/** Processo filho que grava N registros no mesmo state.json, como uma sessão do orquestrador faria. */
 function writer(file: string, n: number): Promise<void> {
   const code = `
 const { Store } = await import(${JSON.stringify(STORE)});
 const s = new Store(${JSON.stringify(file)});
 for (let i = 0; i < ${n}; i++) s.mutate((st) => { st.tasks[process.pid + "-" + i] = { task_id: process.pid + "-" + i }; });`;
   return new Promise((resolve, reject) => {
-    execFile(process.execPath, ["--import", "tsx", "--input-type=module", "-e", code], { cwd: ROOT, timeout: 120_000 }, (err, _out, stderr) =>
-      err ? reject(new Error(`${err.message} ${stderr}`)) : resolve(),
+    execFile(
+      process.execPath,
+      ["--import", "tsx", "--input-type=module", "-e", code],
+      { cwd: ROOT, timeout: 120_000 },
+      (err, _out, stderr) => (err ? reject(new Error(`${err.message} ${stderr}`)) : resolve()),
     );
   });
 }

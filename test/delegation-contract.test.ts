@@ -13,7 +13,13 @@ function project(): string {
 }
 
 test("brief não tem seção de pedido literal; o trabalho vem formulado pelo orquestrador", () => {
-  const pack = buildIntake({ project_path: project(), role: "a", request: "Corrigir o parser de datas.", objective: "y", mode: "report" });
+  const pack = buildIntake({
+    project_path: project(),
+    role: "a",
+    request: "Corrigir o parser de datas.",
+    objective: "y",
+    mode: "report",
+  });
   const brief = renderBrief("t-x", pack, "/r.json");
   assert.match(brief, /^## O que fazer\nCorrigir o parser de datas\./m);
   assert.doesNotMatch(brief, /literal/);

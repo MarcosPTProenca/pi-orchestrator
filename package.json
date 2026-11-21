@@ -3,12 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Orquestração mínima de sessões Pi independentes via Herdr (MVP).",
+  "description": "Orquestra\u00e7\u00e3o m\u00ednima de sess\u00f5es Pi independentes via Herdr (MVP).",
   "scripts": {
     "test": "node --import tsx --test test/*.test.ts scripts/quality-lib.test.mjs",
     "quality": "node scripts/quality.mjs",
     "quality:baseline": "node scripts/quality.mjs --update",
-    "quality:test": "node --test scripts/quality-lib.test.mjs"
+    "quality:test": "node --test scripts/quality-lib.test.mjs",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .githooks || true"
   },
   "engines": {
     "node": ">=22.18"
@@ -16,9 +20,12 @@
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "1.5.2",
     "@types/node": "22.20.5",
+    "eslint": "10.15.0",
     "jscpd": "5.4.3",
     "knip": "6.47.0",
+    "prettier": "3.10.1",
     "tsx": "4.23.15",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.73.0"
   }
 }

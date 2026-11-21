@@ -1,15 +1,7 @@
-/**
- * Adaptador do Herdr. Usa somente a CLI oficial com saída JSON.
- * `HerdrPort` permite testes com uma implementação simulada.
- *
- * Modelo de layout (igual ao FirstMate no modo flat): um workspace por projeto,
- * uma tab por tarefa dentro dele. Não divide o pane do orquestrador.
- */
 import { execFile } from "node:child_process";
 
 export interface WorkspaceResult {
   workspace_id: string;
-  /** Tab criada automaticamente pelo Herdr junto com o workspace. */
   seeded_tab_id: string;
   pane_id: string;
   terminal_id: string;
@@ -34,13 +26,9 @@ export interface HerdrPort {
   workspaceIds(): Promise<string[]>;
   createTab(a: { workspaceId: string; cwd: string; label: string; env: Record<string, string> }): Promise<TabResult>;
   closeTab(tabId: string): Promise<void>;
-  /** Fecha o workspace inteiro (modo por tarefa). */
   closeWorkspace(workspaceId: string): Promise<void>;
-  /** Versão do cliente Herdr (ex.: 0.9.1), ou null se não der para ler. */
   clientVersion(): Promise<string | null>;
-  /** Digita o comando no pane de shell e segue sem esperar o agente aparecer (como o FirstMate). */
   runInPane(paneId: string, command: string): Promise<void>;
-  /** Rótulo visível do pane. */
   renamePane(paneId: string, label: string): Promise<void>;
   startAgent(args: { name: string; paneId: string; piArgs: string[]; timeoutMs: number }): Promise<void>;
   prompt(target: string, text: string): Promise<void>;
@@ -51,26 +39,22 @@ export interface HerdrPort {
     signal?: AbortSignal,
   ): Promise<{ reached: string } | { timeout: true }>;
   panes(): Promise<PaneInfo[]>;
-  /** Últimas linhas de texto do agente (diagnóstico). */
   readRecent(target: string, lines: number): Promise<string>;
 }
 
-export class HerdrError extends Error {
+class HerdrError extends Error {
   constructor(args: string[], detail: string) {
     super(`herdr ${args.slice(0, 2).join(" ")} falhou: ${detail.trim()}`);
   }
 }
 
-/** Piso do modo por tarefa: workspaces descartáveis exigem Herdr 0.8.0 (defeito de foco nas versões anteriores). */
 export const PRESENTATION_FLOOR = "0.8.0";
 
-/** Extrai X.Y.Z da saída de `herdr --version` (ex.: "herdr 0.9.1"). */
 export function parseVersion(text: string): string | null {
   const m = /\b(\d+\.\d+\.\d+)\b/.exec(text);
   return m ? m[1] : null;
 }
 
-/** true se a versão está abaixo do piso, ou se não é conhecida (desconhecida conta como abaixo). */
 export function belowFloor(version: string | null, floor = PRESENTATION_FLOOR): boolean {
   if (version === null) return true;
   const a = version.split(".").map(Number);
@@ -94,7 +78,6 @@ function field(obj: unknown, ...path: string[]): string | undefined {
   return typeof cur === "string" && cur !== "" ? cur : undefined;
 }
 
-/** Interpreta `herdr workspace create`. */
 export function parseWorkspaceCreate(json: unknown): WorkspaceResult {
   const workspace_id = field(json, "result", "workspace", "workspace_id");
   const seeded_tab_id = field(json, "result", "tab", "tab_id");
@@ -106,7 +89,6 @@ export function parseWorkspaceCreate(json: unknown): WorkspaceResult {
   return { workspace_id, seeded_tab_id, pane_id, terminal_id };
 }
 
-/** Interpreta `herdr tab create`. */
 export function parseTabCreate(json: unknown): TabResult {
   const tab_id = field(json, "result", "tab", "tab_id");
   const pane_id = field(json, "result", "root_pane", "pane_id");
@@ -115,21 +97,18 @@ export function parseTabCreate(json: unknown): TabResult {
   return { tab_id, pane_id, terminal_id };
 }
 
-/** Interpreta `herdr workspace list`. */
 export function parseWorkspaceIds(json: unknown): string[] {
   const list = (json as { result?: { workspaces?: unknown[] } })?.result?.workspaces;
   if (!Array.isArray(list)) throw new Error("resposta de workspace list sem workspaces");
   return list.map((w) => String((w as Obj).workspace_id));
 }
 
-/** Interpreta `herdr tab list` e devolve os tab_id listados. */
 export function parseTabIds(json: unknown): Set<string> {
   const list = (json as { result?: { tabs?: unknown[] } })?.result?.tabs;
   if (!Array.isArray(list)) throw new Error("resposta de tab list sem tabs");
   return new Set(list.map((t) => String((t as Obj).tab_id)));
 }
 
-/** Interpreta `herdr api snapshot` e devolve os panes. */
 export function parsePanes(json: unknown): PaneInfo[] {
   const panes = (json as { result?: { snapshot?: { panes?: unknown[] } } })?.result?.snapshot?.panes;
   if (!Array.isArray(panes)) throw new Error("resposta de api snapshot sem panes");
@@ -179,7 +158,12 @@ export class HerdrCli implements HerdrPort {
     return parseWorkspaceIds(JSON.parse(await this.runOk(["workspace", "list"])));
   }
 
-  async createTab(a: { workspaceId: string; cwd: string; label: string; env: Record<string, string> }): Promise<TabResult> {
+  async createTab(a: {
+    workspaceId: string;
+    cwd: string;
+    label: string;
+    env: Record<string, string>;
+  }): Promise<TabResult> {
     const args = ["tab", "create", "--workspace", a.workspaceId, "--cwd", a.cwd, "--label", a.label, "--no-focus"];
     for (const [k, v] of Object.entries(a.env)) args.push("--env", `${k}=${v}`);
     return parseTabCreate(JSON.parse(await this.runOk(args)));
@@ -206,7 +190,19 @@ export class HerdrCli implements HerdrPort {
   }
 
   async startAgent(a: { name: string; paneId: string; piArgs: string[]; timeoutMs: number }): Promise<void> {
-    const args = ["agent", "start", a.name, "--kind", "pi", "--pane", a.paneId, "--timeout", String(a.timeoutMs), "--", ...a.piArgs];
+    const args = [
+      "agent",
+      "start",
+      a.name,
+      "--kind",
+      "pi",
+      "--pane",
+      a.paneId,
+      "--timeout",
+      String(a.timeoutMs),
+      "--",
+      ...a.piArgs,
+    ];
     await this.runOk(args, a.timeoutMs + 15_000);
   }
 
@@ -239,7 +235,6 @@ export class HerdrCli implements HerdrPort {
     return parsePanes(JSON.parse(await this.runOk(["api", "snapshot"])));
   }
 
-  /** tab_id de todas as tabs abertas agora. */
   async tabIds(): Promise<Set<string>> {
     return parseTabIds(JSON.parse(await this.runOk(["tab", "list"])));
   }

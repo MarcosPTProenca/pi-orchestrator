@@ -7,20 +7,37 @@ import workerExtension, { REPORT_REMINDER } from "../src/worker-ext.ts";
 
 type Handler = (event: unknown) => unknown;
 
-/** Worker com as variáveis de ambiente do papel; restaura o ambiente ao final. */
-async function withWorker(taskId: string, fn: (h: Record<string, Handler>, dir: string) => Promise<void>): Promise<void> {
+async function withWorker(
+  taskId: string,
+  fn: (h: Record<string, Handler>, dir: string) => Promise<void>,
+): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), "orch-cont-"));
-  const prev = { role: process.env.PI_ORCH_ROLE, id: process.env.PI_ORCH_TASK_ID, dir: process.env.PI_ORCH_TASK_DIR, url: process.env.PI_ORCH_HOOK_URL };
+  const prev = {
+    role: process.env.PI_ORCH_ROLE,
+    id: process.env.PI_ORCH_TASK_ID,
+    dir: process.env.PI_ORCH_TASK_DIR,
+    url: process.env.PI_ORCH_HOOK_URL,
+  };
   try {
     process.env.PI_ORCH_ROLE = "worker";
     process.env.PI_ORCH_TASK_ID = taskId;
     process.env.PI_ORCH_TASK_DIR = dir;
     delete process.env.PI_ORCH_HOOK_URL;
     const handlers: Record<string, Handler> = {};
-    workerExtension({ on: (name: string, f: Handler) => { handlers[name] = f; }, registerTool: () => {} } as never);
+    workerExtension({
+      on: (name: string, f: Handler) => {
+        handlers[name] = f;
+      },
+      registerTool: () => {},
+    } as never);
     await fn(handlers, dir);
   } finally {
-    for (const [k, v] of [["PI_ORCH_ROLE", prev.role], ["PI_ORCH_TASK_ID", prev.id], ["PI_ORCH_TASK_DIR", prev.dir], ["PI_ORCH_HOOK_URL", prev.url]] as const) {
+    for (const [k, v] of [
+      ["PI_ORCH_ROLE", prev.role],
+      ["PI_ORCH_TASK_ID", prev.id],
+      ["PI_ORCH_TASK_DIR", prev.dir],
+      ["PI_ORCH_HOOK_URL", prev.url],
+    ] as const) {
       if (v === undefined) delete process.env[k];
       else process.env[k] = v;
     }
@@ -29,14 +46,19 @@ async function withWorker(taskId: string, fn: (h: Record<string, Handler>, dir: 
 }
 
 const silentEnd = { messages: [{ role: "assistant", content: [{ type: "text", text: "ok" }] }] };
-const errorEnd = { messages: [{ role: "assistant", content: [], errorMessage: "500: An error occurred while processing your request." }] };
+const errorEnd = {
+  messages: [{ role: "assistant", content: [], errorMessage: "500: An error occurred while processing your request." }],
+};
 const settleEvent = { entries: [], continue: false, context: {}, outcome: {} };
 
 test("fim de turno sem relatório e sem erro: uma continuação com lembrete, depois falha com motivo (#57)", () =>
   withWorker("t-c1", async (h, dir) => {
     await h.agent_end(silentEnd);
     assert.equal(existsSync(join(dir, "report.json")), false, "não grava falha antes da continuação");
-    const r = (await h.agent_before_settle(settleEvent)) as { continue: boolean; entries: { customType?: string; content?: string }[] };
+    const r = (await h.agent_before_settle(settleEvent)) as {
+      continue: boolean;
+      entries: { customType?: string; content?: string }[];
+    };
     assert.equal(r.continue, true);
     assert.ok(r.entries.some((e) => e.customType === "orch-report-reminder" && e.content === REPORT_REMINDER));
     await h.agent_end(silentEnd);
@@ -67,7 +89,17 @@ test("relatório válido que chega durante a continuação não é sobrescrito p
   withWorker("t-c4", async (h, dir) => {
     await h.agent_end(silentEnd);
     assert.ok(await h.agent_before_settle(settleEvent));
-    writeFileSync(join(dir, "report.json"), JSON.stringify({ task_id: "t-c4", status: "done", result: "entregue na continuação", question: null, artifacts: [], reported_at: "2" }));
+    writeFileSync(
+      join(dir, "report.json"),
+      JSON.stringify({
+        task_id: "t-c4",
+        status: "done",
+        result: "entregue na continuação",
+        question: null,
+        artifacts: [],
+        reported_at: "2",
+      }),
+    );
     await h.agent_end(silentEnd);
     const rep = JSON.parse(readFileSync(join(dir, "report.json"), "utf8"));
     assert.equal(rep.status, "done");
@@ -94,7 +126,17 @@ test("agent_settled depois da continuação concluída não regrava nem sobrescr
   withWorker("t-c7", async (h, dir) => {
     await h.agent_end(silentEnd);
     await h.agent_before_settle(settleEvent);
-    writeFileSync(join(dir, "report.json"), JSON.stringify({ task_id: "t-c7", status: "done", result: "ok", question: null, artifacts: [], reported_at: "2" }));
+    writeFileSync(
+      join(dir, "report.json"),
+      JSON.stringify({
+        task_id: "t-c7",
+        status: "done",
+        result: "ok",
+        question: null,
+        artifacts: [],
+        reported_at: "2",
+      }),
+    );
     await h.agent_end(silentEnd);
     await h.agent_settled({ aborted: false });
     assert.equal(JSON.parse(readFileSync(join(dir, "report.json"), "utf8")).status, "done");

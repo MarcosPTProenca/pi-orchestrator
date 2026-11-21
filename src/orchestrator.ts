@@ -1,77 +1,54 @@
-/**
- * Núcleo do orquestrador: delegação, acompanhamento, respostas, cancelamento
- * e reconciliação. Não chama LLM. Recebe o Herdr e o estado por injeção.
- */
 import { workerSessionFile } from "./session-file.ts";
 import { resolveModel } from "./models.ts";
 import { workerAgentName, workerTabName } from "./label.ts";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, isAbsolute, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { clampLines, maskSecrets } from "./logs.ts";
 import { classifyFailure } from "./failure.ts";
-import {
-  isActive,
-  reportKey,
-  validateReport,
-  type TaskRecord,
-  type TaskStatus,
-} from "./contract.ts";
+import { isActive, reportKey, validateReport, type TaskRecord, type TaskStatus } from "./contract.ts";
 import type { Report } from "./contract.ts";
 import { belowFloor, PRESENTATION_FLOOR, type HerdrPort, type TabResult } from "./herdr.ts";
 import type { Store } from "./store.ts";
 
 export interface OrchDeps {
-  /** Devolve a worktree da tarefa ao pool, se seguro, e devolve a nota para o usuário. */
   releaseWorktree?: (task: TaskRecord) => string;
   herdr: HerdrPort;
-  /** Um workspace Herdr por tarefa, em vez de uma tab no workspace do projeto. Padrão: false (flat). */
   presentationSpaces?: boolean;
   store: Store;
   tasksDir: string;
   workerExtPath: string;
   now: () => number;
   newHex: () => string;
-  /** provider/id dos modelos disponíveis. Modelo pedido fora desta lista é erro explícito. */
   availableModels: () => string[];
-  /** true: valida, monta o brief e registra o plano, sem tocar no Herdr. Usado pelos testes de comportamento. */
   dryRun: boolean;
-  /** Enriquece a entrada com o estado atual da fonte (ex.: PR) no momento do lançamento. */
   enrichSource?: (input: DelegateInput) => Promise<DelegateInput>;
-  /** Escolhe o modelo antes do lançamento: pedido explícito é validado; sem pedido, usa a ordem por cota. */
   chooseModel?: (requested: string | undefined) => Promise<{ model: string | undefined; reason: string }>;
-  /** Webhook do orquestrador: o worker faz POST nele ao terminar. Definido quando o servidor sobe. */
   hookUrl?: string;
   hookToken?: string;
-  /** Chamado quando uma tarefa passa a terminal (a fila de PRs usa isso para avançar). */
   onTerminal?: (taskId: string) => void;
 }
 
-export { MODES, type Mode } from "./intake.ts";
+export { MODES } from "./intake.ts";
 import { buildIntake, renderBrief, type Mode } from "./intake.ts";
 
-/** Trava por tarefa: espera até 5 s; trava com mais de 30 s é de processo morto. */
 const OP_LOCK_WAIT_MS = 5_000;
 const OP_LOCK_STALE_MS = 30_000;
 
 export interface DelegateInput {
   project_path: string;
   role: string;
-  /** Trabalho específico para o worker, formulado pelo orquestrador. */
   request: string;
-  /** Objetivo verificável. */
   objective: string;
   mode: Mode;
   constraints?: string[];
   source?: string;
   branch?: string;
   spec?: string;
-  /** Modelo exato (provider/id). Omitido: padrão do Pi. */
   model?: string;
   tracker?: "github" | "plane" | "none";
   timeout_minutes?: number;
 }
 
-/** Mesmo trabalho: mesma PR (source) ou mesma branch no mesmo projeto. Devolve o rótulo do conflito, ou null. */
 function sameWork(a: DelegateInput, b: DelegateInput): string | null {
   if (a.project_path !== b.project_path) return null;
   const sa = a.source?.trim();
@@ -89,26 +66,14 @@ export interface WatchEvent {
   question: string | null;
   artifacts: string[];
   error: string | null;
-  /** Correção de um aviso anterior: a tarefa tinha sido dada como outro status e o relatório válido prevalece. */
   correction?: string | null;
 }
 
-/** Aspas simples seguras para o shell do pane: o comando é digitado no shell do Herdr. */
-export function shellQuote(arg: string): string {
+function shellQuote(arg: string): string {
   return /^[A-Za-z0-9_./:=@%+-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, `'\\''`)}'`;
 }
 const LAUNCH_MESSAGE = "Execute a tarefa do brief que voce recebeu no contexto. Ao terminar, chame orch_report.";
-/** Teto para o worker começar a trabalhar após o prompt. Evita ler `idle` anterior ao início. */
 
-function isDirectory(path: string): boolean {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
-/** Relatório gravado pela extensão do worker ao fim do turno (sem orch_report). */
 function isFallbackRaw(raw: string): boolean {
   try {
     return (JSON.parse(raw) as { source?: unknown }).source === "fallback";
@@ -123,7 +88,6 @@ function errorMessage(err: unknown): string {
 
 export class Orchestrator {
   private readonly d: OrchDeps;
-  /** Escopo (projeto) desta sessão. Indefinido: sem separação por dono (testes e simulação). */
   private scope?: string;
 
   constructor(deps: OrchDeps) {
@@ -132,25 +96,16 @@ export class Orchestrator {
 
   private sharedWith?: (projectPath: string) => boolean;
 
-  /**
-   * Define o escopo desta sessão: só as tarefas dele são avisadas, varridas e alteradas aqui.
-   * `sharedWith` diz quais tarefas de outros escopos esta sessão também controla (controle compartilhado do repo).
-   */
   setScope(key: string, sharedWith?: (projectPath: string) => boolean): void {
     this.scope = key;
     this.sharedWith = sharedWith;
   }
 
-  /** A tarefa é desta sessão? Sem escopo, tudo é. Dono igual, ou controle compartilhado do repo da tarefa. */
   private mine(t: TaskRecord): boolean {
     if (this.scope === undefined || t.owner_key === this.scope) return true;
     return this.sharedWith !== undefined && this.sharedWith(t.project_path);
   }
 
-  /**
-   * Trava por tarefa: duas sessões que controlam a mesma tarefa não executam operações que a mudam ao mesmo tempo
-   * (cancelar e enviar, dois cancelamentos, duas respostas). Trava de processo morto expira.
-   */
   private async withTaskLock<T>(taskId: string, fn: () => Promise<T>): Promise<T> {
     mkdirSync(this.d.tasksDir, { recursive: true });
     const dir = join(this.d.tasksDir, `${taskId}.oplock`);
@@ -167,7 +122,7 @@ export class Orchestrator {
             continue;
           }
         } catch {
-          continue; // a outra sessão soltou a trava entre o EEXIST e o stat
+          continue;
         }
         if (Date.now() > deadline) throw new Error(`tarefa ${taskId} está ocupada com outra operação; tente de novo`);
         await new Promise((resolve) => setTimeout(resolve, 25));
@@ -180,12 +135,10 @@ export class Orchestrator {
     }
   }
 
-  /** Tarefas deste escopo. Tarefas de outras sessões do orquestrador ficam visíveis em list(), mas não são suas. */
   owned(): TaskRecord[] {
     return this.list().filter((t) => this.mine(t));
   }
 
-  /** Dá a posse das tarefas legadas (sem dono) cujo projeto pertence a este escopo. Devolve quantas adotou. */
   adoptUnowned(belongs: (projectPath: string) => boolean): number {
     if (this.scope === undefined) return 0;
     const scope = this.scope;
@@ -201,11 +154,13 @@ export class Orchestrator {
     });
   }
 
-  /** Ação que altera uma tarefa só vale para a sessão dona dela. */
   private assertMine(taskId: string): void {
     const t = this.get(taskId);
     if (this.mine(t)) return;
-    const dono = t.owner_key === undefined ? "tarefa legada sem dono (o repo dela tem sessão viva ou está fora desta sessão)" : `de outra sessão do orquestrador (escopo ${t.owner_key})`;
+    const dono =
+      t.owner_key === undefined
+        ? "tarefa legada sem dono (o repo dela tem sessão viva ou está fora desta sessão)"
+        : `de outra sessão do orquestrador (escopo ${t.owner_key})`;
     throw new Error(`tarefa ${taskId} é ${dono}; esta sessão só age sobre as próprias tarefas`);
   }
 
@@ -215,7 +170,6 @@ export class Orchestrator {
     return t;
   }
 
-  /** Quantas tarefas ocupam vaga agora (starting, running, blocked). Conta todos os escopos: o teto é da máquina. */
   activeCount(): number {
     return this.list().filter((t) => isActive(t.status)).length;
   }
@@ -242,10 +196,10 @@ export class Orchestrator {
     return join(t.task_dir, "report.json");
   }
 
-  /**
-   * Um workspace Herdr por projeto, reutilizado enquanto existir. Não divide o pane do orquestrador.
-   */
-  private async ensureWorkspace(projectPath: string, projectId: string): Promise<{ workspace_id: string; seeded_tab_id: string | null }> {
+  private async ensureWorkspace(
+    projectPath: string,
+    projectId: string,
+  ): Promise<{ workspace_id: string; seeded_tab_id: string | null }> {
     const state = this.d.store.load();
     const known = state.workspaces[projectPath];
     if (known && (await this.d.herdr.workspaceIds()).includes(known.workspace_id)) return known;
@@ -257,28 +211,26 @@ export class Orchestrator {
     return record;
   }
 
-  /** Fecha o que a tarefa abriu: o workspace próprio se projetada; senão só a tab, que fica no workspace do projeto. */
   private async closeSurface(t: TaskRecord): Promise<void> {
     if (t.projected) await this.d.herdr.closeWorkspace(t.workspace_id);
     else await this.d.herdr.closeTab(t.tab_id);
   }
 
-  /** Modo por tarefa exige Herdr 0.8.0 ou mais. Falha antes de qualquer efeito. */
   private async assertSpacesFloor(): Promise<void> {
     const v = await this.d.herdr.clientVersion();
     if (belowFloor(v)) {
-      throw new Error(`workspace por tarefa (PI_ORCH_PRESENTATION_SPACES=1) exige Herdr ${PRESENTATION_FLOOR} ou mais; encontrado: ${v ?? "desconhecido"}. Nada foi lançado.`);
+      throw new Error(
+        `workspace por tarefa (PI_ORCH_PRESENTATION_SPACES=1) exige Herdr ${PRESENTATION_FLOOR} ou mais; encontrado: ${v ?? "desconhecido"}. Nada foi lançado.`,
+      );
     }
   }
 
-  /** Valida uma delegação sem efeitos: modelo, projeto, pedido, objetivo e modo. Lança erro explícito. */
   checkDelegate(input: DelegateInput): void {
     resolveModel(input.model, this.d.availableModels());
     buildIntake({ ...input, model: input.model });
     this.assertNotActive(input);
   }
 
-  /** Valida um lote inteiro antes de lançar qualquer item: recusa também duplicado dentro do próprio lote. */
   checkBatch(inputs: DelegateInput[]): void {
     const seen: DelegateInput[] = [];
     for (const input of inputs) {
@@ -291,37 +243,35 @@ export class Orchestrator {
     }
   }
 
-  /**
-   * Nome do projeto nas mensagens. Dois repos com o mesmo nome de pasta (basename) ganham o nome do pai, para as
-   * mensagens não se confundirem (#65). Tarefas antigas mantêm o nome que receberam.
-   */
   projectIdFor(projectPath: string): string {
     const base = basename(projectPath);
     const clash = this.list().some((t) => t.project_id === base && t.project_path !== projectPath);
     return clash ? `${basename(dirname(projectPath))}/${base}` : base;
   }
 
-  /** Tarefa ativa no mesmo projeto para a mesma PR ou branch, ou null. Não lança. */
   activeConflict(input: DelegateInput): { task: TaskRecord; label: string } | null {
     for (const t of this.list()) {
       if (!isActive(t.status) || t.project_path !== input.project_path) continue;
-      const dup = sameWork({ ...input, source: t.source ?? undefined, branch: t.branch ?? undefined, project_path: t.project_path }, input);
+      const dup = sameWork(
+        { ...input, source: t.source ?? undefined, branch: t.branch ?? undefined, project_path: t.project_path },
+        input,
+      );
       if (dup) return { task: t, label: dup };
     }
     return null;
   }
 
-  /** Recusa lançar se já existe tarefa ativa para a mesma PR ou branch no mesmo projeto. */
   private assertNotActive(input: DelegateInput): void {
     const c = this.activeConflict(input);
-    if (c) throw new Error(`já existe a tarefa ${c.task.task_id} ativa para a mesma ${c.label} (${c.task.status}); aguarde ou cancele antes de lançar outra`);
+    if (c)
+      throw new Error(
+        `já existe a tarefa ${c.task.task_id} ativa para a mesma ${c.label} (${c.task.status}); aguarde ou cancele antes de lançar outra`,
+      );
   }
 
   async delegate(rawInput: DelegateInput, opts: { forkSession?: string } = {}): Promise<TaskRecord> {
-    // Estado da fonte lido agora, não na listagem de minutos atrás.
     const input = this.d.enrichSource ? await this.d.enrichSource(rawInput) : rawInput;
     this.assertNotActive(input);
-    // Tudo que pode falhar acontece antes de qualquer efeito: nenhum worker é lançado com entrada inválida.
     const model = this.d.chooseModel
       ? (await this.d.chooseModel(input.model)).model
       : resolveModel(input.model, this.d.availableModels());
@@ -339,7 +289,6 @@ export class Orchestrator {
 
     writeFileSync(briefPath, renderBrief(taskId, intake, reportPath));
 
-    // Prazo só existe se o usuário pediu. Sem prazo, o worker segue até terminar.
     const deadlineAt = input.timeout_minutes ? this.iso(this.d.now() + input.timeout_minutes * 60_000) : null;
     const initialStatus: TaskStatus = this.d.dryRun ? "planned" : "starting";
     const now = this.iso();
@@ -384,8 +333,10 @@ export class Orchestrator {
       let ws: { workspace_id: string };
       let tab: TabResult;
       if (projected) {
-        // Workspace próprio: o pane raiz é o do worker. createWorkspace não aceita env (ver launch abaixo).
-        const space = await this.d.herdr.createWorkspace({ cwd: input.project_path, label: workerTabName(input.role, taskId.slice(2)) });
+        const space = await this.d.herdr.createWorkspace({
+          cwd: input.project_path,
+          label: workerTabName(input.role, taskId.slice(2)),
+        });
         spaceId = space.workspace_id;
         ws = space;
         tab = { tab_id: space.seeded_tab_id, pane_id: space.pane_id, terminal_id: space.terminal_id };
@@ -399,7 +350,9 @@ export class Orchestrator {
             PI_ORCH_ROLE: "worker",
             PI_ORCH_TASK_ID: taskId,
             PI_ORCH_TASK_DIR: taskDir,
-            ...(this.d.hookUrl && this.d.hookToken ? { PI_ORCH_HOOK_URL: this.d.hookUrl, PI_ORCH_HOOK_TOKEN: this.d.hookToken } : {}),
+            ...(this.d.hookUrl && this.d.hookToken
+              ? { PI_ORCH_HOOK_URL: this.d.hookUrl, PI_ORCH_HOOK_TOKEN: this.d.hookToken }
+              : {}),
           },
         });
       }
@@ -410,19 +363,15 @@ export class Orchestrator {
         t.pane_id = tab.pane_id;
         t.terminal_id = tab.terminal_id;
       });
-      // Argumento inicial curto e seguro para o shell. O brief completo chega pela extensão do worker,
-      // que o injeta como contexto antes do primeiro turno (o Herdr recusa texto multilinha em argumento).
+      // keep: o Herdr recusa texto multilinha em argumento; o brief completo chega pela extensão do worker.
       const piArgs = ["-e", this.d.workerExtPath];
-      // Relançamento: fork da sessão da tentativa anterior (o arquivo original não muda).
       if (opts.forkSession) piArgs.push("--fork", opts.forkSession);
       if (model) piArgs.push("--model", model);
       piArgs.push(LAUNCH_MESSAGE);
-      // Assíncrono, como o FirstMate: digita o comando no pane e segue. O Herdr reconhece o agente depois,
-      // e o webhook do worker é quem avisa o fim. Não há espera bloqueante pelo agente subir.
       const launch = ["pi", ...piArgs];
-      // Sem env no workspace próprio: as variáveis de papel vão no comando. O token do webhook fica de fora
-      // (não entra no pane); sem ele o worker não faz POST e a varredura de 20 s avisa a conclusão.
-      if (projected) launch.unshift("env", "PI_ORCH_ROLE=worker", `PI_ORCH_TASK_ID=${taskId}`, `PI_ORCH_TASK_DIR=${taskDir}`);
+      if (projected)
+        // keep: o token do webhook fica fora do pane; qualquer leitura do pane o exporia.
+        launch.unshift("env", "PI_ORCH_ROLE=worker", `PI_ORCH_TASK_ID=${taskId}`, `PI_ORCH_TASK_DIR=${taskDir}`);
       await this.d.herdr.runInPane(tab.pane_id, launch.map(shellQuote).join(" "));
       await this.d.herdr.renamePane(tab.pane_id, workerId).catch(() => undefined);
       return this.update(taskId, (t) => {
@@ -440,10 +389,6 @@ export class Orchestrator {
     }
   }
 
-  /**
-   * Lê `report.json` se houver conteúdo novo. Devolve true quando aplicou um relatório.
-   * Conteúdo idêntico ao já processado é ignorado (deduplicação).
-   */
   collect(taskId: string): boolean {
     const t = this.get(taskId);
     const file = this.reportPath(t);
@@ -455,14 +400,12 @@ export class Orchestrator {
     try {
       report = validateReport(JSON.parse(raw), taskId);
     } catch (err) {
-      // Inválido não muda o estado nem vira falha: a tarefa segue como está e o diagnóstico fica em error.
       this.update(taskId, (x) => {
         x.last_report_key = key;
         x.error = `relatório inválido ignorado: ${errorMessage(err)}`;
       });
       return false;
     }
-    // Continuação que encerrou sem orch_report não apaga o resultado anterior bem-sucedido.
     const previous = report.status === "failed" && isFallbackRaw(raw) ? this.lastArchivedDone(t) : null;
     if (previous) {
       this.update(taskId, (x) => {
@@ -477,9 +420,10 @@ export class Orchestrator {
       this.d.onTerminal?.(taskId);
       return true;
     }
-    // Mesma pergunta de uma tarefa já bloqueada: relatório repetido, não reabre o aviso (#63, perguntas duplicadas).
     const samePendingQuestion = t.status === "blocked" && report.status === "blocked" && t.question === report.question;
-    const reopened = ["lost", "failed", "timeout"].includes(t.status) ? `antes marcada como ${t.status}${t.error ? ` (${t.error})` : ""}; o relatório válido chegou depois e prevalece` : null;
+    const reopened = ["lost", "failed", "timeout"].includes(t.status)
+      ? `antes marcada como ${t.status}${t.error ? ` (${t.error})` : ""}; o relatório válido chegou depois e prevalece`
+      : null;
     this.update(taskId, (x) => {
       x.status = report.status;
       x.result = report.result;
@@ -494,7 +438,6 @@ export class Orchestrator {
     return true;
   }
 
-  /** Último relatório `done` arquivado por `send` antes de retomar a tarefa. Null se não houver. */
   private lastArchivedDone(t: TaskRecord): Report | null {
     let best: { at: number; report: Report } | null = null;
     for (const name of readdirSync(t.task_dir)) {
@@ -505,9 +448,7 @@ export class Orchestrator {
         if (report.status !== "done") continue;
         const at = statSync(path).mtimeMs;
         if (!best || at > best.at) best = { at, report };
-      } catch {
-        // Arquivo arquivado inválido não conta como resultado anterior.
-      }
+      } catch {}
     }
     return best?.report ?? null;
   }
@@ -535,18 +476,17 @@ export class Orchestrator {
     return this.toEvent(t);
   }
 
-  /**
-   * Atualiza uma tarefa a partir do disco (relatório) e do Herdr (pane). Não espera nada.
-   * O worker avisa o orquestrador ao terminar; esta leitura só confirma o estado e detecta perda ou prazo.
-   */
   async refresh(taskId: string): Promise<WatchEvent | null> {
     this.syncUsage(taskId);
     const t = this.get(taskId);
-    // Relatório novo vale em qualquer estado, menos cancelled (decisão do usuário): um worker que falhou por erro
-    // transitório do modelo e seguiu depois não pode ficar preso em failed/timeout/lost.
-    if (t.status !== "cancelled" && t.status !== "planned" && this.collect(taskId)) return this.toEvent(this.get(taskId));
-    // Pergunta sem resposta depois do prazo: avisa uma vez e segue bloqueada. Não cancela sozinha (#63).
-    if (t.status === "blocked" && t.deadline_at !== null && !t.deadline_notified && this.d.now() >= Date.parse(t.deadline_at)) {
+    if (t.status !== "cancelled" && t.status !== "planned" && this.collect(taskId))
+      return this.toEvent(this.get(taskId));
+    if (
+      t.status === "blocked" &&
+      t.deadline_at !== null &&
+      !t.deadline_notified &&
+      this.d.now() >= Date.parse(t.deadline_at)
+    ) {
       const at = t.deadline_at;
       this.update(taskId, (x) => {
         x.deadline_notified = true;
@@ -557,7 +497,11 @@ export class Orchestrator {
     }
     if (!isActive(t.status) || t.status === "blocked") return null;
     if (t.deadline_at !== null && this.d.now() >= Date.parse(t.deadline_at)) {
-      return this.setTerminal(taskId, "timeout", `prazo definido por você (${t.deadline_at}) foi atingido; o worker segue rodando`);
+      return this.setTerminal(
+        taskId,
+        "timeout",
+        `prazo definido por você (${t.deadline_at}) foi atingido; o worker segue rodando`,
+      );
     }
     const owner = await this.ownership(t);
     if (owner !== "owned") {
@@ -567,10 +511,6 @@ export class Orchestrator {
     return null;
   }
 
-  /**
-   * Esquece a aba de uma tarefa concluída cuja aba o Herdr não lista mais. Quem chama confere a lista de abas vivas.
-   * Não toca na worktree, no relatório nem na pane. Devolve false quando não há o que limpar.
-   */
   forgetDeadTab(taskId: string): boolean {
     this.assertMine(taskId);
     const t = this.get(taskId);
@@ -581,36 +521,28 @@ export class Orchestrator {
     return true;
   }
 
-  /** Registra o endereço do webhook para os workers lançados daqui em diante. */
   setHook(url: string, token: string): void {
     this.d.hookUrl = url;
     this.d.hookToken = token;
   }
 
-  /** Atualiza todas as tarefas ativas. Chamado por inbox, status e ao iniciar. */
   async refreshAll(): Promise<void> {
     for (const t of this.owned()) {
       if (t.status !== "cancelled") await this.refresh(t.task_id).catch(() => null);
     }
   }
 
-  /**
-   * Fecha a tab do worker. Quem decide é o orquestrador, depois de validar o resultado:
-   * conclusão não fecha nada sozinha. Dono confirmado por pane_id + terminal_id.
-   */
   async close(taskId: string): Promise<TaskRecord> {
     return (await this.closeOutcome(taskId)).task;
   }
 
-  /**
-   * Fecha a tab da tarefa e diz se fechou de fato. Pane ausente no Herdr não fecha nada: quem chama não pode
-   * reportar sucesso (#62, critério de fechamento seguro).
-   */
   async closeOutcome(taskId: string): Promise<{ task: TaskRecord; closed: boolean; reason: string | null }> {
     return this.withTaskLock(taskId, () => this.closeOutcomeLocked(taskId));
   }
 
-  private async closeOutcomeLocked(taskId: string): Promise<{ task: TaskRecord; closed: boolean; reason: string | null }> {
+  private async closeOutcomeLocked(
+    taskId: string,
+  ): Promise<{ task: TaskRecord; closed: boolean; reason: string | null }> {
     this.assertMine(taskId);
     const t = this.get(taskId);
     const owner = await this.ownership(t);
@@ -626,14 +558,15 @@ export class Orchestrator {
     return { task, closed: owner === "owned", reason };
   }
 
-  /** Grava o resultado da verificação da conclusão. Não muda o relatório nem o status. */
-  setVerification(taskId: string, v: { verdict: "approved" | "rejected" | "not_applicable" | "unverified"; reason: string }): void {
+  setVerification(
+    taskId: string,
+    v: { verdict: "approved" | "rejected" | "not_applicable" | "unverified"; reason: string },
+  ): void {
     this.update(taskId, (x) => {
       x.verification = v;
     });
   }
 
-  /** Copia o uso de tokens que o worker gravou em usage.json para o registro (sem LLM, sem efeito se ausente). */
   private syncUsage(taskId: string): void {
     const file = join(this.get(taskId).task_dir, "usage.json");
     if (!existsSync(file)) return;
@@ -641,22 +574,21 @@ export class Orchestrator {
       const parsed = JSON.parse(readFileSync(file, "utf8")) as { total?: Record<string, number> };
       const u = parsed.total;
       if (!u || typeof u.totalTokens !== "number") return;
-      const next = { input: u.input ?? 0, output: u.output ?? 0, cacheRead: u.cacheRead ?? 0, cacheWrite: u.cacheWrite ?? 0, totalTokens: u.totalTokens };
+      const next = {
+        input: u.input ?? 0,
+        output: u.output ?? 0,
+        cacheRead: u.cacheRead ?? 0,
+        cacheWrite: u.cacheWrite ?? 0,
+        totalTokens: u.totalTokens,
+      };
       const cur = this.get(taskId).usage;
       if (cur && JSON.stringify(cur) === JSON.stringify(next)) return;
       this.update(taskId, (x) => {
         x.usage = next;
       });
-    } catch {
-      // usage.json ilegível não derruba a atualização da tarefa.
-    }
+    } catch {}
   }
 
-  /**
-   * Relança uma tarefa que falhou. Nunca automático: quem chama decide o modelo.
-   * Cota esgotada: exige modelo diferente do que esgotou. Outras falhas: mesmo modelo, se não informado.
-   * A tarefa anterior não muda nem perde a worktree (o novo worker arrenda a sua).
-   */
   async relaunch(taskId: string, model?: string): Promise<TaskRecord> {
     return this.withTaskLock(taskId, () => this.relaunchLocked(taskId, model));
   }
@@ -666,14 +598,15 @@ export class Orchestrator {
     const old = this.get(taskId);
     if (isActive(old.status)) throw new Error(`tarefa ${taskId} ainda está ativa; cancele antes de relançar`);
     if (old.status !== "failed") throw new Error(`só relança tarefa falha (status: ${old.status})`);
-    if (!old.delegate_input) throw new Error(`tarefa ${taskId} não tem o pedido guardado; lance de novo com orch_delegate`);
+    if (!old.delegate_input)
+      throw new Error(`tarefa ${taskId} não tem o pedido guardado; lance de novo com orch_delegate`);
     const reason = old.result ?? old.error ?? "";
     const kind = classifyFailure(reason);
-    // Relatório inteiro (resultado e erro): o novo worker precisa saber tudo o que já foi tentado.
     const report = [old.result, old.error].filter((s): s is string => !!s && s.trim() !== "").join("\n");
     const previous = workerSessionFile(old.task_dir);
     if (kind === "quota") {
-      if (!model) throw new Error(`falha por cota em ${old.model ?? "modelo padrão"}: informe o modelo do relançamento`);
+      if (!model)
+        throw new Error(`falha por cota em ${old.model ?? "modelo padrão"}: informe o modelo do relançamento`);
       if (model === old.model) throw new Error(`o modelo ${model} esgotou a cota; escolha outro`);
     }
     if (kind === "auth" && model && old.model && model.split("/")[0] === old.model.split("/")[0]) {
@@ -683,7 +616,7 @@ export class Orchestrator {
       ...(old.delegate_input as unknown as DelegateInput),
       model: model ?? old.model ?? undefined,
       constraints: [
-        ...(((old.delegate_input as unknown as DelegateInput).constraints) ?? []),
+        ...((old.delegate_input as unknown as DelegateInput).constraints ?? []),
         `Tentativa anterior (${taskId}) falhou. Relatório completo:\n${report || "sem detalhe"}\n${
           previous
             ? "A conversa da tentativa anterior foi copiada para esta sessão: leia o histórico antes de refazer. Confira o que já existe antes de refazer."
@@ -698,14 +631,12 @@ export class Orchestrator {
     return this.get(task.task_id);
   }
 
-  /** Reabre o aviso de uma tarefa: volta a ser pendente (usado quando o envio ao orquestrador falha). */
   reopenNotice(taskId: string): void {
     this.update(taskId, (x) => {
       x.notified = false;
     });
   }
 
-  /** Devolve o aviso pendente e o marca como entregue. Evita repetir o mesmo evento. */
   takeNotice(taskId: string): boolean {
     const t = this.get(taskId);
     if (t.notified) return false;
@@ -715,7 +646,6 @@ export class Orchestrator {
     return true;
   }
 
-  /** Decisões abertas (blocked) e terminais ainda não entregues. Atualiza antes; marca os terminais como entregues. */
   async inbox(): Promise<WatchEvent[]> {
     await this.refreshAll();
     const items: WatchEvent[] = [];
@@ -729,23 +659,22 @@ export class Orchestrator {
     return items;
   }
 
-  /** Aviso pendente desta tarefa (decisão ou terminal ainda não entregue). Devolve o evento e o marca como entregue. */
   private takePending(taskId: string): WatchEvent | null {
     const t = this.get(taskId);
-    const pending = !t.notified && (t.status === "blocked" || (!isActive(t.status) && t.status !== "cancelled" && t.status !== "planned"));
+    const pending =
+      !t.notified &&
+      (t.status === "blocked" || (!isActive(t.status) && t.status !== "cancelled" && t.status !== "planned"));
     if (!pending) return null;
     this.takeNotice(taskId);
     return this.toEvent(t);
   }
 
-  /** Atualiza a tarefa e entrega o aviso pendente, se houver, uma única vez (webhook e varredura usam isto). */
   async noticeFor(taskId: string): Promise<WatchEvent | null> {
     if (!this.mine(this.get(taskId))) return null;
     await this.refresh(taskId).catch(() => null);
     return this.takePending(taskId);
   }
 
-  /** Varre todas as tarefas (menos canceladas) e devolve os avisos novos. Sem LLM: só disco e Herdr. */
   async sweep(): Promise<WatchEvent[]> {
     const out: WatchEvent[] = [];
     for (const t of this.owned()) {
@@ -756,15 +685,10 @@ export class Orchestrator {
     return out;
   }
 
-  /**
-   * Avisos que ainda não foram entregues: decisões (blocked) e terminais. Ao devolver, marca como entregues.
-   * Usado ao abrir a sessão, para não reanunciar bloqueios que já foram avisados.
-   */
   async pendingNotices(): Promise<WatchEvent[]> {
     return this.sweep();
   }
 
-  /** Últimas linhas do painel da tarefa. Só lê se o painel ainda for da tarefa; não altera estado. */
   async logs(taskId: string, lines?: number): Promise<string> {
     const t = this.get(taskId);
     const owner = await this.ownership(t);
@@ -773,10 +697,6 @@ export class Orchestrator {
     return maskSecrets(await this.d.herdr.readRecent(t.pane_id, clampLines(lines)));
   }
 
-  /**
-   * Mensagem a um worker em execução. Não interrompe: o Pi entrega como próximo turno, depois do turno
-   * atual (medido com herdr agent prompt em worker ocupado). Bloqueado: vira resposta, como orch_answer.
-   */
   async send(taskId: string, text: string): Promise<TaskRecord> {
     return this.withTaskLock(taskId, () => this.sendLocked(taskId, text));
   }
@@ -784,26 +704,34 @@ export class Orchestrator {
   private async sendLocked(taskId: string, text: string): Promise<TaskRecord> {
     this.assertMine(taskId);
     const t = this.get(taskId);
-    if (t.status !== "running" && t.status !== "blocked" && t.status !== "done") throw new Error(`tarefa ${taskId} não aceita mensagem (status: ${t.status})`);
+    if (t.status !== "running" && t.status !== "blocked" && t.status !== "done")
+      throw new Error(`tarefa ${taskId} não aceita mensagem (status: ${t.status})`);
     if (text.trim() === "") throw new Error("mensagem vazia");
-    // Mesma checagem de dono para os dois estados, antes de qualquer envio.
     const owner = await this.ownership(t);
     if (owner === "missing") throw new Error("o painel da tarefa não existe mais; nada foi enviado");
     if (owner === "mismatch") throw new Error("o painel trocou de agente; nada foi enviado");
     if (t.status === "blocked") return this.answerLocked(taskId, text);
     if (t.status === "done") {
       const pane = (await this.d.herdr.panes()).find((p) => p.pane_id === t.pane_id && p.terminal_id === t.terminal_id);
-      if (!pane || pane.agent !== "pi" || pane.agent_status !== "idle") throw new Error("o worker não está disponível e ocioso; nada foi enviado");
+      if (!pane || pane.agent !== "pi" || pane.agent_status !== "idle")
+        throw new Error("o worker não está disponível e ocioso; nada foi enviado");
       if (t.delegate_input) this.assertNotActive(t.delegate_input as unknown as DelegateInput);
       const report = this.reportPath(t);
       const previous = join(t.task_dir, `report-${this.d.newHex()}.json`);
       if (existsSync(report)) renameSync(report, previous);
-      this.update(taskId, (x) => { x.status = "running"; x.notified = true; x.question = null; });
+      this.update(taskId, (x) => {
+        x.status = "running";
+        x.notified = true;
+        x.question = null;
+      });
       try {
         await this.d.herdr.prompt(t.pane_id, text);
       } catch (err) {
         if (existsSync(previous) && !existsSync(report)) renameSync(previous, report);
-        this.update(taskId, (x) => { x.status = "done"; x.notified = t.notified; });
+        this.update(taskId, (x) => {
+          x.status = "done";
+          x.notified = t.notified;
+        });
         throw err;
       }
       return this.get(taskId);
@@ -821,7 +749,6 @@ export class Orchestrator {
     const t = this.get(taskId);
     if (t.status !== "blocked") throw new Error(`tarefa ${taskId} não está bloqueada (status: ${t.status})`);
     if (text.trim() === "") throw new Error("resposta vazia");
-    // Fala com o worker pelo pane: o nome do agente só existe depois que o Herdr o reconhece.
     await this.d.herdr.prompt(t.pane_id, text);
     return this.update(taskId, (x) => {
       x.status = "running";
@@ -830,7 +757,6 @@ export class Orchestrator {
     });
   }
 
-  /** Confere se o pane registrado ainda é o mesmo (pane_id e terminal_id). */
   private async ownership(t: TaskRecord): Promise<"owned" | "missing" | "mismatch"> {
     const pane = (await this.d.herdr.panes()).find((p) => p.pane_id === t.pane_id);
     if (!pane) return "missing";
@@ -858,7 +784,6 @@ export class Orchestrator {
     return this.get(taskId);
   }
 
-  /** Tenta devolver a worktree da tarefa e grava a nota. Nunca lança. */
   private noteWorktree(taskId: string): void {
     const t = this.get(taskId);
     let note: string | null = null;
@@ -867,22 +792,21 @@ export class Orchestrator {
     } catch (err) {
       note = `falha ao devolver a worktree: ${String(err).slice(0, 160)}`;
     }
-    if (note !== null) this.update(taskId, (x) => { x.worktree_note = note; });
+    if (note !== null)
+      this.update(taskId, (x) => {
+        x.worktree_note = note;
+      });
   }
 
-  /**
-   * Devolve a worktree de uma tarefa já terminal, só se o git confirmar que nada se perde (releaseLease).
-   * Separado de fechar a tab: não fecha nada, não força. Tarefa ativa é recusada.
-   */
   release(taskId: string): TaskRecord {
     this.assertMine(taskId);
     const t = this.get(taskId);
-    if (isActive(t.status)) throw new Error(`tarefa ${taskId} ainda está ${t.status}; devolva a worktree só depois que terminar`);
+    if (isActive(t.status))
+      throw new Error(`tarefa ${taskId} ainda está ${t.status}; devolva a worktree só depois que terminar`);
     this.noteWorktree(taskId);
     return this.get(taskId);
   }
 
-  /** Ao iniciar: atualiza as tarefas ativas a partir do disco e do Herdr. */
   async reconcile(): Promise<void> {
     await this.refreshAll();
   }
