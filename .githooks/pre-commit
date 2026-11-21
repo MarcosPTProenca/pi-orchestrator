@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
 set -e
 npx tsc --noEmit -p tsconfig.json
-files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|mjs|json)$' || true)
-if [ -n "$files" ]; then
-  npx prettier --check $files
-fi
+git diff --cached --name-only -z --diff-filter=ACM | xargs -0 -r npx prettier --check --ignore-unknown
