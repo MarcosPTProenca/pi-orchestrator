@@ -1,5 +1,6 @@
 const DEFAULT_LOG_LINES = 40;
 const MAX_LOG_LINES = 200;
+const MAX_LOG_CHARS = 8000;
 
 const SECRET_PATTERNS: RegExp[] = [
   /gh[pousr]_[A-Za-z0-9]{20,}/g,
@@ -14,6 +15,11 @@ export function maskSecrets(text: string): string {
     (acc, re) => acc.replace(re, (m, pre?: string) => (pre ? `${pre}[mascarado]` : "[mascarado]")),
     text,
   );
+}
+
+export function tailLog(text: string, max = MAX_LOG_CHARS): { text: string; truncated: boolean } {
+  if (text.length <= max) return { text, truncated: false };
+  return { text: `…${text.slice(text.length - max + 1)}`, truncated: true };
 }
 
 export function clampLines(n: number | undefined): number {

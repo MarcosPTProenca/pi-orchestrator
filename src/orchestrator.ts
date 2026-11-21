@@ -664,14 +664,15 @@ export class Orchestrator {
     return true;
   }
 
-  async inbox(): Promise<WatchEvent[]> {
+  async inbox(opts: { consume?: boolean } = {}): Promise<WatchEvent[]> {
     await this.refreshAll();
+    const consume = opts.consume !== false;
     const items: WatchEvent[] = [];
     for (const t of this.owned()) {
       if (t.status === "blocked") items.push(this.toEvent(t));
       else if (!t.notified && !isActive(t.status) && t.status !== "cancelled") {
         items.push(this.toEvent(t));
-        this.takeNotice(t.task_id);
+        if (consume) this.takeNotice(t.task_id);
       }
     }
     return items;
