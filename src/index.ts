@@ -14,6 +14,7 @@ import { HerdrCli } from "./herdr.ts";
 import { availableModels, resolveModel } from "./models.ts";
 import { Orchestrator, MODES, type DelegateInput, type WatchEvent } from "./orchestrator.ts";
 import { fixInputFor, listRedPrs, prFromUrl, fetchPrState, verificationLine, verifyPr, prStateLine } from "./prs.ts";
+import { ConflictWatch, conflictInstruction, isPrWatched, prVerdict } from "./pr-watch.ts";
 import { judgeDone, type VerifyEnv } from "./verify.ts";
 import { existsSync } from "node:fs";
 import { FixQueue } from "./queue.ts";
@@ -26,7 +27,7 @@ import { notificationFor, notifyArgs, notifyEnabled } from "./notify.ts";
 import { buildStatus, oldHoursFrom } from "./status.ts";
 import { chainDepth, classifyFailure, failureHintFor, MAX_AUTO_RELAUNCH, nextModelFor } from "./failure.ts";
 import { capError, maxActiveFrom } from "./cap.ts";
-import { isActive } from "./contract.ts";
+import { isActive, type TaskRecord } from "./contract.ts";
 import { orphanLeases, releaseLease, type WorktreeOps } from "./worktrees.ts";
 import { closeBlocker, deadTabTaskIds, idleReport, IdleWatch, idleSurfaces } from "./idle.ts";
 import { StallWatch, stallNoticeFor } from "./stall.ts";
@@ -41,6 +42,8 @@ export const envPositive = (raw: string | undefined, fallback: number): number =
 const IDLE_CHECK_MS = envPositive(process.env.PI_ORCH_IDLE_MS, 60_000);
 /** Worker em execução sem saída nova por este tempo (minutos) é avisado ao orquestrador. `PI_ORCH_STALL_MIN` ajusta. */
 const STALL_MIN = envPositive(process.env.PI_ORCH_STALL_MIN, 15);
+/** Intervalo entre consultas do estado de PR de cada tarefa entregue (minutos). `PI_ORCH_PR_CHECK_MIN` ajusta. */
+const PR_CHECK_MS = envPositive(process.env.PI_ORCH_PR_CHECK_MIN, 5) * 60_000;
 
 /** Treehouse real: `treehouse status` no repositório, `git` na worktree e `treehouse return` sem --force. */
 const treehouseOps: WorktreeOps = {
@@ -349,6 +352,29 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   const idleWatch = new IdleWatch();
   let idleChecking = false;
   const stallWatch = new StallWatch();
+  const conflictWatch = new ConflictWatch();
+  const prChecked = new Map<string, number>();
+  const checkPr = async (t: TaskRecord, source: string, pr: { owner: string; name: string; number: number }): Promise<void> => {
+    const remote = execFileSync("git", ["remote", "get-url", "origin"], { cwd: t.project_path, encoding: "utf8" }).trim();
+    const s = await fetchPrState(remote, pr.number, pr.owner, pr.name, t.project_path);
+    const label = projectLabel(t.project_id);
+    const verdict = prVerdict(s);
+    if (verdict === "merged") {
+      conflictWatch.forget(t.task_id);
+      const outcome = await orch.closeOutcome(t.task_id);
+      if (outcome.closed) pi.sendMessage({ customType: "orch-event", content: `PR #${pr.number} mergeada: fechei a aba de ${t.task_id} (${label}).`, display: true }, { triggerTurn: false });
+      return;
+    }
+    if (verdict === "pending") return; // GitHub ainda calcula a mergeabilidade: não conta como "saiu do conflito".
+    if (!conflictWatch.shouldAct(t.task_id, s.headRefOid, verdict === "conflict")) return;
+    try {
+      await orch.send(t.task_id, conflictInstruction(source));
+      conflictWatch.markActed(t.task_id, s.headRefOid);
+      pi.sendMessage({ customType: "orch-event", content: `PR #${pr.number} de ${t.task_id} (${label}) está com conflito de merge. Acionei o próprio worker para corrigir; acompanho a PR.`, display: true }, { triggerTurn: true });
+    } catch (err) {
+      pi.sendMessage({ customType: "orch-event", content: `PR #${pr.number} de ${t.task_id} (${label}) tem conflito de merge e não consegui acionar o worker: ${err instanceof Error ? err.message : String(err)}. Decida: orch_send manual ou orch_relaunch.`, display: true }, { triggerTurn: true });
+    }
+  };
   const checkIdle = async (): Promise<void> => {
     if (dryRun || idleChecking) return;
     idleChecking = true;
@@ -377,6 +403,14 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
           { customType: "orch-event", content: stallNoticeFor(stalled, STALL_MIN, projectLabel), display: true },
           { triggerTurn: true },
         );
+      }
+      // PR entregue por worker: a aba só fecha no merge; conflito aciona o próprio worker. Uma consulta a cada PR_CHECK_MS.
+      for (const t of orch.owned()) {
+        if (!isPrWatched(t) || !t.source) continue;
+        const pr = prFromUrl(t.source);
+        if (!pr || Date.now() - (prChecked.get(t.task_id) ?? 0) < PR_CHECK_MS) continue;
+        prChecked.set(t.task_id, Date.now());
+        await checkPr(t, t.source, pr).catch(() => undefined);
       }
     } catch {
       if (idleWatch.fail()) {

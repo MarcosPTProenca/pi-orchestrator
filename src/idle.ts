@@ -55,6 +55,7 @@ export function whyNotIdle(t: TaskRecord, live: LiveSurfaces): string | null {
   if (!t.notified) return "resultado ainda não entregue ao usuário";
   if (!t.tab_id) return "sem tab registrada";
   if (!confirmedInHerdr(t, live)) return STALE_SURFACE_REASON;
+  if (t.source && /\/pull\/\d+/.test(t.source)) return "aguarda merge da PR; o orquestrador fecha a aba quando ela for mergeada";
   return null;
 }
 
