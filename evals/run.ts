@@ -8,14 +8,14 @@ import { scenarios, type Scenario, type Run, type Check } from "./scenarios.ts";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const EXCLUDED = "";
 const args = process.argv.slice(2);
-export function flagValue(argv: string[], name: string): string | undefined {
+function flagValue(argv: string[], name: string): string | undefined {
   const i = argv.indexOf(name);
   return i >= 0 ? argv[i + 1] : undefined;
 }
 const model = flagValue(args, "--model") ?? "openai-codex/gpt-6.1-sol";
 const only = flagValue(args, "--only");
 
-export function makeFixtures(): Record<string, string> {
+function makeFixtures(): Record<string, string> {
   const base = mkdtempSync(join(tmpdir(), "orch-eval-"));
   const out: Record<string, string> = { _base: base };
   for (const name of ["alpha", "beta", "norepo"]) {

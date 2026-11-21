@@ -74,3 +74,11 @@ test("conta arquivos fora do formato, ignorando linhas em branco", () => {
   assert.equal(unformattedCount("src/a.ts\nsrc/b.ts\n\n"), 2);
   assert.equal(unformattedCount(""), 0);
 });
+
+test("keep: só vale com motivo, e shortcut: sempre vale", async () => {
+  const { isAllowedComment } = await import("./quality-lib.mjs");
+  assert.equal(isAllowedComment("// shortcut: sem paginação, subir acima de 1000"), true);
+  assert.equal(isAllowedComment("// keep: o Herdr recusa texto multilinha em argumento"), true);
+  assert.equal(isAllowedComment("// keep: ok"), false, "motivo curto não vale");
+  assert.equal(isAllowedComment("// explica o valor"), false);
+});

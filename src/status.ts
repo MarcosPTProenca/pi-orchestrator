@@ -24,7 +24,7 @@ export interface StatusOptions {
   oldHours?: number;
 }
 
-export interface StatusRow {
+interface StatusRow {
   task_id: string;
   role: string;
   status: string;

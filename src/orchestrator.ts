@@ -2,7 +2,7 @@ import { workerSessionFile } from "./session-file.ts";
 import { resolveModel } from "./models.ts";
 import { workerAgentName, workerTabName } from "./label.ts";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, isAbsolute, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { clampLines, maskSecrets } from "./logs.ts";
 import { classifyFailure } from "./failure.ts";
 import { isActive, reportKey, validateReport, type TaskRecord, type TaskStatus } from "./contract.ts";
@@ -28,7 +28,7 @@ export interface OrchDeps {
   onTerminal?: (taskId: string) => void;
 }
 
-export { MODES, type Mode } from "./intake.ts";
+export { MODES } from "./intake.ts";
 import { buildIntake, renderBrief, type Mode } from "./intake.ts";
 
 const OP_LOCK_WAIT_MS = 5_000;
@@ -69,18 +69,10 @@ export interface WatchEvent {
   correction?: string | null;
 }
 
-export function shellQuote(arg: string): string {
+function shellQuote(arg: string): string {
   return /^[A-Za-z0-9_./:=@%+-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, `'\\''`)}'`;
 }
 const LAUNCH_MESSAGE = "Execute a tarefa do brief que voce recebeu no contexto. Ao terminar, chame orch_report.";
-
-function isDirectory(path: string): boolean {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
-}
 
 function isFallbackRaw(raw: string): boolean {
   try {
@@ -371,12 +363,14 @@ export class Orchestrator {
         t.pane_id = tab.pane_id;
         t.terminal_id = tab.terminal_id;
       });
+      // keep: o Herdr recusa texto multilinha em argumento; o brief completo chega pela extensão do worker.
       const piArgs = ["-e", this.d.workerExtPath];
       if (opts.forkSession) piArgs.push("--fork", opts.forkSession);
       if (model) piArgs.push("--model", model);
       piArgs.push(LAUNCH_MESSAGE);
       const launch = ["pi", ...piArgs];
       if (projected)
+        // keep: o token do webhook fica fora do pane; qualquer leitura do pane o exporia.
         launch.unshift("env", "PI_ORCH_ROLE=worker", `PI_ORCH_TASK_ID=${taskId}`, `PI_ORCH_TASK_DIR=${taskDir}`);
       await this.d.herdr.runInPane(tab.pane_id, launch.map(shellQuote).join(" "));
       await this.d.herdr.renamePane(tab.pane_id, workerId).catch(() => undefined);

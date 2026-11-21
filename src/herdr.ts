@@ -42,7 +42,7 @@ export interface HerdrPort {
   readRecent(target: string, lines: number): Promise<string>;
 }
 
-export class HerdrError extends Error {
+class HerdrError extends Error {
   constructor(args: string[], detail: string) {
     super(`herdr ${args.slice(0, 2).join(" ")} falhou: ${detail.trim()}`);
   }

@@ -1,6 +1,6 @@
 import { prFromUrl } from "./prs.ts";
 
-export type Verdict = "approved" | "rejected" | "not_applicable" | "unverified";
+type Verdict = "approved" | "rejected" | "not_applicable" | "unverified";
 export interface Verification {
   verdict: Verdict;
   reason: string;

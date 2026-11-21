@@ -9,7 +9,7 @@ export interface Run {
   models: Set<string>;
 }
 
-export interface Tasks {
+interface Tasks {
   count: number;
   models: (string | null)[];
   modes: string[];

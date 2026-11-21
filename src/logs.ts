@@ -1,5 +1,5 @@
-export const DEFAULT_LOG_LINES = 40;
-export const MAX_LOG_LINES = 200;
+const DEFAULT_LOG_LINES = 40;
+const MAX_LOG_LINES = 200;
 
 const SECRET_PATTERNS: RegExp[] = [
   /gh[pousr]_[A-Za-z0-9]{20,}/g,

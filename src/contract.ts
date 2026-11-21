@@ -1,20 +1,10 @@
 import { createHash } from "node:crypto";
 
 export const REPORT_STATUSES = ["done", "blocked", "failed"] as const;
-export type ReportStatus = (typeof REPORT_STATUSES)[number];
+type ReportStatus = (typeof REPORT_STATUSES)[number];
 
-export const TASK_STATUSES = [
-  "planned",
-  "starting",
-  "running",
-  "blocked",
-  "done",
-  "failed",
-  "cancelled",
-  "timeout",
-  "lost",
-] as const;
-export type TaskStatus = (typeof TASK_STATUSES)[number];
+export type TaskStatus =
+  "planned" | "starting" | "running" | "blocked" | "done" | "failed" | "cancelled" | "timeout" | "lost";
 
 const ACTIVE: readonly TaskStatus[] = ["starting", "running", "blocked"];
 

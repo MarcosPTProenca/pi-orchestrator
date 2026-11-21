@@ -2,8 +2,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 
 export const MODES = ["report", "direct-pr", "design"] as const;
-export const TRACKERS = ["github", "plane", "none"] as const;
-export type Tracker = (typeof TRACKERS)[number];
+type Tracker = "github" | "plane" | "none";
 export type Mode = (typeof MODES)[number];
 
 export interface IntakeInput {
@@ -48,7 +47,7 @@ function nonEmpty(field: string, value: string | undefined): string {
   return value.trim();
 }
 
-export function acceptanceFor(mode: Mode, branch: string | null): string[] {
+function acceptanceFor(mode: Mode, branch: string | null): string[] {
   switch (mode) {
     case "report":
       return [

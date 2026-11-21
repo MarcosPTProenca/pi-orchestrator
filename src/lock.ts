@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, unlinkSync, writeSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-export interface Owner {
+interface Owner {
   pid: number;
   started_at: string;
 }
@@ -26,6 +26,7 @@ function readOwner(file: string): Owner | null {
 
 function alive(pid: number): boolean {
   try {
+    // shortcut: pid reaproveitado por outro processo parece vivo até a posse ser solta ou o arquivo removido à mão; trocar por identidade do processo (início) quando houver dor real.
     process.kill(pid, 0);
     return true;
   } catch (err) {
@@ -85,6 +86,7 @@ export function acquireOwnership(dir: string): Ownership {
   const file = join(dir, FILE);
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
+      // keep: "wx" falha se o arquivo já existe; é o que impede duas sessões de tomarem a posse ao mesmo tempo.
       const fd = openSync(file, "wx");
       writeSync(fd, JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }));
       closeSync(fd);
@@ -134,7 +136,7 @@ function isRepoRoot(cwd: string): boolean {
 
 const identityCache = new Map<string, string | undefined>();
 
-export function repoIdentity(path: string): string | undefined {
+function repoIdentity(path: string): string | undefined {
   if (identityCache.has(path)) return identityCache.get(path);
   let id: string | undefined;
   try {

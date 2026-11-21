@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 
-export function parseModelTable(text: string): string[] {
+function parseModelTable(text: string): string[] {
   const out: string[] = [];
   for (const line of text.split("\n")) {
     const cols = line.trim().split(/\s+/);

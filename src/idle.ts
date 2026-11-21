@@ -27,13 +27,14 @@ export function deadTabTaskIds(tasks: TaskRecord[], live: LiveSurfaces): string[
     .map((t) => t.task_id);
 }
 
-export function confirmedInHerdr(t: TaskRecord, live: LiveSurfaces): boolean {
+function confirmedInHerdr(t: TaskRecord, live: LiveSurfaces): boolean {
   return (
+    // keep: ids de tab são posicionais e podem ser reutilizados; sem conferir pane e terminal, a aba de outra tarefa seria tomada.
     live.tabIds.has(t.tab_id) && live.panes.some((p) => p.pane_id === t.pane_id && p.terminal_id === t.terminal_id)
   );
 }
 
-export const STALE_SURFACE_REASON = "tab ou pane não confere mais com a tarefa no Herdr";
+const STALE_SURFACE_REASON = "tab ou pane não confere mais com a tarefa no Herdr";
 
 export function whyNotIdle(t: TaskRecord, live: LiveSurfaces): string | null {
   if (t.status === "blocked") return "aguarda decisão";

@@ -1,6 +1,18 @@
 import ts from "typescript";
 
-export const METRICS = ["duplication_pct", "dead_code", "comment_lines", "type_errors", "lint_errors", "format_files"];
+const METRICS = ["duplication_pct", "dead_code", "comment_lines", "type_errors", "lint_errors", "format_files"];
+
+const KEEP_MIN_REASON = 10;
+
+export function isAllowedComment(text) {
+  const body = text
+    .replace(/^(\/\/|\/\*)\s*/, "")
+    .replace(/\*\/$/, "")
+    .trim();
+  if (/^shortcut:/i.test(body)) return true;
+  if (/^keep:/i.test(body)) return body.slice(5).trim().length >= KEEP_MIN_REASON;
+  return false;
+}
 
 function commentRanges(text, fileName = "file.ts") {
   const kind = fileName.endsWith(".mjs") || fileName.endsWith(".js") ? ts.ScriptKind.JS : ts.ScriptKind.TS;
@@ -26,7 +38,7 @@ function commentRanges(text, fileName = "file.ts") {
   walk(sf);
   return [...found.values()]
     .map((r) => ({ pos: r.pos, end: r.end, text: text.slice(r.pos, r.end) }))
-    .filter((c) => !/^(\/\/|\/\*)\s*shortcut:/.test(c.text));
+    .filter((c) => !isAllowedComment(c.text));
 }
 
 export function countCommentLines(text, fileName = "file.ts") {
