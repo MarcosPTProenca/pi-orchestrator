@@ -1,6 +1,6 @@
 /**
  * Superfícies ociosas: tarefas já terminais cuja tab (ou workspace próprio) continua aberta no Herdr.
- * Função pura (sem I/O). Classifica; quem fecha é `checkIdle` (após o tempo ocioso) ou `orch_close` (pedido do usuário),
+ * Função pura (sem I/O). Classifica; quem fecha é `orch_close`, decidido pelo orquestrador (nunca automático),
  * e ambos confirmam o dono antes.
  *
  * Candidata = concluída (`done`) e já entregue ao usuário (`notified`) com tab registrada.
@@ -57,14 +57,6 @@ export function idleSurfaces(tasks: TaskRecord[], live: LiveSurfaces): IdleSurfa
     .filter((t) => whyNotIdle(t, live) === null)
     .map((t) => ({ task_id: t.task_id, project_id: t.project_id, updated_at: t.updated_at, projected: t.projected === true }))
     .sort((a, b) => a.updated_at.localeCompare(b.updated_at));
-}
-
-/**
- * Candidatas ociosas há pelo menos `afterMs`. O tempo ocioso começa em `updated_at`, que é quando a tarefa foi
- * entregue (candidata exige `notified`). Função pura: o relógio entra como `now`.
- */
-export function dueForAutoClose(surfaces: IdleSurface[], now: number, afterMs: number): IdleSurface[] {
-  return surfaces.filter((s) => now - Date.parse(s.updated_at) >= afterMs);
 }
 
 /** Relatório legível: candidatas e, para cada outra tarefa, o motivo de não ser candidata. Somente leitura. */

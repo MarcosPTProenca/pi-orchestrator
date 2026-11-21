@@ -662,6 +662,9 @@ export class Orchestrator {
       if (!model) throw new Error(`falha por cota em ${old.model ?? "modelo padrão"}: informe o modelo do relançamento`);
       if (model === old.model) throw new Error(`o modelo ${model} esgotou a cota; escolha outro`);
     }
+    if (kind === "auth" && model && old.model && model.split("/")[0] === old.model.split("/")[0]) {
+      throw new Error(`credencial falhou no provedor ${old.model.split("/")[0]}; escolha modelo de outro provedor`);
+    }
     const input = {
       ...(old.delegate_input as unknown as DelegateInput),
       model: model ?? old.model ?? undefined,

@@ -34,6 +34,14 @@ test("falha por cota com o mesmo modelo que esgotou: recusa", async () => {
   await assert.rejects(h.orch.relaunch(old.task_id, HAIKU), /esgotou a cota; escolha outro/);
 });
 
+test("falha de credencial: recusa modelo do mesmo provedor e aceita outro provedor", async () => {
+  const h = makeHarness();
+  const old = await failed(h, "401 Unauthorized: invalid api key", HAIKU);
+  await assert.rejects(h.orch.relaunch(old.task_id, "claude-bridge/claude-sonnet-5"), /escolha modelo de outro provedor/);
+  const neu = await h.orch.relaunch(old.task_id, LUNA);
+  assert.equal(neu.model, LUNA);
+});
+
 test("falha transitória (HTTP 500): relança com o mesmo modelo, sem exigir troca", async () => {
   const h = makeHarness();
   const old = await failed(h, "Encerrou com erro do modelo. Erro: Kiro API error: 500 Internal Server Error", HAIKU);
