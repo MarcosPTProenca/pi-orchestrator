@@ -14,7 +14,7 @@ import { HerdrCli } from "./herdr.ts";
 import { availableModels, resolveModel } from "./models.ts";
 import { Orchestrator, MODES, type DelegateInput, type WatchEvent } from "./orchestrator.ts";
 import { fixInputFor, listRedPrs, prFromUrl, fetchPrState, verificationLine, verifyPr, prStateLine } from "./prs.ts";
-import { ConflictWatch, conflictInstruction, prVerdict } from "./pr-watch.ts";
+import { ConflictWatch, conflictInstruction, isPrWatched, prVerdict } from "./pr-watch.ts";
 import { judgeDone, type VerifyEnv } from "./verify.ts";
 import { existsSync } from "node:fs";
 import { FixQueue } from "./queue.ts";
@@ -365,6 +365,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       if (outcome.closed) pi.sendMessage({ customType: "orch-event", content: `PR #${pr.number} mergeada: fechei a aba de ${t.task_id} (${label}).`, display: true }, { triggerTurn: false });
       return;
     }
+    if (verdict === "pending") return; // GitHub ainda calcula a mergeabilidade: não conta como "saiu do conflito".
     if (!conflictWatch.shouldAct(t.task_id, s.headRefOid, verdict === "conflict")) return;
     try {
       await orch.send(t.task_id, conflictInstruction(source));
@@ -404,7 +405,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       }
       // PR entregue por worker: a aba só fecha no merge; conflito aciona o próprio worker. Uma consulta a cada PR_CHECK_MS.
       for (const t of orch.owned()) {
-        if (t.status !== "done" || !t.source || !t.tab_id) continue;
+        if (!isPrWatched(t) || !t.source) continue;
         const pr = prFromUrl(t.source);
         if (!pr || Date.now() - (prChecked.get(t.task_id) ?? 0) < PR_CHECK_MS) continue;
         prChecked.set(t.task_id, Date.now());

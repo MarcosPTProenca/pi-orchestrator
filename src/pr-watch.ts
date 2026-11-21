@@ -4,14 +4,24 @@
  * estado da PR entra como dado; quem busca (gh) e quem age (orch_send, closeOutcome) fica em index.ts.
  */
 import type { PrState } from "./prs.ts";
+import type { TaskRecord } from "./contract.ts";
 
-export type PrVerdict = "merged" | "conflict" | "open";
+export type PrVerdict = "merged" | "conflict" | "open" | "pending";
 
 /** Merge tem precedência sobre conflito: PR fechada não precisa de correção. */
 export function prVerdict(s: PrState): PrVerdict {
   if (s.state === "MERGED") return "merged";
   if (s.mergeable === "CONFLICTING" || s.mergeStateStatus === "DIRTY") return "conflict";
+  if (s.mergeable === "UNKNOWN") return "pending";
   return "open";
+}
+
+/**
+ * Tarefa que o acompanhamento de PR pode tocar: concluída, com resultado já entregue ao usuário e aba registrada.
+ * Sem `notified`, fechar a aba ou enviar mensagem ao worker marcaria como entregue um relatório que o usuário não viu.
+ */
+export function isPrWatched(t: Pick<TaskRecord, "status" | "notified" | "source" | "tab_id">): boolean {
+  return t.status === "done" && t.notified && !!t.source && !!t.tab_id;
 }
 
 /**
