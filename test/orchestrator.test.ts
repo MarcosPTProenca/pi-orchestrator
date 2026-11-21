@@ -76,7 +76,7 @@ test("delegate cria workspace do projeto, tab da tarefa e inicia o worker na tab
   assert.equal(run.paneId, t.pane_id);
   assert.match(run.command, /^pi -e \/fake\/worker-ext\.ts /);
   assert.match(run.command, /chame orch_report\.'?$/);
-  assert.match(readFileSync(t.brief_path, "utf8"), /## Pedido do usuário/);
+  assert.match(readFileSync(t.brief_path, "utf8"), /## O que fazer/);
   assert.match(readFileSync(t.brief_path, "utf8"), /Analise o login/);
   assert.match(readFileSync(t.brief_path, "utf8"), /orch_report/);
   assert.equal(h.herdr.opsOf("prompt").length, 0, "brief vai como argumento inicial, não como prompt");
@@ -279,7 +279,7 @@ test("estado persiste entre instâncias do orquestrador (reinício)", async () =
   assert.equal(again.get(t.task_id).status, "running");
 });
 
-test("brief traz pedido literal, objetivo, fonte, restrições, critérios e especificação quando dada", async () => {
+test("brief traz o trabalho, objetivo, fonte, restrições, critérios e especificação quando dada", async () => {
   const h = makeHarness();
   const t = await h.orch.delegate({
     project_path: h.project,
@@ -292,7 +292,7 @@ test("brief traz pedido literal, objetivo, fonte, restrições, critérios e esp
     mode: "report",
   });
   const brief = readFileSync(t.brief_path, "utf8");
-  assert.match(brief, /## Pedido do usuário \(literal\)\nCorrige a PR #137/);
+  assert.match(brief, /## O que fazer\nCorrige a PR #137/);
   assert.match(brief, /## Objetivo\nLint verde na PR #137/);
   assert.match(brief, /## Fonte\nhttps:\/\/github\.com\/o\/r\/pull\/137/);
   assert.match(brief, /Não tocar em outros arquivos/);
@@ -395,7 +395,7 @@ test("modo simulação (dryRun): valida, monta o brief e não toca no Herdr", as
   });
   assert.equal(t.status, "planned");
   assert.equal(h.herdr.calls.length, 0);
-  assert.match(readFileSync(t.brief_path, "utf8"), /## Pedido do usuário \(literal\)/);
+  assert.match(readFileSync(t.brief_path, "utf8"), /## O que fazer/);
 });
 
 test("direct-pr sem branch: o brief manda o worker descobrir a branch da PR citada", async () => {
@@ -430,7 +430,7 @@ test("o brief vai ao worker pela extensão (contexto), e o argumento de lançame
     mode: "report",
   });
   const sent = readFileSync(t.brief_path, "utf8");
-  assert.match(sent, /## Pedido do usuário \(literal\)\nPedido único XYZ/);
+  assert.match(sent, /## O que fazer\nPedido único XYZ/);
   assert.match(sent, /## Critérios de conclusão/);
   const launch = (h.herdr.opsOf("runInPane")[0].args as { command: string }).command;
   assert.doesNotMatch(launch, /\n/, "comando de lançamento sem quebras de linha");
@@ -943,4 +943,63 @@ test("forgetDeadTab limpa só a aba de tarefa concluída, sem tocar na worktree 
   assert.equal(after.pane_id, before.pane_id, "pane preservada");
   assert.equal(after.status, "done");
   assert.equal(orch.forgetDeadTab(a.task_id), false, "segunda chamada não faz nada");
+});
+
+test("pedido amplo de coordenação: o worker recebe a issue específica, sem tarefas de coordenação", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({
+    project_path: h.project,
+    role: "resolver-issue",
+    mode: "direct-pr",
+    request: "Resolver a issue #111: ajustar o contrato de delegação do orquestrador.",
+    objective: "Issue #111 resolvida por PR com testes de regressão verdes.",
+    source: "https://github.com/o/r/issues/111",
+    constraints: ["Não tocar em outros arquivos além do contrato de delegação."],
+  });
+  const brief = readFileSync(t.brief_path, "utf8");
+  assert.match(brief, /## O que fazer\nResolver a issue #111/);
+  assert.doesNotMatch(brief, /Pedido do usuário/, "o pedido do usuário não é copiado literalmente");
+  const tarefa = brief.split("## O que fazer")[1].split("\n## ")[0];
+  assert.doesNotMatch(
+    tarefa,
+    /acionar workers|fechar (as )?abas|fechar os ociosos/i,
+    "nenhuma tarefa de coordenação na tarefa",
+  );
+  assert.match(
+    brief,
+    /Coordenar outros agentes, fechar abas ou workers ociosos não é sua tarefa/,
+    "a regra de guarda está no brief",
+  );
+  assert.match(brief, /1\. Não tocar em outros arquivos além do contrato de delegação\./);
+});
+
+test("modelo, projeto e restrições pedidos chegam ao worker sem substituição silenciosa", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({
+    project_path: h.project,
+    role: "a",
+    request: "Investigar o login.",
+    objective: "Relato com evidências.",
+    mode: "report",
+    model: "claude-bridge/claude-haiku-5-5",
+    constraints: ["Só ler, não editar."],
+  });
+  assert.equal(t.model, "claude-bridge/claude-haiku-5-5");
+  const brief = readFileSync(t.brief_path, "utf8");
+  assert.match(brief, /1\. Só ler, não editar\./);
+  assert.match(brief, new RegExp(h.project.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+});
+
+test("restrições do brief são numeradas sem repetir números", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({
+    project_path: h.project,
+    role: "a",
+    request: "x",
+    objective: "y",
+    mode: "report",
+    constraints: ["Primeira.", "Segunda."],
+  });
+  const numbers = [...readFileSync(t.brief_path, "utf8").matchAll(/^(\d+)\. /gm)].map((m) => Number(m[1]));
+  assert.deepEqual(numbers.slice(0, 4), [1, 2, 3, 4]);
 });
