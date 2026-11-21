@@ -99,6 +99,18 @@ uma vez no fim, com `done`, `failed` ou `blocked`.
 - Arquivamento de tarefas antigas: adiado. O estado de 25 tarefas (43 KB) carrega em cerca de 0,1 ms; reavaliar quando passar de ~500 tarefas.
 - Sem limite de tarefas simultâneas. No modo padrão, cada tarefa tem sua tab no workspace do projeto; no modo opcional, seu próprio workspace.
 
+## Tokens, cache e custo
+
+Os números vêm do `usage` que o próprio Pi grava em cada mensagem de assistant (`pi-ai`, tipo `Usage`). Campos disjuntos, somados sem dupla contagem:
+
+- `input`: prompt não lido do cache. `cacheRead`: prompt lido do cache. `cacheWrite`: prompt gravado no cache.
+- `output`: saída; já inclui `reasoning`, que é subconjunto (não somar de novo). `cacheWrite1h` também é subconjunto de `cacheWrite`.
+- `totalTokens`: total informado pelo provedor, não soma livre dos campos.
+- `cost`: custo informado pelo provedor quando disponível; sem isso, é estimativa do Pi. Não é cobrança.
+- Taxa de acerto do cache (`cache_hit_ratio` no `orch_status`): `cacheRead / (input + cacheRead + cacheWrite)`; sem denominador, fica `null`.
+- Aquecimento de cache: o Pi o regrava como entrada `usage` com `kind: "cache_warm"`, separada das mensagens de assistant. O orquestrador soma essas entradas à parte (`cache_warm_cost_usd`). Só dispara com economia prevista de pelo menos US$ 0,05 e modo `idle` (padrão) ou `streaming`.
+- Origem do turno (usuário, automático, retry): não disponível. As mensagens de usuário do Pi têm só `role`, `content` e `timestamp`; o orquestrador não tenta inferir a origem.
+
 ## Smoke test real
 
 Cria workspace, tabs e workers Pi reais em um projeto descartável, com estado isolado.
