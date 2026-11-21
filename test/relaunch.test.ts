@@ -69,13 +69,27 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-test("relançamento passa o relatório completo da tentativa anterior, sem cortar em 300 caracteres", async () => {
+test("sem sessão: o brief traz o fim do relatório e o caminho do arquivo completo", async () => {
   const h = makeHarness();
   const longResult = `${"x".repeat(800)} FIM-DO-RELATORIO`;
   const old = await failed(h, longResult, HAIKU);
   const neu = await h.orch.relaunch(old.task_id);
   const brief = readFileSync(neu.brief_path, "utf8");
   assert.match(brief, /FIM-DO-RELATORIO/);
+  assert.ok(brief.includes(join(old.task_dir, "report.json")));
+});
+
+test("relançamento encadeado: o brief da 2ª tentativa não copia o relatório da 1ª", async () => {
+  const h = makeHarness();
+  const first = await failed(h, `PRIMEIRO-RELATORIO ${"z".repeat(3000)}`, HAIKU);
+  const second = await h.orch.relaunch(first.task_id);
+  writeReport(second.task_dir, second.task_id, { status: "failed", result: "SEGUNDO-RELATORIO Erro: 500" });
+  await h.orch.refresh(second.task_id);
+  const third = await h.orch.relaunch(second.task_id);
+  const brief = readFileSync(third.brief_path, "utf8");
+  assert.match(brief, /SEGUNDO-RELATORIO/);
+  assert.doesNotMatch(brief, /PRIMEIRO-RELATORIO/, "aviso da tentativa anterior não pode se acumular");
+  assert.equal((brief.match(/Tentativa anterior \(/g) ?? []).length, 1);
 });
 
 test("com a sessão da tentativa anterior em disco: o relançamento faz fork dela (--fork), sem alterar a original", async () => {
