@@ -39,12 +39,12 @@ test("merge da tarefa marca o item como merged, em todos os planos que a citam",
   const s = fresh();
   s.create("p1", "P1", ["a"]);
   s.create("p2", "P2", ["b"]);
-  s.update("p1", "1", { task_id: "t-42", status: "pr_open" });
-  s.update("p2", "1", { task_id: "t-99" });
-  assert.deepEqual(s.markMerged("t-42"), [{ plan: "p1", item: "1" }]);
+  s.update("p1", "1", { task_id: "t-4200aa00", status: "pr_open" });
+  s.update("p2", "1", { task_id: "t-9900bb00" });
+  assert.deepEqual(s.markMerged("t-4200aa00"), [{ plan: "p1", item: "1" }]);
   assert.equal(s.show("p1").items[0]!.status, "merged");
   assert.equal(s.show("p2").items[0]!.status, "pending", "outra tarefa não muda");
-  assert.deepEqual(s.markMerged("t-42"), [], "segunda chamada não toca de novo");
+  assert.deepEqual(s.markMerged("t-4200aa00"), [], "segunda chamada não toca de novo");
 });
 
 test("grava só arquivos .json na pasta do plano, sem temporário sobrando", () => {
@@ -60,7 +60,16 @@ test("plano corrompido não impede marcar o item merged nos outros planos", () =
   const dir = mkdtempSync(join(tmpdir(), "plans-"));
   const s = new PlanStore(dir, () => "2026-11-21T00:00:00.000Z");
   s.create("bom", "Bom", ["a"]);
-  s.update("bom", "1", { task_id: "t-1" });
+  s.update("bom", "1", { task_id: "t-10000001" });
   writeFileSync(join(dir, "a-quebrado.json"), "{ nao e json");
-  assert.deepEqual(s.markMerged("t-1"), [{ plan: "bom", item: "1" }]);
+  assert.deepEqual(s.markMerged("t-10000001"), [{ plan: "bom", item: "1" }]);
+});
+
+test("task_id e pr fora do formato são recusados antes de gravar", () => {
+  const s = fresh();
+  s.create("p", "P", ["a"]);
+  assert.throws(() => s.update("p", "1", { task_id: "qualquer coisa" }), /task_id inválido/);
+  assert.throws(() => s.update("p", "1", { pr: "https://exemplo.com/x" }), /pr inválida/);
+  assert.equal(s.show("p").items[0]!.task_id, null, "nada gravado");
+  assert.equal(s.update("p", "1", { task_id: "t-b60495cd", pr: "https://github.com/o/r/pull/172" }).pr, "https://github.com/o/r/pull/172");
 });

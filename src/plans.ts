@@ -73,6 +73,8 @@ export class PlanStore {
     const item = plan.items.find((i) => i.id === itemId);
     if (!item) throw new Error(`item ${itemId} não existe no plano ${planId}`);
     if (fields.status !== undefined && !(ITEM_STATUSES as readonly string[]).includes(fields.status)) throw new Error(`status inválido: ${fields.status}`);
+    if (fields.task_id !== undefined && !/^t-[0-9a-f]{8}$/.test(fields.task_id)) throw new Error(`task_id inválido: ${fields.task_id} (formato t-xxxxxxxx)`);
+    if (fields.pr !== undefined && !/^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+$/.test(fields.pr)) throw new Error(`pr inválida: ${fields.pr} (URL de PR do GitHub)`);
     if (fields.status !== undefined) item.status = fields.status;
     if (fields.task_id !== undefined) item.task_id = fields.task_id;
     if (fields.pr !== undefined) item.pr = fields.pr;
