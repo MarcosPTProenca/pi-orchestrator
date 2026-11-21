@@ -65,9 +65,9 @@ export const scenarios: Scenario[] = [
         detail: JSON.stringify(itemsOf(run).map((i) => i.request)),
       }),
       (_r, t) => ({
-        name: "brief leva o pedido literal (alpha e beta)",
+        name: "brief leva o trabalho formulado (alpha e beta)",
         ok:
-          t.briefs.every((b) => /## Pedido do usuário \(literal\)/.test(b)) &&
+          t.briefs.every((b) => /## O que fazer/.test(b)) &&
           t.briefs.some((b) => /alpha/.test(b)) &&
           t.briefs.some((b) => /beta/.test(b)),
         detail: "ver brief",
