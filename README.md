@@ -33,17 +33,17 @@ O launcher recusa rodar fora do Herdr (`HERDR_ENV=1` e `HERDR_PANE_ID` obrigató
 
 ## Tools do orquestrador
 
-| Tool | Função | Usa LLM? |
-|---|---|---|
-| `orch_delegate(project_path, role, brief, timeout_minutes?)` | Cria (ou reutiliza) o workspace do projeto, abre uma tab para a tarefa e inicia um worker Pi com o brief. | Não |
-| `orch_status(all?)` | Tarefas agrupadas por projeto, com idade, resumo curto, artefatos e verificação e total de tokens. Canceladas e terminais antigas (mais de 24 h; `PI_ORCH_OLD_HOURS` muda o limite, e `0` esconde todas as terminais na hora) ficam de fora; `all=true` mostra tudo. | Não |
-| `orch_inbox()` | Decisões abertas (`blocked`) e conclusões ou falhas ainda não avisadas. | Não |
-| `orch_send(task_id, text)` | Mensagem ao worker em execução ou bloqueado; também retoma tarefa concluída quando o mesmo painel contém o Pi ocioso. Não interrompe o turno atual. | Só o worker |
-| `orch_answer(task_id, answer)` | Envia a resposta ao worker bloqueado, que continua. | Só o worker |
-| `orch_fix_red_prs(repo_path, concurrency?)` | Lista PRs com CI vermelho e lança correções com no máximo N workers ao mesmo tempo. | Não |
-| `orch_logs(task_id, lines?)` | Últimas linhas do terminal do worker (padrão 40, máximo 200). Só lê se o painel ainda for da tarefa; mascara segredos óbvios. | Não |
-| `orch_relaunch(task_id, model?)` | Relança uma tarefa falha como tarefa nova ligada à anterior: recebe o relatório completo e um fork da conversa anterior (ver abaixo). Falha por cota exige modelo diferente do que esgotou. Só quando você pede. | Não |
-| `orch_cancel(task_id)` | Fecha a tab da tarefa, se ela ainda for do orquestrador. | Não |
+| Tool                                                         | Função                                                                                                                                                                                                                                                               | Usa LLM?    |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| `orch_delegate(project_path, role, brief, timeout_minutes?)` | Cria (ou reutiliza) o workspace do projeto, abre uma tab para a tarefa e inicia um worker Pi com o brief.                                                                                                                                                            | Não         |
+| `orch_status(all?)`                                          | Tarefas agrupadas por projeto, com idade, resumo curto, artefatos e verificação e total de tokens. Canceladas e terminais antigas (mais de 24 h; `PI_ORCH_OLD_HOURS` muda o limite, e `0` esconde todas as terminais na hora) ficam de fora; `all=true` mostra tudo. | Não         |
+| `orch_inbox()`                                               | Decisões abertas (`blocked`) e conclusões ou falhas ainda não avisadas.                                                                                                                                                                                              | Não         |
+| `orch_send(task_id, text)`                                   | Mensagem ao worker em execução ou bloqueado; também retoma tarefa concluída quando o mesmo painel contém o Pi ocioso. Não interrompe o turno atual.                                                                                                                  | Só o worker |
+| `orch_answer(task_id, answer)`                               | Envia a resposta ao worker bloqueado, que continua.                                                                                                                                                                                                                  | Só o worker |
+| `orch_fix_red_prs(repo_path, concurrency?)`                  | Lista PRs com CI vermelho e lança correções com no máximo N workers ao mesmo tempo.                                                                                                                                                                                  | Não         |
+| `orch_logs(task_id, lines?)`                                 | Últimas linhas do terminal do worker (padrão 40, máximo 200). Só lê se o painel ainda for da tarefa; mascara segredos óbvios.                                                                                                                                        | Não         |
+| `orch_relaunch(task_id, model?)`                             | Relança uma tarefa falha como tarefa nova ligada à anterior: recebe o relatório completo e um fork da conversa anterior (ver abaixo). Falha por cota exige modelo diferente do que esgotou. Só quando você pede.                                                     | Não         |
+| `orch_cancel(task_id)`                                       | Fecha a tab da tarefa, se ela ainda for do orquestrador.                                                                                                                                                                                                             | Não         |
 
 O worker recebe a tool `orch_report(status, result, question?, artifacts?)`. Ele a chama
 uma vez no fim, com `done`, `failed` ou `blocked`.
@@ -87,7 +87,7 @@ uma vez no fim, com `done`, `failed` ou `blocked`.
 
 - **Orquestrador:** abre issue de processo ou relato (por exemplo, uma regra que o worker não seguiu) diretamente, com `gh`, sem lançar worker para isso. Pesquisa e levantamento para criar issue ou card não são feitos por ele: aciona os subagents `researcher` (fatos externos) e `log-researcher` (logs) e monta a issue a partir do relatório deles. Pedido claro dentro desse papel é executado sem pausa; se falhar, relata a tentativa e o erro exato. Mesmo critério da #43 (issue de processo aberta diretamente) e da #52 (discovery por subagents, pedido claro executado).
 - **Worker:** só comenta ou publica em issue/PR quando o pedido do usuário disser isso para aquela tarefa (regra 6 do brief, `src/intake.ts`).
-- **Exceção:** o orquestrador delega a abertura de issue a um worker só quando o usuário pede explicitamente *e* a issue exige investigação de código que o orquestrador não tem contexto para fazer (por exemplo, localizar o `arquivo:linha` da causa raiz).
+- **Exceção:** o orquestrador delega a abertura de issue a um worker só quando o usuário pede explicitamente _e_ a issue exige investigação de código que o orquestrador não tem contexto para fazer (por exemplo, localizar o `arquivo:linha` da causa raiz).
 
 ## Estado e arquivos
 

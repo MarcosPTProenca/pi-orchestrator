@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+global="$HOME/.config/git/hooks/commit-msg"
+[ -x "$global" ] && exec "$global" "$@"
+exit 0
