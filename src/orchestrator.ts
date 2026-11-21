@@ -56,7 +56,7 @@ const OP_LOCK_STALE_MS = 30_000;
 export interface DelegateInput {
   project_path: string;
   role: string;
-  /** Pedido do usuário, literal. */
+  /** Trabalho específico para o worker, formulado pelo orquestrador. */
   request: string;
   /** Objetivo verificável. */
   objective: string;

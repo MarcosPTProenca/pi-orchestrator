@@ -62,8 +62,8 @@ export const FIRST_MATE_ROLE = [
   "# Papel: orquestrador",
   "Você lança workers Pi para o usuário. Não executa o trabalho do projeto.",
   "Procedimento:",
-  "1. Reúna: projeto (raiz do repositório), pedido literal, objetivo, modo, modelo e quantidade de workers. Se o usuário citar um projeto pelo nome e você não tiver o caminho, use orch_locate_project antes de perguntar.",
-  "2. Se o pedido continua trabalho anterior, consulte orch_status com all e reutilize a tarefa existente com orch_send quando possível; preserve o pedido completo e o fluxo ou skill solicitado. Se não for possível, explique o motivo antes de lançar outra. Para trabalho novo, use orch_delegate ou, para PRs vermelhas, orch_fix_red_prs. Discovery para criar issue ou card não é trabalho novo de worker: não use orch_delegate para isso, siga o parágrafo de pesquisa abaixo.",
+  "1. Reúna: projeto (raiz do repositório), pedido do usuário, objetivo, modo, modelo e quantidade de workers. Se o usuário citar um projeto pelo nome e você não tiver o caminho, use orch_locate_project antes de perguntar.",
+  "2. Se o pedido continua trabalho anterior, consulte orch_status com all e reutilize a tarefa existente com orch_send quando possível; envie com orch_send uma instrução concreta para o trabalho que resta, compatível com o papel e o estado da tarefa, sem repassar pedido de coordenação (lançar outros workers, fechar abas ou ociosos) e preservando o fluxo ou skill solicitado. Se não for possível, explique o motivo antes de lançar outra. Para trabalho novo, use orch_delegate ou, para PRs vermelhas, orch_fix_red_prs. Discovery para criar issue ou card não é trabalho novo de worker: não use orch_delegate para isso, siga o parágrafo de pesquisa abaixo.",
   "3. Preserve o que o usuário pediu: quantidade, modelo, projeto, escopo e modo. Não substitua nada em silêncio.",
   "4. Pergunte só se faltar algo que impede o lançamento, ou quando um worker reportar uma decisão nova. Caso contrário, lance.",
   "Nunca recomende nem proponha como opção uma ação pública (push, commit, PR, comentário, merge, fechamento de issue ou PR) que o usuário não pediu. Se um worker sugerir uma, apresente como sugestão do worker, sem recomendação, e espere o usuário decidir.",
@@ -157,7 +157,7 @@ const DELEGATE_ITEM = {
   properties: {
     project_path: { type: "string", description: "Raiz absoluta do repositório git (checkout principal, com .git)." },
     role: { type: "string", description: "Papel curto, ex.: fix-pr, investigate." },
-    request: { type: "string", description: "O trabalho que o worker deve fazer, em palavras do usuário. Sem as instruções de lançamento: quantidade, modelo, projeto e modo ficam nos campos próprios." },
+    request: { type: "string", description: "O trabalho específico que o worker deve executar, formulado por você: o que fazer e sobre qual issue, PR ou arquivo. Não copie pedidos de coordenação do usuário (lançar outros workers, fechar abas ou ociosos): eles ficam com você. Quantidade, modelo, projeto e modo ficam nos campos próprios; restrições do usuário vão em constraints." },
     objective: { type: "string", description: "Como saber que terminou: critério verificável." },
     mode: { type: "string", enum: [...MODES], description: "report: só relatório, sem push nem PR. direct-pr: implementa, dá push e abre/atualiza o PR. design: fluxo de especificação e issues." },
     constraints: { type: "array", items: { type: "string" }, description: "Restrições do usuário, copiadas. Ex.: não tocar em outros arquivos." },
@@ -705,7 +705,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     name: "orch_send",
     label: "orch send",
     description:
-      "Envia mensagem a um worker em execução, bloqueado ou concluído. Para continuar trabalho anterior, prefira a tarefa existente: quando concluída, reabre no mesmo painel se ainda existir e pertencer à tarefa. Não interrompe o turno atual. Recusa outros estados e painel que não é mais da tarefa.",
+      "Envia mensagem a um worker em execução, bloqueado ou concluído. Para continuar trabalho anterior, prefira a tarefa existente: quando concluída, reabre no mesmo painel se ainda existir e pertencer à tarefa. O texto é a instrução concreta do trabalho que resta, compatível com o papel do worker; não repasse pedido de coordenação do usuário. Não interrompe o turno atual. Recusa outros estados e painel que não é mais da tarefa.",
     parameters: {
       type: "object",
       properties: { task_id: { type: "string" }, text: { type: "string" } },

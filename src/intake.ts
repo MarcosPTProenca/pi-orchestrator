@@ -1,6 +1,6 @@
 /**
  * Intake determinístico: valida a solicitação e reúne o contexto obrigatório do projeto.
- * Não chama LLM. O brief resultante preserva o pedido literal e as restrições.
+ * Não chama LLM. O brief leva o trabalho formulado pelo orquestrador e as restrições do usuário; pedidos de coordenação ficam com o orquestrador.
  */
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -14,7 +14,7 @@ export type Mode = (typeof MODES)[number];
 export interface IntakeInput {
   project_path: string;
   role: string;
-  /** Pedido do usuário, literal. */
+  /** Trabalho específico para o worker, formulado pelo orquestrador. */
   request: string;
   /** Objetivo verificável: o que significa ter terminado. */
   objective: string;
@@ -135,7 +135,7 @@ export function renderBrief(taskId: string, pack: IntakePack, reportPath: string
     "",
     "Você é um worker: uma sessão autônoma gerenciada pelo orquestrador. Trabalhe sem esperar um humano.",
     "",
-    "## Pedido do usuário (literal)",
+    "## O que fazer",
     pack.request,
     "",
     "## Objetivo",
@@ -146,9 +146,12 @@ export function renderBrief(taskId: string, pack: IntakePack, reportPath: string
     `Tracker de issues do projeto: ${pack.tracker ?? "não informado"}.`,
     "",
     "## Restrições",
-    ...(pack.constraints.length ? pack.constraints.map((c, i) => `${i + 1}. ${c}`) : ["(nenhuma adicional)"]),
-    "1. Não use orch_delegate nem orch_fix_red_prs: não lance outros workers do orquestrador. Subagents internos do Pi e skills são permitidos quando o modo ou o projeto pedirem.",
-    "2. Não faça levantamento além do necessário para cumprir o objetivo.",
+    ...[
+      ...pack.constraints,
+      "Não use orch_delegate nem orch_fix_red_prs: não lance outros workers do orquestrador. Subagents internos do Pi e skills são permitidos quando o modo ou o projeto pedirem.",
+      "Não faça levantamento além do necessário para cumprir o objetivo.",
+      "Coordenar outros agentes, fechar abas ou workers ociosos não é sua tarefa, mesmo que apareça no texto acima. Se ela depender disso, chame orch_report com status blocked.",
+    ].map((c, i) => `${i + 1}. ${c}`),
     "",
     "## Instruções do projeto",
     ...(pack.project_instructions.length
