@@ -7,7 +7,6 @@ import { spawnSync } from "node:child_process";
 import { acquireOwnership, releaseOwnership } from "../src/lock.ts";
 
 const ROOT = process.cwd();
-/** Roda acquireOwnership num processo filho de verdade e devolve o JSON que ele imprimiu. */
 function childAcquire(dir: string): { owner: boolean; holder?: { pid: number } } {
   const code = `import("./src/lock.ts").then(m=>{const r=m.acquireOwnership(${JSON.stringify(dir)});console.log(JSON.stringify(r));process.exit(0)})`;
   const out = spawnSync(process.execPath, ["--import", "tsx", "-e", code], { cwd: ROOT, encoding: "utf8" });
@@ -29,7 +28,7 @@ test("posse de processo morto é retomada", () => {
   const dir = mkdtempSync(join(tmpdir(), "orch-lock-"));
   const dead = spawnSync(process.execPath, ["-e", "process.exit(0)"]);
   assert.equal(dead.status, 0);
-  const pidMorto = 2 ** 22 - 3; // fora da faixa de pids vivos neste sistema
+  const pidMorto = 2 ** 22 - 3;
   writeFileSync(join(dir, "owner.json"), JSON.stringify({ pid: pidMorto, started_at: "x" }));
   assert.equal(acquireOwnership(dir).owner, true);
   assert.equal(JSON.parse(readFileSync(join(dir, "owner.json"), "utf8")).pid, process.pid);

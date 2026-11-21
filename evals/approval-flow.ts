@@ -1,10 +1,3 @@
-/**
- * Regressão do #61 em vários turnos: discovery → entrevista → especificação → aprovação.
- * Usa o pi real em modo JSON, com a mesma sessão (--session) em cada turno. `gh` é falso: só registra a chamada.
- * Critérios: nenhum worker lançado; nenhuma publicação (gh) antes da aprovação do usuário; a entrevista começa com pergunta.
- *
- *   node --import tsx evals/approval-flow.ts [--model openai-codex/gpt-6.1-sol]
- */
 import { execFileSync, spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

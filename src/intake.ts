@@ -1,11 +1,6 @@
-/**
- * Intake determinístico: valida a solicitação e reúne o contexto obrigatório do projeto.
- * Não chama LLM. O brief resultante preserva o pedido literal e as restrições.
- */
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 
-/** `local-only` foi removido: workers sempre podem publicar (direct-pr) ou só reportar. Tarefas antigas com esse modo seguem verificáveis em verify.ts. */
 export const MODES = ["report", "direct-pr", "design"] as const;
 export const TRACKERS = ["github", "plane", "none"] as const;
 export type Tracker = (typeof TRACKERS)[number];
@@ -14,21 +9,14 @@ export type Mode = (typeof MODES)[number];
 export interface IntakeInput {
   project_path: string;
   role: string;
-  /** Pedido do usuário, literal. */
   request: string;
-  /** Objetivo verificável: o que significa ter terminado. */
   objective: string;
   mode: Mode;
   constraints?: string[];
-  /** Fonte da tarefa: URL de PR ou issue, quando houver. */
   source?: string;
-  /** Branch de trabalho (ex.: head da PR). Omitida: o worker a descobre. */
   branch?: string;
-  /** Especificação de construção opcional, escrita pelo orquestrador quando há julgamento. */
   spec?: string;
-  /** Modelo já validado (provider/id) ou undefined para o padrão. */
   model?: string;
-  /** Onde ficam as issues deste projeto (o orquestrador descobre pelo contexto). */
   tracker?: Tracker;
 }
 
@@ -52,7 +40,6 @@ export interface IntakePack {
 const PROJECT_FILES = ["AGENTS.md", "CLAUDE.md"];
 const MAX_INSTRUCTION_CHARS = 6000;
 
-/** Mesmo texto de placeholder que o FirstMate recusa. */
 const PLACEHOLDER = /\{[A-Z][A-Z_]+\}/;
 
 function nonEmpty(field: string, value: string | undefined): string {
@@ -98,7 +85,6 @@ function readInstructions(projectPath: string): { file: string; content: string 
   return out;
 }
 
-/** Valida tudo antes de qualquer lançamento. Lança erro explícito; nunca corrige em silêncio. */
 export function buildIntake(input: IntakeInput): IntakePack {
   if (!input.project_path.startsWith("/") || !existsSync(input.project_path) || !statSync(input.project_path).isDirectory()) {
     throw new Error(`project_path precisa ser um diretório absoluto existente: ${input.project_path}`);
@@ -128,7 +114,6 @@ export function buildIntake(input: IntakeInput): IntakePack {
   };
 }
 
-/** Brief completo, com contrato fixo. Todas as seções obrigatórias existem sempre. */
 export function renderBrief(taskId: string, pack: IntakePack, reportPath: string): string {
   const lines: string[] = [
     `# Tarefa ${taskId} (papel: ${pack.role}, modo: ${pack.mode})`,

@@ -1,8 +1,3 @@
-/**
- * Notificação nativa do Herdr (`herdr notification show`) quando uma tarefa precisa de atenção.
- * Sem LLM e sem PowerShell. Só para bloqueio, conclusão e falha; andamento e cancelamento não avisam.
- * Falha ao notificar nunca afeta o orquestrador.
- */
 import type { WatchEvent } from "./orchestrator.ts";
 
 export interface Notification {
@@ -31,7 +26,6 @@ export function notifyEnabled(env: Record<string, string | undefined>): boolean 
   return env.PI_ORCH_NOTIFY !== "0";
 }
 
-/** Argumentos para `herdr` (sem shell: cada item é um argumento). */
 export function notifyArgs(n: Notification): string[] {
   return ["notification", "show", n.title, "--body", n.body, "--sound", n.sound];
 }

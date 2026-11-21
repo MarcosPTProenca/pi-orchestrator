@@ -8,7 +8,7 @@ test("falha de início que esgota as tentativas avisa na hora, mesmo fora da cha
     if (item === "ruim") throw new Error("pane não abriu");
     return `t-${item}`;
   }, { maxAttempts: 2, onFailed: (f) => seen.push(`${f.item}:${f.error}`) });
-  await q.enqueue(["ruim"]); // pump tenta de novo no mesmo laço até esgotar as tentativas
+  await q.enqueue(["ruim"]);
   assert.deepEqual(seen, ["ruim:pane não abriu"]);
 });
 

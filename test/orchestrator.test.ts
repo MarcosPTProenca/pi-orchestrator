@@ -155,7 +155,6 @@ test("delegate recusa project_path que não é raiz de repositório git (ex.: di
   assert.equal(h.herdr.opsOf("createTab").length, 0);
 });
 
-
 test("cancel fecha só a tab da tarefa; outra tarefa e o workspace permanecem", async () => {
   const h = makeHarness();
   const a = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report" });
@@ -491,7 +490,7 @@ test("noticeFor avisa uma vez, mesmo que outro refresh já tenha aplicado o rela
   const h = makeHarness();
   const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
   writeReport(t.task_dir, t.task_id, { status: "done", result: "ok" });
-  await h.orch.refresh(t.task_id); // ex.: o LLM chamou orch_status antes do webhook chegar
+  await h.orch.refresh(t.task_id);
   const ev = await h.orch.noticeFor(t.task_id);
   assert.equal(ev?.status, "done");
   assert.equal(await h.orch.noticeFor(t.task_id), null, "não repete");
@@ -603,7 +602,6 @@ test("registro de tarefa não tem campos mortos; estado antigo com eles carrega 
   const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
   const file = join(h.stateDir, "state.json");
   assert.equal(readFileSync(file, "utf8").includes("worker_started"), false, "tarefa nova não grava o campo");
-  // Estado antigo: o campo existe no arquivo.
   const old = JSON.parse(readFileSync(file, "utf8"));
   old.tasks[t.task_id].worker_started = true;
   old.tasks[t.task_id].prompt_attempts = 1;

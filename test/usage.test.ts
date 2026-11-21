@@ -18,7 +18,6 @@ test("soma só mensagens que ainda não foram contadas (identificadas pelo times
 });
 
 test("nova sessão na mesma pasta conta as mensagens novas, não zera nem repete", () => {
-  // Mesma tarefa, novo processo: a sessão traz de novo as mensagens antigas e uma nova.
   const r = addNewUsage(addNewUsage(newUsage(), [asst(1, 10, 5)], []).total, [asst(1, 10, 5), asst(9, 4, 1)], [1]);
   assert.equal(r.total.input, 14);
 });

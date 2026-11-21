@@ -2,7 +2,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { NoticeBatcher } from "../src/notices.ts";
 
-/** Relógio simulado: set guarda o callback; advance(ms) dispara os que venceram. */
 function fakeClock() {
   let now = 0;
   const timers: { at: number; fn: () => void; id: number; done: boolean }[] = [];

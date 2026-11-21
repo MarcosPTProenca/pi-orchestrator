@@ -12,7 +12,6 @@ import { idleSurfaces } from "../src/idle.ts";
 
 const ROOT = process.cwd();
 
-/** Roda uma função de src num processo filho de verdade e devolve o último JSON impresso. */
 function child(expr: string): unknown {
   const out = spawnSync(process.execPath, ["--import", "tsx", "-e", expr], { cwd: ROOT, encoding: "utf8" });
   if (out.status !== 0) throw new Error(out.stderr);

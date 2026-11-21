@@ -10,7 +10,6 @@ import { Store } from "../src/store.ts";
 const STORE = fileURLToPath(new URL("../src/store.ts", import.meta.url));
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
-/** Processo filho que grava N registros no mesmo state.json, como uma sessão do orquestrador faria. */
 function writer(file: string, n: number): Promise<void> {
   const code = `
 const { Store } = await import(${JSON.stringify(STORE)});

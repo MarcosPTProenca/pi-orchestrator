@@ -1,7 +1,3 @@
-/**
- * PRs com checks vermelhos e o input de correção de cada uma. Mecânica (listar e montar),
- * sem julgamento de LLM: o worker é que decide como corrigir.
- */
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -12,19 +8,15 @@ export interface RedPr {
   number: number;
   title: string;
   headRefName: string;
-  /** Branch base da PR. Se for a head de outra PR aberta, a PR está empilhada. */
   baseRefName: string;
   url: string;
   failing: string[];
-  /** MERGEABLE, CONFLICTING ou UNKNOWN (GitHub calcula de forma assíncrona). */
   mergeable: string;
-  /** Ex.: CLEAN, DIRTY (conflito), BEHIND, BLOCKED, UNSTABLE. */
   mergeStateStatus: string;
 }
 
 export const FAILING = new Set(["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"]);
 
-/** Interpreta `gh pr list --json number,title,headRefName,url,statusCheckRollup`. Só PRs com ao menos um check falhando. */
 export function parseRedPrs(json: unknown): RedPr[] {
   if (!Array.isArray(json)) throw new Error("resposta de gh pr list não é uma lista");
   const out: RedPr[] = [];
@@ -48,10 +40,6 @@ export function parseRedPrs(json: unknown): RedPr[] {
   return out;
 }
 
-/**
- * Credencial da conta pessoal: só para repositórios MarcosPTProenca/*. Entra em GH_TOKEN somente
- * no processo do comando, como manda a skill contas-credenciais. O conteúdo nunca é impresso.
- */
 export function ghEnvFor(remoteUrl: string, base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   if (!/MarcosPTProenca\/|github-pers[:/]/.test(remoteUrl)) return base;
   const file = join(homedir(), ".config", "rko-pr", "token");
@@ -59,14 +47,12 @@ export function ghEnvFor(remoteUrl: string, base: NodeJS.ProcessEnv): NodeJS.Pro
   return { ...base, GH_TOKEN: token };
 }
 
-/** owner e nome a partir da URL do remote (https ou ssh, com alias de host como github-pers). */
 export function repoFromRemote(remoteUrl: string): { owner: string; name: string } {
   const m = remoteUrl.match(/[:/]([^/:]+)\/([^/]+?)(?:\.git)?\/?$/);
   if (!m) throw new Error(`remote não reconhecido: ${remoteUrl.replace(/\/\/[^@]*@/, "//")}`);
   return { owner: m[1], name: m[2] };
 }
 
-/** Interpreta a resposta do GraphQL de PRs abertas com o último commit e seus checks. */
 export function parseGraphqlRedPrs(json: unknown): RedPr[] {
   const nodes = (json as { data?: { repository?: { pullRequests?: { nodes?: unknown[] } } } })?.data?.repository?.pullRequests?.nodes;
   if (!Array.isArray(nodes)) throw new Error("resposta do GraphQL sem pullRequests");
@@ -91,7 +77,6 @@ export function parseGraphqlRedPrs(json: unknown): RedPr[] {
 const PRS_QUERY =
   "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){pullRequests(states:OPEN,first:100){nodes{number title url headRefName baseRefName mergeable mergeStateStatus commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{__typename ... on CheckRun{name conclusion status} ... on StatusContext{context state}}}}}}}}}}}";
 
-/** PRs abertas com check vermelho do repositório, pela API GraphQL via `gh api` (o `gh pr list` falha nesta máquina). */
 export function listRedPrs(repoPath: string, remoteUrl: string): Promise<RedPr[]> {
   const { owner, name } = repoFromRemote(remoteUrl);
   const env = ghEnvFor(remoteUrl, process.env);
@@ -115,13 +100,11 @@ export function listRedPrs(repoPath: string, remoteUrl: string): Promise<RedPr[]
   });
 }
 
-/** Estado de mergeabilidade que o worker precisa saber antes de mexer na PR. Vazio quando está limpa. */
 export function conflictNote(pr: RedPr): string {
   if (pr.mergeStateStatus !== "DIRTY" && pr.mergeable !== "CONFLICTING") return "";
   return ` ATENÇÃO: a PR está com conflito de merge contra a base ${pr.baseRefName} (mergeStateStatus ${pr.mergeStateStatus}). Resolva os conflitos antes de corrigir os checks, e confirme que a PR volta a ser mergeável.`;
 }
 
-/** Input de correção de uma PR: pedido e objetivo montados a partir dos dados da PR, modo direct-pr na branch dela. */
 export function fixInputFor(pr: RedPr, projectPath: string, model?: string): DelegateInput {
   return {
     project_path: projectPath,
@@ -148,7 +131,6 @@ export function fixInputFor(pr: RedPr, projectPath: string, model?: string): Del
   };
 }
 
-/** Número e repositório a partir de uma URL de PR do GitHub. */
 export function prFromUrl(url: string): { owner: string; name: string; number: number } | null {
   const m = url.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
   return m ? { owner: m[1], name: m[2], number: Number(m[3]) } : null;
@@ -163,7 +145,6 @@ export interface PrState {
   checks: { name: string; conclusion: string | null; status: string | null }[];
 }
 
-/** Estado atual de uma PR, pela API (sem cache). Usado antes de o orquestrador dar uma tarefa por concluída. */
 export function fetchPrState(remoteUrl: string, number: number, owner: string, name: string, cwd: string): Promise<PrState> {
   const env = ghEnvFor(remoteUrl, process.env);
   const q = "query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){number state mergeable mergeStateStatus headRefOid commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{__typename ... on CheckRun{name conclusion status} ... on StatusContext{context state}}}}}}}}}}";
@@ -193,7 +174,6 @@ export function fetchPrState(remoteUrl: string, number: number, owner: string, n
   });
 }
 
-/** Linha de estado para o usuário: a PR está mergeável? Sem conflito e com checks verdes? */
 export function prStateLine(s: PrState): string {
   const conflict = s.mergeStateStatus === "DIRTY" || s.mergeable === "CONFLICTING";
   return `Estado atual da PR #${s.number}: ${s.state}, mergeable ${s.mergeable}, mergeStateStatus ${s.mergeStateStatus}${conflict ? " — CONFLITO: não está pronta para merge." : "."}`;
@@ -201,13 +181,9 @@ export function prStateLine(s: PrState): string {
 
 const GREEN = new Set(["SUCCESS", "NEUTRAL", "SKIPPED", "SUCCESS".toLowerCase()]);
 
-/**
- * Conferência independente do que o worker disse. Lista os motivos para não dar a PR como pronta.
- * Vazio = verificada: aberta, mergeável, sem conflito e todos os checks verdes.
- */
 export function verifyPr(s: PrState): string[] {
   const problems: string[] = [];
-  if (s.state === "MERGED") return []; // já mesclada: o trabalho chegou ao destino
+  if (s.state === "MERGED") return [];
   if (s.state !== "OPEN") problems.push(`PR está ${s.state}, não aberta`);
   if (s.mergeable === "CONFLICTING" || s.mergeStateStatus === "DIRTY") problems.push("conflito de merge com a base");
   else if (s.mergeable !== "MERGEABLE") problems.push(`mergeable ${s.mergeable}`);
@@ -220,7 +196,6 @@ export function verifyPr(s: PrState): string[] {
   return problems;
 }
 
-/** Linha de verificação para o usuário: "verificada" ou "NÃO verificada" com os motivos. */
 export function verificationLine(s: PrState): string {
   if (s.state === "MERGED") return `Verificação da PR #${s.number}: VERIFICADA (já mesclada).`;
   const problems = verifyPr(s);

@@ -7,7 +7,6 @@ import { Store } from "../src/store.ts";
 
 export type WaitFn = (target: string, until: string[], timeoutMs: number) => Promise<{ reached: string } | { timeout: true }>;
 
-/** Herdr simulado: workspaces por projeto, tabs por tarefa e panes em memória. */
 export class FakeHerdr implements HerdrPort {
   calls: { op: string; args: unknown }[] = [];
   panesList: PaneInfo[] = [];
@@ -135,7 +134,6 @@ export function makeHarness(opts: { presentationSpaces?: boolean; herdrVersion?:
   return { herdr, orch, stateDir, project, clock };
 }
 
-/** Simula o worker chamando orch_report: grava report.json na pasta da tarefa. */
 export function writeReport(taskDir: string, taskId: string, body: Record<string, unknown>, stamp = "t"): void {
   writeFileSync(
     join(taskDir, "report.json"),

@@ -1,7 +1,3 @@
-/**
- * Relatório de recuperação para um worker que terminou o turno sem orch_report.
- * Diferencia limite de cota de outras falhas, com o último erro do modelo como evidência.
- */
 
 const QUOTA_RE = /rate.?limit|quota|usage limit|too many requests|\b429\b|insufficient|exceeded|limite de/i;
 
@@ -12,11 +8,9 @@ export interface FallbackReport {
   question: null;
   artifacts: string[];
   reported_at: string;
-  /** Marca o relatório gravado pela extensão ao fim do turno, sem orch_report válido do worker. */
   source: "fallback";
 }
 
-/** Procura o último erro de mensagem do assistente nas mensagens da sessão. */
 export function lastModelError(messages: unknown[]): string | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i] as Record<string, unknown>;

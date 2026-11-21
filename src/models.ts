@@ -1,10 +1,5 @@
-/**
- * Modelos disponíveis no Pi, lidos de `pi --list-models`. Validação exata: um modelo pedido que
- * não existe vira erro explícito. Nunca há substituição silenciosa.
- */
 import { execFileSync } from "node:child_process";
 
-/** Interpreta a tabela de `pi --list-models` (colunas: provider, model, ...). */
 export function parseModelTable(text: string): string[] {
   const out: string[] = [];
   for (const line of text.split("\n")) {
@@ -22,7 +17,6 @@ export function availableModels(): string[] {
   return cache;
 }
 
-/** undefined = sem pedido (padrão do Pi). Modelo pedido precisa existir exatamente como provider/id. */
 export function resolveModel(requested: string | undefined, available: string[]): string | undefined {
   if (requested === undefined || requested.trim() === "") return undefined;
   const id = requested.trim();

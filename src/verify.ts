@@ -1,7 +1,3 @@
-/**
- * Verificação determinística de uma tarefa concluída, separada do que o worker declarou.
- * Não usa LLM. Cada modo tem a sua regra; falha ao conferir vira "unverified", nunca "approved".
- */
 import { prFromUrl } from "./prs.ts";
 
 export type Verdict = "approved" | "rejected" | "not_applicable" | "unverified";
@@ -11,9 +7,7 @@ export interface Verification {
 }
 
 export interface VerifyEnv {
-  /** Confere uma PR. ok=false com a linha de resumo quando não está pronta. Lança se não conseguir consultar. */
   prCheck(url: string): Promise<{ ok: boolean; line: string }>;
-  /** Existe um commit com este SHA no repositório? Lança se não conseguir ler o repositório. */
   commitExists(sha: string): boolean;
   pathExists(path: string): boolean;
 }
@@ -35,11 +29,9 @@ export async function judgeDone(mode: string, status: string, artifacts: string[
       }
       return { verdict: rejected ? "rejected" : "approved", reason: lines.join(" ") };
     }
-    // Legado: tarefas lançadas antes da remoção do modo local-only continuam verificáveis.
     if (mode === "local-only") {
       const shas = artifacts.flatMap((a) => a.match(SHA_RE) ?? []);
       if (shas.length === 0) return { verdict: "rejected", reason: "modo local-only sem commit informado em artefatos" };
-      // Basta um SHA real: palavras hexadecimais em prosa não podem reprovar uma tarefa com commit válido.
       const found = shas.filter((s) => env.commitExists(s));
       if (found.length === 0) return { verdict: "rejected", reason: `nenhum commit encontrado no repositório entre: ${shas.join(", ")}` };
       return { verdict: "approved", reason: `commit(s) presentes no repositório: ${found.join(", ")}` };
