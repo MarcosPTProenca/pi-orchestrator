@@ -208,3 +208,9 @@ test("registro morto só é limpo com aba e pane ausentes e o Herdr respondendo 
   // Pane ainda existe (aba reindexada): não limpa
   assert.deepEqual(deadTabTaskIds([morta], { tabIds: new Set(["w1:t1"]), panes: [pane("w1:p9")] }), []);
 });
+
+test("tarefa entregue por PR não é candidata a fechar: quem fecha é o merge (#pr-merge)", () => {
+  const prTask = task({ task_id: "t-pr", source: "https://github.com/MarcosPTProenca/adaptative-learning/pull/171" });
+  const reason = whyNotIdle(prTask, liveFor(prTask));
+  assert.match(reason ?? "", /aguarda merge da PR/);
+});
