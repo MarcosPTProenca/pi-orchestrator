@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, existsSync, readdirSync } from "node:fs";
+import { mkdtempSync, existsSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PlanStore } from "../src/plans.ts";
@@ -54,4 +54,13 @@ test("grava só arquivos .json na pasta do plano, sem temporário sobrando", () 
   s.update("p", "1", { status: "done" });
   assert.deepEqual(readdirSync(dir), ["p.json"]);
   assert.equal(existsSync(join(dir, "p.json.tmp")), false);
+});
+
+test("plano corrompido não impede marcar o item merged nos outros planos", () => {
+  const dir = mkdtempSync(join(tmpdir(), "plans-"));
+  const s = new PlanStore(dir, () => "2026-11-21T00:00:00.000Z");
+  s.create("bom", "Bom", ["a"]);
+  s.update("bom", "1", { task_id: "t-1" });
+  writeFileSync(join(dir, "a-quebrado.json"), "{ nao e json");
+  assert.deepEqual(s.markMerged("t-1"), [{ plan: "bom", item: "1" }]);
 });

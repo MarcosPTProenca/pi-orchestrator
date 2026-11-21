@@ -87,17 +87,24 @@ export class PlanStore {
   markMerged(taskId: string): { plan: string; item: string }[] {
     const touched: { plan: string; item: string }[] = [];
     for (const planId of this.list()) {
-      const plan = this.show(planId);
-      let changed = false;
-      for (const item of plan.items) {
-        if (item.task_id === taskId && item.status !== "merged") {
-          item.status = "merged";
-          item.updated_at = this.now();
-          touched.push({ plan: planId, item: item.id });
-          changed = true;
+      // Plano ilegível ou sem permissão de escrita não pode travar o fechamento da tarefa mergeada nem os outros planos.
+      try {
+        const plan = this.show(planId);
+        const hit: { plan: string; item: string }[] = [];
+        for (const item of plan.items) {
+          if (item.task_id === taskId && item.status !== "merged") {
+            item.status = "merged";
+            item.updated_at = this.now();
+            hit.push({ plan: planId, item: item.id });
+          }
         }
+        if (hit.length > 0) {
+          this.write(plan);
+          touched.push(...hit);
+        }
+      } catch {
+        continue;
       }
-      if (changed) this.write(plan);
     }
     return touched;
   }
