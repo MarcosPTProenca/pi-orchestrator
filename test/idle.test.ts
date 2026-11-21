@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { closeBlocker, idleReport, IdleWatch, idleAnnouncement, idleSurfaces, whyNotIdle, type LiveSurfaces } from "../src/idle.ts";
+import { closeBlocker, deadTabTaskIds, idleReport, IdleWatch, idleAnnouncement, idleSurfaces, whyNotIdle, type LiveSurfaces } from "../src/idle.ts";
 import { parseTabIds } from "../src/herdr.ts";
 import type { TaskRecord } from "../src/contract.ts";
 
@@ -84,6 +84,13 @@ test("aviso periódico só sai quando o conjunto de candidatas muda", () => {
   assert.deepEqual(idleAnnouncement("t-a", [a, b]), { announce: true, key: "t-a,t-b" });
 });
 
+test("sair de candidata não avisa de novo: só candidata nova acorda o orquestrador", () => {
+  const a = { task_id: "t-a", project_id: "p", updated_at: "x", projected: false };
+  const b = { task_id: "t-b", project_id: "p", updated_at: "y", projected: false };
+  assert.deepEqual(idleAnnouncement("t-a,t-b", [a]), { announce: false, key: "t-a" });
+  assert.deepEqual(idleAnnouncement("t-a", [a, b]), { announce: true, key: "t-a,t-b" });
+});
+
 test("lista vazia não avisa e zera a chave, para avisar de novo se a tarefa reaparecer", () => {
   const a = { task_id: "t-a", project_id: "p", updated_at: "x", projected: false };
   assert.deepEqual(idleAnnouncement("t-a", []), { announce: false, key: "" });
@@ -159,13 +166,12 @@ test("idleReport lista candidatas e o motivo de cada não candidata, em ordem es
   assert.match(rep.not_eligible[0].reason, /failed/);
 });
 
-test("aviso de ociosas nomeia a concluída cuja tab não confere mais, com o motivo (#62)", async () => {
+test("aviso de ociosas lista só as candidatas, sem o registro morto (ruído removido)", async () => {
   const { idleNoticeFor } = await import("../src/index.ts");
-  const idle = [{ task_id: "t-a", project_id: "p" }];
-  const msg = idleNoticeFor(idle, [{ task_id: "t-b", reason: "tab ou pane não confere mais com a tarefa no Herdr" }]);
-  assert.match(msg, /ainda abertas: t-a \(/);
-  assert.match(msg, /Não são candidatas: t-b \(tab ou pane não confere mais com a tarefa no Herdr\)\./);
-  assert.doesNotMatch(idleNoticeFor(idle, []), /Não são candidatas/);
+  const msg = idleNoticeFor([{ task_id: "t-a", project_id: "p" }]);
+  assert.match(msg, /com aba aberta \(1\): t-a \(/);
+  assert.match(msg, /feche com orch_close/);
+  assert.doesNotMatch(msg, /Não são candidatas|tab ou pane/);
 });
 
 test("orch_close com pane ausente não fecha nada e não diz que fechou (#62)", async () => {
@@ -187,4 +193,18 @@ test("env de prazo inválida cai no padrão, nunca vira NaN (revisão da #85)", 
   assert.equal(envPositive("0", 60_000), 60_000);
   assert.equal(envPositive("-5", 60_000), 60_000);
   assert.equal(envPositive("2", 60_000), 2);
+});
+
+test("registro morto só é limpo com aba e pane ausentes e o Herdr respondendo (revisão da #93)", () => {
+  const morta = task({ task_id: "t-morta", status: "done", tab_id: "w1:t9", pane_id: "w1:p9", notified: true });
+  const ativa = task({ task_id: "t-ativa", status: "running" as TaskRecord["status"], tab_id: "w1:t8", pane_id: "w1:p8" });
+  const pane = (pane_id: string) => ({ pane_id, terminal_id: "x", cwd: null, agent: null, agent_status: null });
+  // Herdr respondendo, aba e pane ausentes: limpa só a concluída
+  assert.deepEqual(deadTabTaskIds([morta, ativa], { tabIds: new Set(["w1:t1"]), panes: [pane("w1:p1")] }), ["t-morta"]);
+  // Lista de abas vazia (instante ruim): não limpa nada
+  assert.deepEqual(deadTabTaskIds([morta], { tabIds: new Set(), panes: [pane("w1:p1")] }), []);
+  // Lista de panes vazia: não limpa nada
+  assert.deepEqual(deadTabTaskIds([morta], { tabIds: new Set(["w1:t1"]), panes: [] }), []);
+  // Pane ainda existe (aba reindexada): não limpa
+  assert.deepEqual(deadTabTaskIds([morta], { tabIds: new Set(["w1:t1"]), panes: [pane("w1:p9")] }), []);
 });

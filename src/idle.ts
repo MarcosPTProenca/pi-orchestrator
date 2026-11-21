@@ -27,6 +27,17 @@ export interface LiveSurfaces {
   panes: PaneInfo[];
 }
 
+/**
+ * Tarefas concluídas cuja aba e pane sumiram do Herdr: registro morto, seguro de limpar. Só vale com o Herdr respondendo
+ * com abas e panes: lista vazia ou parcial (instante ruim) não pode apagar registro válido.
+ */
+export function deadTabTaskIds(tasks: TaskRecord[], live: LiveSurfaces): string[] {
+  if (live.tabIds.size === 0 || live.panes.length === 0) return [];
+  return tasks
+    .filter((t) => t.status === "done" && t.tab_id !== "" && !live.tabIds.has(t.tab_id) && !live.panes.some((p) => p.pane_id === t.pane_id))
+    .map((t) => t.task_id);
+}
+
 /** Verdadeiro quando a tab do registro ainda existe e o pane/terminal ainda são os da tarefa. */
 export function confirmedInHerdr(t: TaskRecord, live: LiveSurfaces): boolean {
   return live.tabIds.has(t.tab_id) && live.panes.some((p) => p.pane_id === t.pane_id && p.terminal_id === t.terminal_id);
@@ -72,13 +83,14 @@ export function idleReport(tasks: TaskRecord[], live: LiveSurfaces): { eligible:
 }
 
 /**
- * Aviso periódico sem repetição: avisa só quando o conjunto de candidatas muda em relação ao último aviso.
- * Lista vazia não avisa, mas zera a chave: se a mesma tarefa voltar a ser candidata, avisa de novo.
+ * Aviso periódico sem repetição: avisa só quando surge candidata que não estava no último aviso. Sair de
+ * candidata (fechada ou perdida) não avisa. Lista vazia não avisa, mas zera a chave: se a tarefa voltar, avisa de novo.
  */
 export function idleAnnouncement(prevKey: string, idle: IdleSurface[]): { announce: boolean; key: string } {
   const key = idle.map((s) => s.task_id).join(",");
-  if (key === prevKey) return { announce: false, key };
-  return { announce: idle.length > 0, key: idle.length > 0 ? key : "" };
+  if (idle.length === 0) return { announce: false, key: "" };
+  const before = new Set(prevKey ? prevKey.split(",") : []);
+  return { announce: idle.some((s) => !before.has(s.task_id)), key };
 }
 
 /**

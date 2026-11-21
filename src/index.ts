@@ -28,7 +28,7 @@ import { chainDepth, classifyFailure, failureHintFor, MAX_AUTO_RELAUNCH, nextMod
 import { capError, maxActiveFrom } from "./cap.ts";
 import { isActive } from "./contract.ts";
 import { orphanLeases, releaseLease, type WorktreeOps } from "./worktrees.ts";
-import { closeBlocker, idleReport, STALE_SURFACE_REASON, IdleWatch, idleSurfaces } from "./idle.ts";
+import { closeBlocker, deadTabTaskIds, idleReport, IdleWatch, idleSurfaces } from "./idle.ts";
 import { StallWatch, stallNoticeFor } from "./stall.ts";
 import { acquireOwnership, legacyAdopter, ownsByRepo, releaseOwnership, scopeKey, scopeOwnerDir } from "./lock.ts";
 
@@ -81,14 +81,12 @@ export function projectLabel(id: string | null | undefined): string {
 }
 
 /**
- * Aviso agregado de superfícies ociosas: cada tarefa com o projeto a que pertence. Tarefas concluídas e entregues cuja tab
- * já não confere (#62) são nomeadas com o motivo, para o usuário saber por que não aparecem como candidatas.
+ * Aviso de tarefas concluídas e entregues com aba ainda aberta, cada uma com o projeto. Tarefas cuja aba o Herdr não
+ * lista mais não entram aqui: o registro delas é limpo em silêncio (`forgetDeadTab`), não é pendência.
  */
-export function idleNoticeFor(idle: { task_id: string; project_id: string }[], stale: { task_id: string; reason: string }[] = []): string {
+export function idleNoticeFor(idle: { task_id: string; project_id: string }[]): string {
   const items = idle.map((s) => `${s.task_id} (${projectLabel(s.project_id)})`).join(", ");
-  const base = `Superfícies ociosas de tarefas concluídas e entregues (${idle.length}), ainda abertas: ${items}. Decida por tarefa: se nada depende da aba (PR aberta com CI vermelho, conflito de merge ou review pendente), feche com orch_close; se algo ainda precisa dela, mantenha e diga o motivo.`;
-  if (stale.length === 0) return base;
-  return `${base} Não são candidatas: ${stale.map((s) => `${s.task_id} (${s.reason})`).join("; ")}.`;
+  return `Tarefas concluídas e entregues com aba aberta (${idle.length}): ${items}. Decida por tarefa: se nada depende da aba (PR aberta com CI vermelho, conflito de merge ou review pendente), feche com orch_close; se algo ainda precisa dela, mantenha e diga o motivo.`;
 }
 
 /** Aviso de worktrees arrendadas por tarefas terminais, com o projeto de cada uma. */
@@ -357,10 +355,12 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     try {
       const herdr = new HerdrCli();
       const live = { tabIds: await herdr.tabIds(), panes: await herdr.panes() };
+      // Aba e pane que o Herdr não lista mais: registro velho. Limpa em silêncio, só com o Herdr respondendo.
+      for (const id of deadTabTaskIds(orch.owned(), live)) orch.forgetDeadTab(id);
       const idle = idleSurfaces(orch.owned(), live);
       if (idleWatch.observe(idle)) {
         pi.sendMessage(
-          { customType: "orch-event", content: idleNoticeFor(idle, idleReport(orch.owned(), live).not_eligible.filter((n) => n.reason === STALE_SURFACE_REASON)), display: true },
+          { customType: "orch-event", content: idleNoticeFor(idle), display: true },
           { triggerTurn: true },
         );
       }
