@@ -108,6 +108,33 @@ test("orch_status expõe a taxa de acerto do cache e null quando não há entrad
   assert.equal(rows.find((r) => r.task_id === "t-s")?.cache_hit_ratio, null);
 });
 
+test("orch_status expõe custo informado e custo do aquecimento de cache; null sem uso", () => {
+  const custo = t({
+    task_id: "t-k",
+    status: "done",
+    updated_at: "2026-11-17T11:50:00Z",
+    usage: {
+      input: 20,
+      output: 1,
+      cacheRead: 80,
+      cacheWrite: 0,
+      totalTokens: 101,
+      cost: 0.4,
+      costFromProvider: true,
+      cacheWarmCost: 0.02,
+    },
+  });
+  const rows = buildStatus([custo, t({ task_id: "t-z", status: "running" })], NOW, {}).flatMap((g) => g.tasks);
+  const k = rows.find((r) => r.task_id === "t-k");
+  assert.equal(k?.cost_usd, 0.4);
+  assert.equal(k?.cost_from_provider, true);
+  assert.equal(k?.cache_warm_cost_usd, 0.02);
+  const z = rows.find((r) => r.task_id === "t-z");
+  assert.equal(z?.cost_usd, null);
+  assert.equal(z?.cost_from_provider, null);
+  assert.equal(z?.cache_warm_cost_usd, null);
+});
+
 test("PI_ORCH_OLD_HOURS: 0 vale (esconde todas as terminais); valor inválido vira padrão, não zero", () => {
   assert.equal(oldHoursFrom("0"), 0);
   assert.equal(oldHoursFrom("12"), 12);

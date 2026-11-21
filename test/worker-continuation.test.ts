@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import workerExtension, { REPORT_REMINDER } from "../src/worker-ext.ts";
 
-type Handler = (event: unknown) => unknown;
+type Handler = (event: unknown, ctx?: unknown) => unknown;
+const FAKE_CTX = { sessionManager: { getEntries: () => [] } };
 
 async function withWorker(
   taskId: string,
@@ -26,7 +27,7 @@ async function withWorker(
     const handlers: Record<string, Handler> = {};
     workerExtension({
       on: (name: string, f: Handler) => {
-        handlers[name] = f;
+        handlers[name] = (event, ctx) => f(event, ctx ?? FAKE_CTX);
       },
       registerTool: () => {},
     } as never);

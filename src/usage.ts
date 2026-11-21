@@ -15,6 +15,8 @@ export function newUsage(): Usage {
 export interface UsageState {
   total: Usage;
   counted: (number | string)[];
+  warm?: Usage;
+  warmIds?: string[];
 }
 
 interface UsageMessage {
@@ -62,6 +64,36 @@ export function addNewUsage(total: Usage, messages: unknown[], counted: (number 
   }
   out.costFromProvider = anyCost && providerParts;
   return { total: out, counted: ids };
+}
+
+interface SessionUsageEntry {
+  type?: string;
+  id?: string;
+  kind?: string;
+  usage?: Partial<Omit<Usage, "cost" | "costFromProvider">> & { cost?: { total?: number } };
+}
+
+export function addCacheWarmUsage(
+  prev: { warm?: Usage; warmIds?: string[] },
+  entries: unknown[],
+): { warm: Usage; warmIds: string[] } {
+  const out: Usage = { ...newUsage(), ...(prev.warm ?? {}) };
+  const ids = [...(prev.warmIds ?? [])];
+  const seen = new Set(ids);
+  for (const e of entries as SessionUsageEntry[]) {
+    if (e?.type !== "usage" || e.kind !== "cache_warm" || typeof e.id !== "string") continue;
+    if (seen.has(e.id)) continue;
+    seen.add(e.id);
+    ids.push(e.id);
+    const u = e.usage ?? {};
+    out.input += u.input ?? 0;
+    out.output += u.output ?? 0;
+    out.cacheRead += u.cacheRead ?? 0;
+    out.cacheWrite += u.cacheWrite ?? 0;
+    out.totalTokens += u.totalTokens ?? 0;
+    out.cost += typeof u.cost?.total === "number" ? u.cost.total : 0;
+  }
+  return { warm: out, warmIds: ids };
 }
 
 export function cacheHitRatio(u: Pick<Usage, "input" | "cacheRead" | "cacheWrite">): number | null {

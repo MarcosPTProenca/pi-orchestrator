@@ -581,6 +581,7 @@ export class Orchestrator {
           cost?: number;
           costFromProvider?: boolean;
         };
+        warm?: { cost?: number };
       };
       const u = parsed.total;
       if (!u || typeof u.totalTokens !== "number") return;
@@ -591,6 +592,7 @@ export class Orchestrator {
         cacheWrite: u.cacheWrite ?? 0,
         cost: u.cost ?? 0,
         costFromProvider: u.costFromProvider === true,
+        cacheWarmCost: parsed.warm?.cost ?? 0,
         totalTokens: u.totalTokens,
       };
       const cur = this.get(taskId).usage;

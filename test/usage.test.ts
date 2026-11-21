@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { newUsage, addNewUsage, cacheHitRatio } from "../src/usage.ts";
+import { newUsage, addNewUsage, addCacheWarmUsage, cacheHitRatio } from "../src/usage.ts";
 
 const asst = (ts: number, input: number, output: number, cacheRead = 0, cacheWrite = 0) => ({
   role: "assistant",
@@ -99,4 +99,58 @@ test("taxa de acerto do cache: cacheRead / (input + cacheRead + cacheWrite)", ()
 
 test("taxa de acerto do cache sem entrada devolve null, não zero", () => {
   assert.equal(cacheHitRatio(newUsage()), null);
+});
+
+const warmEntry = (id: string, input: number, cacheWrite: number, cost: number) => ({
+  type: "usage",
+  id,
+  kind: "cache_warm",
+  usage: { input, output: 1, cacheRead: 0, cacheWrite, totalTokens: input + 1 + cacheWrite, cost: { total: cost } },
+});
+
+test("aquecimento de cache soma só entradas cache_warm, separadas das mensagens de assistant", () => {
+  const entries = [
+    { type: "message", id: "m1" },
+    { type: "usage", id: "u-turno", kind: "turno", usage: { input: 5, output: 5, totalTokens: 10 } },
+    warmEntry("w1", 100, 0, 0.02),
+  ];
+  const r = addCacheWarmUsage({}, entries);
+  assert.equal(r.warm.input, 100);
+  assert.equal(r.warm.output, 1);
+  assert.equal(r.warm.cost, 0.02);
+  assert.deepEqual(r.warmIds, ["w1"]);
+});
+
+test("reinício: estado salvo em JSON e sessão relida não recontabiliza aquecimento", () => {
+  const entries = [warmEntry("w1", 100, 0, 0.02)];
+  const first = addCacheWarmUsage({}, entries);
+  const saved = JSON.parse(JSON.stringify(first)) as { warm: typeof first.warm; warmIds: string[] };
+  const again = addCacheWarmUsage(saved, entries);
+  assert.equal(again.warm.input, 100);
+  assert.equal(again.warm.cost, 0.02);
+});
+
+test("dois processos: o segundo soma só o aquecimento novo ao estado gravado pelo primeiro", () => {
+  const processoA = addCacheWarmUsage({}, [warmEntry("w1", 100, 0, 0.02)]);
+  const gravado = JSON.parse(JSON.stringify(processoA)) as typeof processoA;
+  const processoB = addCacheWarmUsage(gravado, [warmEntry("w1", 100, 0, 0.02), warmEntry("w2", 50, 0, 0.01)]);
+  assert.equal(processoB.warm.input, 150);
+  assert.equal(processoB.warm.cost, 0.03);
+  assert.deepEqual(processoB.warmIds, ["w1", "w2"]);
+});
+
+test("fork: a mesma entrada vista em dois ramos conta uma vez", () => {
+  const ramoA = [warmEntry("w1", 100, 0, 0.02)];
+  const ramoB = [warmEntry("w1", 100, 0, 0.02), warmEntry("w9", 7, 0, 0)];
+  const r = addCacheWarmUsage(addCacheWarmUsage({}, ramoA), ramoB);
+  assert.equal(r.warm.input, 107);
+  assert.equal(r.warm.cost, 0.02);
+});
+
+test("cache 0 e campos ausentes viram zero, sem NaN nem custo inventado", () => {
+  const r = addCacheWarmUsage({}, [{ type: "usage", id: "w3", kind: "cache_warm", usage: { input: 3 } }]);
+  assert.equal(r.warm.input, 3);
+  assert.equal(r.warm.cacheRead, 0);
+  assert.equal(r.warm.cost, 0);
+  assert.equal(Number.isNaN(r.warm.totalTokens), false);
 });

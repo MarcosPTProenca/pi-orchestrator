@@ -5,7 +5,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { REPORT_STATUSES, validateReport } from "./contract.ts";
 import { fallbackReportFor, lastModelError } from "./fallback.ts";
 import { postToHook } from "./hook.ts";
-import { addNewUsage, newUsage, type UsageState } from "./usage.ts";
+import { addCacheWarmUsage, addNewUsage, newUsage, type UsageState } from "./usage.ts";
 import { maskSecrets } from "./logs.ts";
 import { SESSION_POINTER } from "./session-file.ts";
 
@@ -100,20 +100,34 @@ export default function workerExtension(pi: ExtensionAPI): void {
     if (url && token) await postToHook(url, token, taskId);
   };
 
-  pi.on("agent_settled", async () => {
+  pi.on("agent_settled", async (_event, ctx) => {
+    syncWarm(ctx.sessionManager.getEntries());
     if (deferredMessages === null) return;
     await finish(deferredMessages, deferredInvalidReason);
   });
 
-  pi.on("agent_end", async (event) => {
-    const usageFile = join(taskDir, "usage.json");
-    let prev: UsageState = { total: newUsage(), counted: [] };
+  const usageFile = join(taskDir, "usage.json");
+  const readUsage = (): UsageState => {
     try {
-      if (existsSync(usageFile)) prev = JSON.parse(readFileSync(usageFile, "utf8")) as UsageState;
+      if (existsSync(usageFile)) return JSON.parse(readFileSync(usageFile, "utf8")) as UsageState;
     } catch {}
-    const acc = addNewUsage(prev.total, (event as { messages?: unknown[] }).messages ?? [], prev.counted ?? []);
-    writeFileSync(`${usageFile}.tmp`, JSON.stringify(acc));
+    return { total: newUsage(), counted: [] };
+  };
+  const writeUsage = (state: UsageState): void => {
+    writeFileSync(`${usageFile}.tmp`, JSON.stringify(state));
     renameSync(`${usageFile}.tmp`, usageFile);
+  };
+  const syncWarm = (entries: unknown[]): void => {
+    const prev = readUsage();
+    const warm = addCacheWarmUsage(prev, entries);
+    writeUsage({ ...prev, warm: warm.warm, warmIds: warm.warmIds });
+  };
+
+  pi.on("agent_end", async (event, ctx) => {
+    const prev = readUsage();
+    const acc = addNewUsage(prev.total, (event as { messages?: unknown[] }).messages ?? [], prev.counted ?? []);
+    const warm = addCacheWarmUsage(prev, ctx.sessionManager.getEntries());
+    writeUsage({ ...acc, warm: warm.warm, warmIds: warm.warmIds });
 
     const file = join(taskDir, "report.json");
     let invalidReason: string | null = deferredInvalidReason;

@@ -38,6 +38,9 @@ interface StatusRow {
   deadline_at: string | null;
   tokens: number | null;
   cache_hit_ratio: number | null;
+  cost_usd: number | null;
+  cost_from_provider: boolean | null;
+  cache_warm_cost_usd: number | null;
 }
 
 export interface StatusGroup {
@@ -68,6 +71,9 @@ export function buildStatus(tasks: TaskRecord[], now: number, opts: StatusOption
       deadline_at: t.deadline_at,
       tokens: t.usage?.totalTokens ?? null,
       cache_hit_ratio: t.usage ? cacheHitRatio(t.usage) : null,
+      cost_usd: t.usage ? (t.usage.cost ?? 0) : null,
+      cost_from_provider: t.usage ? t.usage.costFromProvider === true : null,
+      cache_warm_cost_usd: t.usage ? (t.usage.cacheWarmCost ?? 0) : null,
     };
     const list = byProject.get(t.project_id) ?? [];
     list.push(row);
