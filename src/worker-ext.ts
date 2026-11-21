@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -23,6 +24,17 @@ export const ASK_BLOCK_REASON =
   "Chame orch_report com status blocked e question: a pergunta, em uma frase, e as opções numeradas (uma por linha, com a descrição). " +
   "Se houver mais de uma pergunta, junte-as na mesma question. Pare o trabalho até a resposta chegar.";
 
+const BRIEF_ENTRY = "orch-brief";
+
+function briefInHistory(ctx: unknown, sha256: string): boolean {
+  const manager = (ctx as { sessionManager?: { getBranch?: () => unknown[] } } | undefined)?.sessionManager;
+  const entries = manager?.getBranch?.() ?? [];
+  return entries.some((e) => {
+    const entry = e as { customType?: string; details?: { sha256?: string } };
+    return entry.customType === BRIEF_ENTRY && entry.details?.sha256 === sha256;
+  });
+}
+
 export default function workerExtension(pi: ExtensionAPI): void {
   if (process.env.PI_ORCH_ROLE !== "worker") return;
   pi.on("tool_call", (event) =>
@@ -44,15 +56,24 @@ export default function workerExtension(pi: ExtensionAPI): void {
       continue: true,
     };
   });
-  pi.on("before_agent_start", (event) => {
+  pi.on("before_agent_start", (event, ctx) => {
     const briefPath = join(taskDir as string, "brief.md");
-    const brief = existsSync(briefPath) ? readFileSync(briefPath, "utf8") : "";
+    if (!existsSync(briefPath))
+      throw new Error(`brief.md ausente na pasta da tarefa (${briefPath}); o worker não inicia sem o pedido original.`);
+    const brief = readFileSync(briefPath, "utf8");
     const systemPrompt = event.systemPrompt.includes(WORKER_PREAMBLE)
       ? event.systemPrompt
       : `${event.systemPrompt}\n\n${WORKER_PREAMBLE}`;
+    const sha256 = createHash("sha256").update(brief).digest("hex");
+    if (briefInHistory(ctx, sha256)) return { systemPrompt };
     return {
       systemPrompt,
-      message: brief ? { customType: "orch-brief", content: maskSecrets(brief), display: true } : undefined,
+      message: {
+        customType: BRIEF_ENTRY,
+        content: maskSecrets(brief),
+        display: true,
+        details: { sha256, task_id: taskId },
+      },
     };
   });
   const taskId = process.env.PI_ORCH_TASK_ID;

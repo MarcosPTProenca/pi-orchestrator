@@ -9,6 +9,7 @@
     "quality": "node scripts/quality.mjs",
     "quality:baseline": "node scripts/quality.mjs --update",
     "quality:test": "node --test scripts/quality-lib.test.mjs",
+    "eval:approval": "node --import tsx evals/approval-flow.ts",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
