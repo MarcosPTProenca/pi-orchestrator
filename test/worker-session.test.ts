@@ -14,7 +14,12 @@ test("o worker grava o caminho da própria sessão Pi na pasta da tarefa", () =>
     process.env.PI_ORCH_TASK_ID = "t-sess";
     process.env.PI_ORCH_TASK_DIR = dir;
     const handlers: Record<string, Function> = {};
-    workerExtension({ on: (name: string, fn: Function) => { handlers[name] = fn; }, registerTool: () => {} } as never);
+    workerExtension({
+      on: (name: string, fn: Function) => {
+        handlers[name] = fn;
+      },
+      registerTool: () => {},
+    } as never);
     handlers.session_start({ reason: "startup" }, { sessionManager: { getSessionFile: () => "/sessions/abc.jsonl" } });
     assert.equal(readFileSync(join(dir, "session.txt"), "utf8"), "/sessions/abc.jsonl");
   } finally {

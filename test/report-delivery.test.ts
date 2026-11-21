@@ -13,7 +13,9 @@ async function started(h: ReturnType<typeof makeHarness>) {
 }
 
 function markIdle(h: ReturnType<typeof makeHarness>, paneId: string) {
-  h.herdr.panesList = h.herdr.panesList.map((p) => (p.pane_id === paneId ? { ...p, agent: "pi", agent_status: "idle" } : p));
+  h.herdr.panesList = h.herdr.panesList.map((p) =>
+    p.pane_id === paneId ? { ...p, agent: "pi", agent_status: "idle" } : p,
+  );
 }
 
 test("relatório sem task_id é diagnosticado como tal, não como de outra tarefa", () => {
@@ -39,7 +41,6 @@ test("continuação que encerra sem orch_report mantém o resultado anterior", a
   writeReport(t.task_dir, t.task_id, { status: "done", result: "revisado" }, "1");
   await h.orch.refresh(t.task_id);
   await h.orch.send(t.task_id, "corrija a revisão");
-  // o worker encerrou a continuação sem orch_report: a extensão grava o fallback
   writeFileSync(join(t.task_dir, "report.json"), JSON.stringify(fallbackReportFor(t.task_id, [], "2")));
   await h.orch.refresh(t.task_id);
   const after = h.orch.get(t.task_id);
@@ -67,7 +68,12 @@ function withWorkerEnv(taskId: string, dir: string, fn: (handlers: Record<string
       delete process.env.PI_ORCH_HOOK_URL;
       delete process.env.PI_ORCH_HOOK_TOKEN;
       const handlers: Record<string, Function> = {};
-      workerExtension({ on: (name: string, f: Function) => { handlers[name] = f; }, registerTool: () => {} } as never);
+      workerExtension({
+        on: (name: string, f: Function) => {
+          handlers[name] = f;
+        },
+        registerTool: () => {},
+      } as never);
       await fn(handlers);
     } finally {
       process.env = previous;
@@ -76,23 +82,31 @@ function withWorkerEnv(taskId: string, dir: string, fn: (handlers: Record<string
   };
 }
 
-test("fim de turno com relatório inválido: guarda o arquivo de lado e grava falha com o motivo", withWorkerEnv("t-end1", mkdtempSync(join(tmpdir(), "orch-end-")), async (handlers) => {
-  const dir = process.env.PI_ORCH_TASK_DIR as string;
-  writeFileSync(join(dir, "report.json"), JSON.stringify({ status: "done", result: "sem id" }));
-  // Relatório inválido sem erro do modelo: primeiro uma continuação limitada (#57), depois a falha com o motivo.
-  await handlers.agent_end({ messages: [] }, {});
-  await handlers.agent_before_settle({ entries: [], continue: false, context: {}, outcome: {} }, {});
-  await handlers.agent_end({ messages: [] }, {});
-  const r = JSON.parse(readFileSync(join(dir, "report.json"), "utf8"));
-  assert.equal(r.task_id, "t-end1");
-  assert.equal(r.status, "failed");
-  assert.match(r.result, /relatório inválido/);
-  assert.ok(readdirSync(dir).some((n) => /^report-invalid-/.test(n)), "relatório inválido preservado");
-}));
+test(
+  "fim de turno com relatório inválido: guarda o arquivo de lado e grava falha com o motivo",
+  withWorkerEnv("t-end1", mkdtempSync(join(tmpdir(), "orch-end-")), async (handlers) => {
+    const dir = process.env.PI_ORCH_TASK_DIR as string;
+    writeFileSync(join(dir, "report.json"), JSON.stringify({ status: "done", result: "sem id" }));
+    await handlers.agent_end({ messages: [] }, {});
+    await handlers.agent_before_settle({ entries: [], continue: false, context: {}, outcome: {} }, {});
+    await handlers.agent_end({ messages: [] }, {});
+    const r = JSON.parse(readFileSync(join(dir, "report.json"), "utf8"));
+    assert.equal(r.task_id, "t-end1");
+    assert.equal(r.status, "failed");
+    assert.match(r.result, /relatório inválido/);
+    assert.ok(
+      readdirSync(dir).some((n) => /^report-invalid-/.test(n)),
+      "relatório inválido preservado",
+    );
+  }),
+);
 
-test("fim de turno com relatório válido já escrito não é sobrescrito", withWorkerEnv("t-end2", mkdtempSync(join(tmpdir(), "orch-end-")), async (handlers) => {
-  const dir = process.env.PI_ORCH_TASK_DIR as string;
-  writeReport(dir, "t-end2", { status: "done", result: "ok" });
-  await handlers.agent_end({ messages: [] }, {});
-  assert.equal(JSON.parse(readFileSync(join(dir, "report.json"), "utf8")).status, "done");
-}));
+test(
+  "fim de turno com relatório válido já escrito não é sobrescrito",
+  withWorkerEnv("t-end2", mkdtempSync(join(tmpdir(), "orch-end-")), async (handlers) => {
+    const dir = process.env.PI_ORCH_TASK_DIR as string;
+    writeReport(dir, "t-end2", { status: "done", result: "ok" });
+    await handlers.agent_end({ messages: [] }, {});
+    assert.equal(JSON.parse(readFileSync(join(dir, "report.json"), "utf8")).status, "done");
+  }),
+);

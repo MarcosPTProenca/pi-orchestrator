@@ -5,9 +5,12 @@ import type { HerdrPort, PaneInfo, TabResult, WorkspaceResult } from "../src/her
 import { Orchestrator } from "../src/orchestrator.ts";
 import { Store } from "../src/store.ts";
 
-export type WaitFn = (target: string, until: string[], timeoutMs: number) => Promise<{ reached: string } | { timeout: true }>;
+export type WaitFn = (
+  target: string,
+  until: string[],
+  timeoutMs: number,
+) => Promise<{ reached: string } | { timeout: true }>;
 
-/** Herdr simulado: workspaces por projeto, tabs por tarefa e panes em memória. */
 export class FakeHerdr implements HerdrPort {
   calls: { op: string; args: unknown }[] = [];
   panesList: PaneInfo[] = [];
@@ -40,7 +43,12 @@ export class FakeHerdr implements HerdrPort {
     return [...this.workspaces];
   }
 
-  async createTab(a: { workspaceId: string; cwd: string; label: string; env: Record<string, string> }): Promise<TabResult> {
+  async createTab(a: {
+    workspaceId: string;
+    cwd: string;
+    label: string;
+    env: Record<string, string>;
+  }): Promise<TabResult> {
     this.calls.push({ op: "createTab", args: a });
     const tab_id = `${a.workspaceId}:t${this.nextId++}`;
     const pane = this.newPane(a.cwd, tab_id);
@@ -135,7 +143,6 @@ export function makeHarness(opts: { presentationSpaces?: boolean; herdrVersion?:
   return { herdr, orch, stateDir, project, clock };
 }
 
-/** Simula o worker chamando orch_report: grava report.json na pasta da tarefa. */
 export function writeReport(taskDir: string, taskId: string, body: Record<string, unknown>, stamp = "t"): void {
   writeFileSync(
     join(taskDir, "report.json"),

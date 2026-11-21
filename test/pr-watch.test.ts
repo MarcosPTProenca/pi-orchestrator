@@ -1,10 +1,24 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PrActionWatch, ciInstruction, conflictInstruction, failingChecks, isPrWatched, prUrlOf, prVerdict } from "../src/pr-watch.ts";
+import {
+  PrActionWatch,
+  ciInstruction,
+  conflictInstruction,
+  failingChecks,
+  isPrWatched,
+  prUrlOf,
+  prVerdict,
+} from "../src/pr-watch.ts";
 import type { PrState } from "../src/prs.ts";
 
 const pr = (over: Partial<PrState>): PrState => ({
-  number: 171, state: "OPEN", mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "abc", checks: [], ...over,
+  number: 171,
+  state: "OPEN",
+  mergeable: "MERGEABLE",
+  mergeStateStatus: "CLEAN",
+  headRefOid: "abc",
+  checks: [],
+  ...over,
 });
 
 test("PR mergeada vence conflito: fecha, não aciona worker", () => {
@@ -15,7 +29,11 @@ test("conflito por mergeable ou por DIRTY é conflito; PR limpa fica aberta", ()
   assert.equal(prVerdict(pr({ mergeable: "CONFLICTING" })), "conflict");
   assert.equal(prVerdict(pr({ mergeStateStatus: "DIRTY" })), "conflict");
   assert.equal(prVerdict(pr({})), "open");
-  assert.equal(prVerdict(pr({ mergeable: "UNKNOWN" })), "pending", "UNKNOWN não é conflito nem PR limpa: GitHub ainda calcula");
+  assert.equal(
+    prVerdict(pr({ mergeable: "UNKNOWN" })),
+    "pending",
+    "UNKNOWN não é conflito nem PR limpa: GitHub ainda calcula",
+  );
 });
 
 test("aciona uma vez por cabeça de branch, depois de marcar o envio; push novo reabre o caso", () => {
@@ -72,7 +90,11 @@ test("instrução ao worker traz a PR, proíbe force-push e pede checks e push",
 test("só acompanha tarefa concluída, já entregue ao usuário, com PR e aba", () => {
   const base = { status: "done", notified: true, source: "https://github.com/o/r/pull/1", tab_id: "t1" } as const;
   assert.equal(isPrWatched(base), true);
-  assert.equal(isPrWatched({ ...base, notified: false }), false, "relatório não entregue: fechar/enviar marcaria como visto");
+  assert.equal(
+    isPrWatched({ ...base, notified: false }),
+    false,
+    "relatório não entregue: fechar/enviar marcaria como visto",
+  );
   assert.equal(isPrWatched({ ...base, status: "running" }), false);
   assert.equal(isPrWatched({ ...base, tab_id: "" }), false);
 });
@@ -87,7 +109,14 @@ test("PR da tarefa: a fonte se for PR, senão a PR entre os artefatos (tarefa de
 
 test("tarefa de issue com PR nos artefatos é acompanhada depois de entregue", () => {
   const base = { status: "done" as const, notified: true, tab_id: "t1" };
-  assert.equal(isPrWatched({ ...base, source: "https://github.com/o/r/issues/118", artifacts: ["https://github.com/o/r/pull/172"] }), true);
+  assert.equal(
+    isPrWatched({
+      ...base,
+      source: "https://github.com/o/r/issues/118",
+      artifacts: ["https://github.com/o/r/pull/172"],
+    }),
+    true,
+  );
   assert.equal(isPrWatched({ ...base, source: "https://github.com/o/r/issues/118", artifacts: [] }), false);
 });
 
@@ -95,5 +124,9 @@ test("com várias PRs nos artefatos, prefere a do mesmo repositório da issue", 
   const outra = "https://github.com/o/outro/pull/5";
   const mesma = "https://github.com/o/r/pull/172";
   assert.equal(prUrlOf({ source: "https://github.com/o/r/issues/118", artifacts: [outra, mesma] }), mesma);
-  assert.equal(prUrlOf({ source: "https://github.com/o/r/issues/118", artifacts: [outra] }), outra, "sem PR do mesmo repo, usa a primeira");
+  assert.equal(
+    prUrlOf({ source: "https://github.com/o/r/issues/118", artifacts: [outra] }),
+    outra,
+    "sem PR do mesmo repo, usa a primeira",
+  );
 });

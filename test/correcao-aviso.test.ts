@@ -17,7 +17,10 @@ test("relatório válido que chega depois de 'lost' traz a correção do aviso a
   const e = await h.orch.refresh(t.task_id);
   assert.ok(e, "o relatório válido gera evento");
   assert.equal(e.status, "done");
-  assert.match(e.correction ?? "", /antes marcada como lost \(pane não existe mais\); o relatório válido chegou depois e prevalece/);
+  assert.match(
+    e.correction ?? "",
+    /antes marcada como lost \(pane não existe mais\); o relatório válido chegou depois e prevalece/,
+  );
   assert.match(modelMessageFor(e), /Correção de aviso anterior: antes marcada como lost/);
 });
 
