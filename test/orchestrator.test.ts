@@ -646,3 +646,22 @@ test("release s\u00f3 devolve worktree de tarefa terminal e recusa tarefa ativa"
   assert.equal(orch.release(a.task_id).worktree_note, `devolvida: ${a.task_id}`);
   assert.deepEqual(released, [a.task_id]);
 });
+
+test("forgetDeadTab limpa só a aba de tarefa concluída, sem tocar na worktree nem na pane (ruído de ociosas)", async () => {
+  const h = makeHarness();
+  const orch = new Orchestrator({
+    herdr: h.herdr, store: new Store(join(h.stateDir, "dead.json")), tasksDir: join(h.stateDir, "dead-tasks"),
+    workerExtPath: "/x", now: () => h.clock.ms, newHex: () => "ffffffff", availableModels: () => ["claude-bridge/claude-haiku-5-5"], dryRun: false,
+  });
+  const a = await orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  assert.equal(orch.forgetDeadTab(a.task_id), false, "tarefa ativa não tem aba esquecida");
+  writeReport(a.task_dir, a.task_id, { status: "done", result: "ok" });
+  await orch.refresh(a.task_id);
+  const before = orch.get(a.task_id);
+  assert.equal(orch.forgetDeadTab(a.task_id), true);
+  const after = orch.get(a.task_id);
+  assert.equal(after.tab_id, "");
+  assert.equal(after.pane_id, before.pane_id, "pane preservada");
+  assert.equal(after.status, "done");
+  assert.equal(orch.forgetDeadTab(a.task_id), false, "segunda chamada não faz nada");
+});

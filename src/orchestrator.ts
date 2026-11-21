@@ -567,6 +567,20 @@ export class Orchestrator {
     return null;
   }
 
+  /**
+   * Esquece a aba de uma tarefa concluída cuja aba o Herdr não lista mais. Quem chama confere a lista de abas vivas.
+   * Não toca na worktree, no relatório nem na pane. Devolve false quando não há o que limpar.
+   */
+  forgetDeadTab(taskId: string): boolean {
+    this.assertMine(taskId);
+    const t = this.get(taskId);
+    if (t.status !== "done" || !t.tab_id) return false;
+    this.update(taskId, (x) => {
+      x.tab_id = "";
+    });
+    return true;
+  }
+
   /** Registra o endereço do webhook para os workers lançados daqui em diante. */
   setHook(url: string, token: string): void {
     this.d.hookUrl = url;

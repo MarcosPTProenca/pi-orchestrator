@@ -84,6 +84,13 @@ test("aviso periódico só sai quando o conjunto de candidatas muda", () => {
   assert.deepEqual(idleAnnouncement("t-a", [a, b]), { announce: true, key: "t-a,t-b" });
 });
 
+test("sair de candidata não avisa de novo: só candidata nova acorda o orquestrador", () => {
+  const a = { task_id: "t-a", project_id: "p", updated_at: "x", projected: false };
+  const b = { task_id: "t-b", project_id: "p", updated_at: "y", projected: false };
+  assert.deepEqual(idleAnnouncement("t-a,t-b", [a]), { announce: false, key: "t-a" });
+  assert.deepEqual(idleAnnouncement("t-a", [a, b]), { announce: true, key: "t-a,t-b" });
+});
+
 test("lista vazia não avisa e zera a chave, para avisar de novo se a tarefa reaparecer", () => {
   const a = { task_id: "t-a", project_id: "p", updated_at: "x", projected: false };
   assert.deepEqual(idleAnnouncement("t-a", []), { announce: false, key: "" });
@@ -159,13 +166,12 @@ test("idleReport lista candidatas e o motivo de cada não candidata, em ordem es
   assert.match(rep.not_eligible[0].reason, /failed/);
 });
 
-test("aviso de ociosas nomeia a concluída cuja tab não confere mais, com o motivo (#62)", async () => {
+test("aviso de ociosas lista só as candidatas, sem o registro morto (ruído removido)", async () => {
   const { idleNoticeFor } = await import("../src/index.ts");
-  const idle = [{ task_id: "t-a", project_id: "p" }];
-  const msg = idleNoticeFor(idle, [{ task_id: "t-b", reason: "tab ou pane não confere mais com a tarefa no Herdr" }]);
-  assert.match(msg, /ainda abertas: t-a \(/);
-  assert.match(msg, /Não são candidatas: t-b \(tab ou pane não confere mais com a tarefa no Herdr\)\./);
-  assert.doesNotMatch(idleNoticeFor(idle, []), /Não são candidatas/);
+  const msg = idleNoticeFor([{ task_id: "t-a", project_id: "p" }]);
+  assert.match(msg, /com aba aberta \(1\): t-a \(/);
+  assert.match(msg, /feche com orch_close/);
+  assert.doesNotMatch(msg, /Não são candidatas|tab ou pane/);
 });
 
 test("orch_close com pane ausente não fecha nada e não diz que fechou (#62)", async () => {

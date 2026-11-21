@@ -72,13 +72,14 @@ export function idleReport(tasks: TaskRecord[], live: LiveSurfaces): { eligible:
 }
 
 /**
- * Aviso periódico sem repetição: avisa só quando o conjunto de candidatas muda em relação ao último aviso.
- * Lista vazia não avisa, mas zera a chave: se a mesma tarefa voltar a ser candidata, avisa de novo.
+ * Aviso periódico sem repetição: avisa só quando surge candidata que não estava no último aviso. Sair de
+ * candidata (fechada ou perdida) não avisa. Lista vazia não avisa, mas zera a chave: se a tarefa voltar, avisa de novo.
  */
 export function idleAnnouncement(prevKey: string, idle: IdleSurface[]): { announce: boolean; key: string } {
   const key = idle.map((s) => s.task_id).join(",");
-  if (key === prevKey) return { announce: false, key };
-  return { announce: idle.length > 0, key: idle.length > 0 ? key : "" };
+  if (idle.length === 0) return { announce: false, key: "" };
+  const before = new Set(prevKey ? prevKey.split(",") : []);
+  return { announce: idle.some((s) => !before.has(s.task_id)), key };
 }
 
 /**
