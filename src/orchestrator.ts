@@ -571,7 +571,17 @@ export class Orchestrator {
     const file = join(this.get(taskId).task_dir, "usage.json");
     if (!existsSync(file)) return;
     try {
-      const parsed = JSON.parse(readFileSync(file, "utf8")) as { total?: Record<string, number> };
+      const parsed = JSON.parse(readFileSync(file, "utf8")) as {
+        total?: {
+          input?: number;
+          output?: number;
+          cacheRead?: number;
+          cacheWrite?: number;
+          totalTokens?: number;
+          cost?: number;
+          costFromProvider?: boolean;
+        };
+      };
       const u = parsed.total;
       if (!u || typeof u.totalTokens !== "number") return;
       const next = {
@@ -579,6 +589,8 @@ export class Orchestrator {
         output: u.output ?? 0,
         cacheRead: u.cacheRead ?? 0,
         cacheWrite: u.cacheWrite ?? 0,
+        cost: u.cost ?? 0,
+        costFromProvider: u.costFromProvider === true,
         totalTokens: u.totalTokens,
       };
       const cur = this.get(taskId).usage;

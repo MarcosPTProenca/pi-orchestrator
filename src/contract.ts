@@ -51,7 +51,15 @@ export interface TaskRecord {
   source?: string | null;
   branch?: string | null;
   verification?: { verdict: "approved" | "rejected" | "not_applicable" | "unverified"; reason: string } | null;
-  usage?: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number } | null;
+  usage?: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    totalTokens: number;
+    cost?: number;
+    costFromProvider?: boolean;
+  } | null;
   model: string | null;
   mode?: string;
   delegate_input?: Record<string, unknown> | null;
