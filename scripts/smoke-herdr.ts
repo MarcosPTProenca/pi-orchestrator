@@ -1,9 +1,3 @@
-/**
- * Smoke test real contra o Herdr (não faz parte de `npm test`).
- * Requer HERDR_ENV=1 e HERDR_PANE_ID. Cria panes e workers Pi reais, em um
- * projeto descartável e com estado isolado. Cenários: conclusão, bloqueio com
- * resposta e cancelamento. Panes criados são fechados ao final.
- */
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -25,7 +19,6 @@ if (process.env.HERDR_ENV !== "1" || !process.env.HERDR_PANE_ID) {
 const stateDir = mkdtempSync(join(tmpdir(), "pi-orch-smoke-state-"));
 const project = mkdtempSync(join(tmpdir(), "pi-orch-smoke-proj-"));
 writeFileSync(join(project, "README.md"), "Projeto descartável do smoke test do pi-orchestrator.\n");
-// O intake exige a raiz de um repositório git (project_path precisa de .git).
 execFileSync("git", ["init", "-q"], { cwd: project });
 execFileSync("git", ["add", "README.md"], { cwd: project });
 execFileSync("git", ["-c", "user.name=smoke", "-c", "user.email=smoke@example.invalid", "commit", "-q", "-m", "chore: inicia projeto descartável do smoke"], { cwd: project });
@@ -43,7 +36,6 @@ const orch = new Orchestrator({
 
 const log = (msg: string) => console.log(`[smoke ${new Date().toISOString()}] ${msg}`);
 
-/** Teste contra o Herdr real: consulta o estado a cada 5 s até haver evento. Em produção o worker avisa por webhook. */
 async function watchUntilSettled(taskId: string, label: string): Promise<WatchEvent> {
   let ev: WatchEvent | null = null;
   for (let i = 0; i < 240 && !ev; i++) {
@@ -70,7 +62,6 @@ async function scenarioDone(): Promise<void> {
   log(`A: delegada task=${t.task_id} pane=${t.pane_id} worker=${t.worker_id}`);
   const ev = await watchUntilSettled(t.task_id, "A");
   if (ev.status !== "done") throw new Error(`A: esperado done, veio ${ev.status}`);
-  // Desde o #62 a tab de tarefa concluída fica aberta até o usuário validar (ou o fechamento automático do #51).
   const panesA = (await new HerdrCli().panes()).map((p) => p.pane_id);
   if (!panesA.includes(t.pane_id)) throw new Error("A: tab de tarefa concluída deveria continuar aberta até a validação");
   if (!orch.takeNotice(t.task_id)) throw new Error("A: aviso deveria estar pendente uma vez");
@@ -125,7 +116,6 @@ async function scenarioCancel(): Promise<void> {
   log(`C: OK (tab da tarefa fechada; pane do orquestrador preservado; panes depois=${after.join(",")})`);
 }
 
-/** Fecha qualquer tarefa ativa que este smoke tenha criado (ownership por pane_id + terminal_id). */
 async function cleanup(): Promise<void> {
   for (const t of orch.list()) {
     if (t.status === "starting" || t.status === "running" || t.status === "blocked") {
@@ -134,7 +124,6 @@ async function cleanup(): Promise<void> {
   }
 }
 
-/** Remove o workspace descartável criado pelo smoke (registrado no estado isolado). */
 function closeSmokeWorkspaces(): void {
   for (const ws of Object.values(new Store(join(stateDir, "state.json")).load().workspaces)) {
     try {

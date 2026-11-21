@@ -1,9 +1,3 @@
-/**
- * Arrendamentos do Treehouse (pool de worktrees git) ligados às tarefas do orquestrador.
- * Um worker arrenda a própria worktree com o id da tarefa como titular. Quando a tarefa é cancelada
- * ou perdida, a worktree só volta ao pool se não houver nada a perder: árvore limpa e HEAD já presente
- * em algum remoto. Nunca usa devolução forçada. Quando há trabalho, devolve só o aviso com caminho e motivo.
- */
 import { homedir } from "node:os";
 
 export interface Lease {
@@ -12,11 +6,8 @@ export interface Lease {
 }
 
 export interface WorktreeOps {
-  /** Saída textual de `treehouse status` no repositório. */
   status(repo: string): string;
-  /** Saída de `git -C <path> <args>`. Lança se o git falhar. */
   git(path: string, args: string[]): string;
-  /** `treehouse return <path>` sem --force. Lança se o treehouse recusar. */
   returnTree(path: string): void;
 }
 
@@ -25,7 +16,6 @@ export interface ReleaseNote {
   message: string;
 }
 
-// treehouse >= 3 insere a branch "[x]" ou "(detached)" antes de "(held by …)".
 const LEASE_RE = /(\S+)\s+leased\s+(\S+)(?:\s+(?:\[[^\]]*\]|\(detached\)))?\s+\(held by (\S+)\)/;
 
 export function parseLeases(text: string, home: string = homedir()): Lease[] {
@@ -38,7 +28,6 @@ export function parseLeases(text: string, home: string = homedir()): Lease[] {
   return out;
 }
 
-/** Diz se a worktree pode voltar ao pool sem perder nada. Devolve o motivo quando não pode. */
 function safety(ops: WorktreeOps, path: string): { ok: true } | { ok: false; reason: string } {
   let dirty = "";
   try {
@@ -52,7 +41,6 @@ function safety(ops: WorktreeOps, path: string): { ok: true } | { ok: false; rea
   return { ok: true };
 }
 
-/** Devolve ao pool a worktree arrendada pela tarefa, se for seguro. Nunca lança. */
 export function releaseLease(ops: WorktreeOps, repo: string, holder: string, home: string = homedir()): ReleaseNote {
   let lease: Lease | undefined;
   try {
@@ -71,7 +59,6 @@ export function releaseLease(ops: WorktreeOps, repo: string, holder: string, hom
   }
 }
 
-/** Arrendamentos de tarefas que já não estão ativas. Só leitura: o orquestrador lista, não devolve sozinho. */
 export function orphanLeases(ops: WorktreeOps, repo: string, terminalHolders: Set<string>, home: string = homedir()): Lease[] {
   try {
     return parseLeases(ops.status(repo), home).filter((l) => terminalHolders.has(l.holder));

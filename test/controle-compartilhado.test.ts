@@ -8,7 +8,6 @@ import { ownsByRepo, scopeKey } from "../src/lock.ts";
 import { makeHarness, type Harness } from "./fakes.ts";
 import { Store } from "../src/store.ts";
 
-/** Pasta-pai (fora de git) com dois repos dentro: A e B. */
 function layout(): { parent: string; repoA: string; repoB: string } {
   const parent = realpathSync(mkdtempSync(join(tmpdir(), "orch-cc-")));
   const repoA = join(parent, "repoA");

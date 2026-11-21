@@ -35,7 +35,6 @@ test("launcher não exclui ferramentas: subagents de pesquisa ficam disponíveis
   assert.doesNotMatch(bin, /--exclude-tools/);
 });
 
-// Depende do settings.json pessoal do usuário: ausente no CI, então só roda onde o arquivo existe.
 const userSettings = join(homedir(), ".pi", "agent", "settings.json");
 test("worker do pi-subagents está desabilitado no settings do usuário", { skip: !existsSync(userSettings) && "settings.json do usuário ausente" }, () => {
   const settings = JSON.parse(readFileSync(userSettings, "utf8"));

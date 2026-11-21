@@ -1,15 +1,8 @@
-/**
- * Worker em execução sem saída nova: pane parado por tempo demais, possível travamento. Só detecta e avisa;
- * quem decide o que fazer (aguardar, orch_send, cancelar e relançar) é o orquestrador. Função pura (o relógio entra).
- */
 import { createHash } from "node:crypto";
 
 export class StallWatch {
   private marks = new Map<string, { digest: string; since: number; announced: boolean }>();
 
-  /**
-   * Verdadeiro só uma vez por episódio: quando a saída fica igual por `afterMs`. Qualquer mudança reinicia a contagem.
-   */
   observe(taskId: string, output: string, now: number, afterMs: number): boolean {
     const digest = createHash("sha1").update(output.trimEnd()).digest("hex");
     const prev = this.marks.get(taskId);
@@ -22,13 +15,11 @@ export class StallWatch {
     return true;
   }
 
-  /** Esquece tarefas que já não estão em execução. */
   prune(runningIds: Set<string>): void {
     for (const id of this.marks.keys()) if (!runningIds.has(id)) this.marks.delete(id);
   }
 }
 
-/** Aviso ao orquestrador: lista de workers parados, com o projeto e o que fazer. */
 export function stallNoticeFor(stalled: { task_id: string; project_id: string }[], afterMin: number, label: (projectId: string) => string): string {
   const items = stalled.map((s) => `${s.task_id} (${label(s.project_id)})`).join(", ");
   return `Workers em execução sem saída nova há ${afterMin} min: ${items}. Confira com orch_logs. Se estiver travado, decida: orch_send para destravar, ou orch_cancel e relançar. Se estiver só em processo longo, aguarde.`;

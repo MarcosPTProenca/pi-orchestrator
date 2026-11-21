@@ -1,7 +1,3 @@
-/**
- * Plano entregue pelo usuário, guardado fora dos repositórios (`<estado>/plans/<id>.json`), como o firstmate guarda o
- * backlog na sua casa privada. Cada item liga a uma tarefa e a uma PR, para o orquestrador conferir o andamento.
- */
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -67,7 +63,6 @@ export class PlanStore {
     return readdirSync(this.dir).filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -5)).sort();
   }
 
-  /** Atualiza um item. Só os campos informados mudam. */
   update(planId: string, itemId: string, fields: { status?: ItemStatus; task_id?: string; pr?: string }): PlanItem {
     const plan = this.show(planId);
     const item = plan.items.find((i) => i.id === itemId);
@@ -83,13 +78,9 @@ export class PlanStore {
     return item;
   }
 
-  /**
-   * Quando a tarefa de um item é mergeada, o item vira `merged`. Devolve os planos e itens tocados, para avisar.
-   */
   markMerged(taskId: string): { plan: string; item: string }[] {
     const touched: { plan: string; item: string }[] = [];
     for (const planId of this.list()) {
-      // Plano ilegível ou sem permissão de escrita não pode travar o fechamento da tarefa mergeada nem os outros planos.
       try {
         const plan = this.show(planId);
         const hit: { plan: string; item: string }[] = [];

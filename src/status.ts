@@ -1,13 +1,8 @@
-/**
- * Visão do orch_status: agrupada por projeto, com idade e resumo curto. Função pura (sem I/O).
- * Canceladas e terminais antigas ficam de fora por padrão; tarefa ativa nunca some.
- */
 import { isActive, type TaskRecord } from "./contract.ts";
 
 export const DEFAULT_OLD_HOURS = 24;
 const RESULT_MAX = 200;
 
-/** Lê PI_ORCH_OLD_HOURS. 0 é válido (esconde todas as terminais); vazio, inválido ou negativo vira undefined (padrão). */
 export function oldHoursFrom(env: string | undefined): number | undefined {
   if (env === undefined || env.trim() === "") return undefined;
   const n = Number(env);
@@ -40,7 +35,6 @@ export interface StatusRow {
   verification: TaskRecord["verification"];
   model: string | null;
   deadline_at: string | null;
-  /** Total de tokens do worker, quando já foi medido. */
   tokens: number | null;
 }
 
@@ -58,7 +52,6 @@ export function buildStatus(tasks: TaskRecord[], now: number, opts: StatusOption
   });
   const byProject = new Map<string, StatusRow[]>();
   for (const t of visible) {
-    // Ativa: há quanto tempo começou. Terminal: há quanto tempo terminou.
     const since = isActive(t.status) ? t.created_at : t.updated_at;
     const row: StatusRow = {
       task_id: t.task_id,

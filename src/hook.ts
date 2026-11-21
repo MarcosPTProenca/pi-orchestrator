@@ -1,7 +1,3 @@
-/**
- * Webhook local do orquestrador. O worker faz POST ao terminar. Ligação só em 127.0.0.1 e exige token.
- * O POST diz qual tarefa terminou. O estado vem do relatório em disco.
- */
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
@@ -47,7 +43,6 @@ export function startHook(
   });
 }
 
-/** POST do worker. Nunca lança: se o orquestrador estiver fora do ar, o relatório em disco segue valendo. */
 export async function postToHook(url: string, token: string, taskId: string): Promise<boolean> {
   try {
     const res = await fetch(url, {

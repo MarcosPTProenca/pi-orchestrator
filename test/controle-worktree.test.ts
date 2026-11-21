@@ -6,7 +6,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { acquireOwnership, legacyAdopter, ownsByRepo, releaseOwnership, scopeKey, scopeOwnerDir } from "../src/lock.ts";
 
-/** Repo principal, uma worktree dele e outro repo, todos em diretório temporário. */
 function layout() {
   const base = realpathSync(mkdtempSync(join(tmpdir(), "orch-wt-")));
   const main = join(base, "main");

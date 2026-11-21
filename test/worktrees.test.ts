@@ -8,7 +8,6 @@ const STATUS = `A new version of treehouse is available
 3     leased       ~/.treehouse/al-0802e3/3/al  (held by implement-x)
 `;
 
-/** Ops simulados: árvore com estado controlado por teste. */
 function fakeOps(over: Partial<{ dirty: string; remoteContains: string; returned: string[] }> = {}): WorktreeOps & { returned: string[] } {
   const returned: string[] = [];
   return {

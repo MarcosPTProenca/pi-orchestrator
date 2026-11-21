@@ -31,7 +31,7 @@ test("orchestrator conta só tarefas ativas (starting, running, blocked)", async
 });
 
 test("fila só inicia item quando canStart permite; liberar vaga e pump retoma", async () => {
-  let room = 1; // vagas globais disponíveis (teto menos tarefas já ativas)
+  let room = 1;
   const started: string[] = [];
   const q = new FixQueue<string>(3, async (item) => {
     started.push(item);

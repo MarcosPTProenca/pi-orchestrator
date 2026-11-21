@@ -7,7 +7,6 @@ import workerExtension, { REPORT_REMINDER } from "../src/worker-ext.ts";
 
 type Handler = (event: unknown) => unknown;
 
-/** Worker com as variáveis de ambiente do papel; restaura o ambiente ao final. */
 async function withWorker(taskId: string, fn: (h: Record<string, Handler>, dir: string) => Promise<void>): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), "orch-cont-"));
   const prev = { role: process.env.PI_ORCH_ROLE, id: process.env.PI_ORCH_TASK_ID, dir: process.env.PI_ORCH_TASK_DIR, url: process.env.PI_ORCH_HOOK_URL };

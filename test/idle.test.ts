@@ -18,7 +18,6 @@ function task(over: Partial<TaskRecord>): TaskRecord {
   } as TaskRecord;
 }
 
-/** Herdr em que a tab e o pane/terminal da tarefa ainda existem. */
 function liveFor(...tasks: TaskRecord[]): LiveSurfaces {
   return {
     tabIds: new Set(tasks.map((t) => t.tab_id)),
@@ -199,13 +198,9 @@ test("registro morto só é limpo com aba e pane ausentes e o Herdr respondendo 
   const morta = task({ task_id: "t-morta", status: "done", tab_id: "w1:t9", pane_id: "w1:p9", notified: true });
   const ativa = task({ task_id: "t-ativa", status: "running" as TaskRecord["status"], tab_id: "w1:t8", pane_id: "w1:p8" });
   const pane = (pane_id: string) => ({ pane_id, terminal_id: "x", cwd: null, agent: null, agent_status: null });
-  // Herdr respondendo, aba e pane ausentes: limpa só a concluída
   assert.deepEqual(deadTabTaskIds([morta, ativa], { tabIds: new Set(["w1:t1"]), panes: [pane("w1:p1")] }), ["t-morta"]);
-  // Lista de abas vazia (instante ruim): não limpa nada
   assert.deepEqual(deadTabTaskIds([morta], { tabIds: new Set(), panes: [pane("w1:p1")] }), []);
-  // Lista de panes vazia: não limpa nada
   assert.deepEqual(deadTabTaskIds([morta], { tabIds: new Set(["w1:t1"]), panes: [] }), []);
-  // Pane ainda existe (aba reindexada): não limpa
   assert.deepEqual(deadTabTaskIds([morta], { tabIds: new Set(["w1:t1"]), panes: [pane("w1:p9")] }), []);
 });
 

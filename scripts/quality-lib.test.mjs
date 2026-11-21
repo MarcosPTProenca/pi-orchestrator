@@ -38,3 +38,8 @@ test("sem baseline não há regressão, só o estado atual contra a meta", () =>
   assert.equal(r.regressions.length, 0);
   assert.equal(r.rows[0].meta, false);
 });
+
+test("comentário depois de regex com barras não é lido como fim de linha", () => {
+  const src = "const r = /\\/\\/[^@]*@/; // depois\n";
+  assert.equal(countCommentLines(src, "a.ts").lines, 1);
+});

@@ -6,7 +6,6 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Launcher sincroniza com master (ff-only) antes do exec do pi. Usa origin bare local e um pi falso no PATH.
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const git = (cwd: string, ...args: string[]) =>
   spawnSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" });

@@ -1,10 +1,3 @@
-/**
- * Avaliação comportamental do orquestrador. Roda o `pi` real em modo JSON, com a extensão
- * carregada e PI_ORCH_DRY_RUN=1: nada vai ao Herdr, mas as chamadas de tool, os parâmetros e o
- * brief são os reais. Mede: tools chamadas, argumentos, modelo, contexto enviado, perguntas e tokens.
- *
- *   node --import tsx evals/run.ts [--model openai-codex/gpt-6.1-sol] [--only <id>]
- */
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
@@ -15,7 +8,6 @@ import { scenarios, type Scenario, type Run, type Check } from "./scenarios.ts";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const EXCLUDED = "";
 const args = process.argv.slice(2);
-/** Valor de uma flag `--nome valor`. Sem a flag (indexOf = -1) devolve undefined, não o argumento anterior. */
 export function flagValue(argv: string[], name: string): string | undefined {
   const i = argv.indexOf(name);
   return i >= 0 ? argv[i + 1] : undefined;
@@ -23,7 +15,6 @@ export function flagValue(argv: string[], name: string): string | undefined {
 const model = flagValue(args, "--model") ?? "openai-codex/gpt-6.1-sol";
 const only = flagValue(args, "--only");
 
-/** Cria projetos git descartáveis com README e AGENTS.md. Retorna caminhos por nome. */
 export function makeFixtures(): Record<string, string> {
   const base = mkdtempSync(join(tmpdir(), "orch-eval-"));
   const out: Record<string, string> = { _base: base };
@@ -47,7 +38,6 @@ interface Event {
   message?: Record<string, unknown>;
 }
 
-/** Extrai do stream JSON do pi: chamadas de tool, resultados, uso de tokens e texto final. */
 export function parseStream(text: string): Run {
   const run: Run = { calls: [], results: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, finalText: "", models: new Set() };
   for (const line of text.split("\n")) {
