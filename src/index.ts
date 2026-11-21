@@ -14,7 +14,7 @@ import { HerdrCli } from "./herdr.ts";
 import { availableModels, resolveModel } from "./models.ts";
 import { Orchestrator, MODES, type DelegateInput, type WatchEvent } from "./orchestrator.ts";
 import { fixInputFor, listRedPrs, prFromUrl, fetchPrState, verificationLine, verifyPr, prStateLine } from "./prs.ts";
-import { ConflictWatch, conflictInstruction, isPrWatched, prVerdict } from "./pr-watch.ts";
+import { PrActionWatch, ciInstruction, conflictInstruction, failingChecks, isPrWatched, prVerdict, type PrAction } from "./pr-watch.ts";
 import { judgeDone, type VerifyEnv } from "./verify.ts";
 import { existsSync } from "node:fs";
 import { FixQueue } from "./queue.ts";
@@ -352,7 +352,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   const idleWatch = new IdleWatch();
   let idleChecking = false;
   const stallWatch = new StallWatch();
-  const conflictWatch = new ConflictWatch();
+  const prWatch = new PrActionWatch();
   const prChecked = new Map<string, number>();
   const checkPr = async (t: TaskRecord, source: string, pr: { owner: string; name: string; number: number }): Promise<void> => {
     const remote = execFileSync("git", ["remote", "get-url", "origin"], { cwd: t.project_path, encoding: "utf8" }).trim();
@@ -360,19 +360,27 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     const label = projectLabel(t.project_id);
     const verdict = prVerdict(s);
     if (verdict === "merged") {
-      conflictWatch.forget(t.task_id);
+      prWatch.forget(t.task_id);
       const outcome = await orch.closeOutcome(t.task_id);
       if (outcome.closed) pi.sendMessage({ customType: "orch-event", content: `PR #${pr.number} mergeada: fechei a aba de ${t.task_id} (${label}).`, display: true }, { triggerTurn: false });
       return;
     }
     if (verdict === "pending") return; // GitHub ainda calcula a mergeabilidade: não conta como "saiu do conflito".
-    if (!conflictWatch.shouldAct(t.task_id, s.headRefOid, verdict === "conflict")) return;
+    const conflict = verdict === "conflict";
+    const red = conflict ? [] : failingChecks(s);
+    const kind: PrAction | null = conflict ? "conflict" : red.length > 0 ? "ci" : null;
+    // Cada tipo que saiu do estado ativo é zerado, para voltar a acionar se reaparecer.
+    prWatch.shouldAct(t.task_id, s.headRefOid, conflict, "conflict");
+    prWatch.shouldAct(t.task_id, s.headRefOid, red.length > 0, "ci");
+    if (kind === null || !prWatch.shouldAct(t.task_id, s.headRefOid, true, kind)) return;
+    const text = kind === "conflict" ? conflictInstruction(source) : ciInstruction(source, red);
+    const what = kind === "conflict" ? "está com conflito de merge" : `tem checks falhando: ${red.join(", ")}`;
     try {
-      await orch.send(t.task_id, conflictInstruction(source));
-      conflictWatch.markActed(t.task_id, s.headRefOid);
-      pi.sendMessage({ customType: "orch-event", content: `PR #${pr.number} de ${t.task_id} (${label}) está com conflito de merge. Acionei o próprio worker para corrigir; acompanho a PR.`, display: true }, { triggerTurn: true });
+      await orch.send(t.task_id, text);
+      prWatch.markActed(t.task_id, s.headRefOid, kind);
+      pi.sendMessage({ customType: "orch-event", content: `PR #${pr.number} de ${t.task_id} (${label}) ${what}. Acionei o próprio worker para corrigir; acompanho a PR.`, display: true }, { triggerTurn: true });
     } catch (err) {
-      pi.sendMessage({ customType: "orch-event", content: `PR #${pr.number} de ${t.task_id} (${label}) tem conflito de merge e não consegui acionar o worker: ${err instanceof Error ? err.message : String(err)}. Decida: orch_send manual ou orch_relaunch.`, display: true }, { triggerTurn: true });
+      pi.sendMessage({ customType: "orch-event", content: `PR #${pr.number} de ${t.task_id} (${label}) ${what}, e não consegui acionar o worker: ${err instanceof Error ? err.message : String(err)}. Decida: orch_send manual ou orch_relaunch.`, display: true }, { triggerTurn: true });
     }
   };
   const checkIdle = async (): Promise<void> => {
