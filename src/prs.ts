@@ -22,7 +22,7 @@ export interface RedPr {
   mergeStateStatus: string;
 }
 
-const FAILING = new Set(["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"]);
+export const FAILING = new Set(["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"]);
 
 /** Interpreta `gh pr list --json number,title,headRefName,url,statusCheckRollup`. Só PRs com ao menos um check falhando. */
 export function parseRedPrs(json: unknown): RedPr[] {

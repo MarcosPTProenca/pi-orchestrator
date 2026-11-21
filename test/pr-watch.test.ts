@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ConflictWatch, conflictInstruction, isPrWatched, prVerdict } from "../src/pr-watch.ts";
+import { PrActionWatch, ciInstruction, conflictInstruction, failingChecks, isPrWatched, prVerdict } from "../src/pr-watch.ts";
 import type { PrState } from "../src/prs.ts";
 
 const pr = (over: Partial<PrState>): PrState => ({
@@ -19,25 +19,47 @@ test("conflito por mergeable ou por DIRTY é conflito; PR limpa fica aberta", ()
 });
 
 test("aciona uma vez por cabeça de branch, depois de marcar o envio; push novo reabre o caso", () => {
-  const w = new ConflictWatch();
-  assert.equal(w.shouldAct("t-1", "abc", true), true);
-  w.markActed("t-1", "abc");
-  assert.equal(w.shouldAct("t-1", "abc", true), false, "mesmo commit não repete");
-  assert.equal(w.shouldAct("t-1", "def", true), true, "commit novo ainda em conflito reabre");
+  const w = new PrActionWatch();
+  assert.equal(w.shouldAct("t-1", "abc", true, "conflict"), true);
+  w.markActed("t-1", "abc", "conflict");
+  assert.equal(w.shouldAct("t-1", "abc", true, "conflict"), false, "mesmo commit não repete");
+  assert.equal(w.shouldAct("t-1", "def", true, "conflict"), true, "commit novo ainda em conflito reabre");
 });
 
 test("envio que falhou não marca o head: a próxima consulta tenta de novo", () => {
-  const w = new ConflictWatch();
-  assert.equal(w.shouldAct("t-1", "abc", true), true);
-  // sem markActed: o envio falhou
-  assert.equal(w.shouldAct("t-1", "abc", true), true, "ainda não acionado para este commit");
+  const w = new PrActionWatch();
+  assert.equal(w.shouldAct("t-1", "abc", true, "ci"), true);
+  assert.equal(w.shouldAct("t-1", "abc", true, "ci"), true, "sem markActed, ainda não acionado");
 });
 
-test("sair do conflito zera o caso; voltar a conflitar aciona de novo", () => {
-  const w = new ConflictWatch();
-  w.markActed("t-1", "abc");
-  assert.equal(w.shouldAct("t-1", "abc", false), false);
-  assert.equal(w.shouldAct("t-1", "abc", true), true);
+test("sair do problema zera só o seu tipo; voltar a ele aciona de novo", () => {
+  const w = new PrActionWatch();
+  w.markActed("t-1", "abc", "ci");
+  w.markActed("t-1", "abc", "conflict");
+  assert.equal(w.shouldAct("t-1", "abc", false, "ci"), false);
+  assert.equal(w.shouldAct("t-1", "abc", true, "ci"), true, "CI voltou a falhar");
+  assert.equal(w.shouldAct("t-1", "abc", true, "conflict"), false, "conflito segue acionado: não foi zerado");
+});
+
+test("checks falhando são os que concluíram com falha; pendente e sucesso não contam", () => {
+  const s = pr({
+    checks: [
+      { name: "test", conclusion: "FAILURE", status: "COMPLETED" },
+      { name: "lint", conclusion: "SUCCESS", status: "COMPLETED" },
+      { name: "e2e", conclusion: null, status: "IN_PROGRESS" },
+      { name: "test", conclusion: "FAILURE", status: "COMPLETED" },
+      { name: "build", conclusion: "TIMED_OUT", status: "COMPLETED" },
+    ],
+  });
+  assert.deepEqual(failingChecks(s), ["test", "build"]);
+  assert.deepEqual(failingChecks(pr({ checks: [{ name: "x", conclusion: "SUCCESS", status: "COMPLETED" }] })), []);
+});
+
+test("instrução de CI nomeia os checks e proíbe force-push", () => {
+  const text = ciInstruction("https://github.com/o/r/pull/171", ["test", "build"]);
+  assert.match(text, /test, build/);
+  assert.match(text, /gh run view/);
+  assert.match(text, /Não reescreva histórico/);
 });
 
 test("instrução ao worker traz a PR, proíbe force-push e pede checks e push", () => {
