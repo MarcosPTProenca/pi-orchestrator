@@ -78,7 +78,7 @@ export interface TaskRecord {
   /** Verificação determinística da conclusão (ver verify.ts). Separada do relatório do worker. */
   verification?: { verdict: "approved" | "rejected" | "not_applicable" | "unverified"; reason: string } | null;
   /** Uso de tokens acumulado pelo worker (usage.json, gravado no fim de cada turno). */
-  usage?: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number } | null;
+  usage?: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; cost?: number; costFromProvider?: boolean } | null;
   /** Modelo pedido para o worker (ex.: claude-bridge/claude-haiku-5-5). null = padrão do Pi. */
   model: string | null;
   /** Modo do pedido (report, direct-pr, design; local-only só em tarefas antigas). Define a regra de verificação da conclusão. */
