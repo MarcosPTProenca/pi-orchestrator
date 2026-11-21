@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ageText, buildStatus, DEFAULT_OLD_HOURS, oldHoursFrom } from "../src/status.ts";
+import {
+  ageText,
+  buildStatus,
+  compactStatus,
+  COMPACT_TERMINAL_LIMIT,
+  DEFAULT_OLD_HOURS,
+  oldHoursFrom,
+} from "../src/status.ts";
 import type { TaskRecord } from "../src/contract.ts";
 
 const NOW = Date.parse("2026-11-17T12:00:00Z");
@@ -150,4 +157,65 @@ test("com 0 horas, terminais somem da listagem e ativas continuam", () => {
   const running = t({ task_id: "t-r", status: "running" });
   const ids = buildStatus([done, running], NOW, { oldHours: 0 }).flatMap((g) => g.tasks.map((x) => x.task_id));
   assert.deepEqual(ids, ["t-r"]);
+});
+
+test("compacto: bloqueada e ativa saem inteiras; terminais ficam limitadas às mais recentes", () => {
+  const terminais = Array.from({ length: COMPACT_TERMINAL_LIMIT + 5 }, (_, i) =>
+    t({
+      task_id: `t-d${i}`,
+      status: "done",
+      updated_at: `2026-11-17T11:${String(i).padStart(2, "0")}:00Z`,
+      result: "r".repeat(300),
+    }),
+  );
+  const bloqueada = t({ task_id: "t-b", status: "blocked", question: "A ou B?", created_at: "2026-11-10T00:00:00Z" });
+  const [grupo] = compactStatus(buildStatus([...terminais, bloqueada, t({ task_id: "t-r" })], NOW, {}));
+  const ids = grupo.tasks.map((r) => r.task_id);
+  assert.ok(ids.includes("t-b"));
+  assert.ok(ids.includes("t-r"));
+  assert.equal(grupo.tasks.filter((r) => r.status === "done").length, COMPACT_TERMINAL_LIMIT);
+  assert.equal(ids.includes("t-d0"), false, "a terminal mais antiga fica de fora");
+  assert.equal(grupo.omitted_terminal, 5);
+  assert.equal(grupo.counts.done, COMPACT_TERMINAL_LIMIT + 5);
+  assert.equal(grupo.tasks.find((r) => r.task_id === "t-b")?.question, "A ou B?");
+});
+
+test("compacto: resultado truncado a 120 e URL de PR preservada em artefatos", () => {
+  const pr = "https://github.com/o/r/pull/9";
+  const [grupo] = compactStatus(
+    buildStatus([t({ task_id: "t-x", status: "done", result: "x".repeat(400), artifacts: [pr] })], NOW, {}),
+  );
+  const r = grupo.tasks[0];
+  assert.ok(r.result !== null && r.result.length <= 120);
+  assert.deepEqual(r.artifacts, [pr]);
+});
+
+test("buildStatus filtra por tarefa e por projeto; fullResult devolve o texto inteiro", () => {
+  const tasks = [
+    t({ task_id: "t-1", project_id: "alpha", status: "done", result: "y".repeat(500) }),
+    t({ task_id: "t-2", project_id: "beta", status: "running" }),
+  ];
+  const porTarefa = buildStatus(tasks, NOW, { taskId: "t-1", all: true, fullResult: true }).flatMap((g) => g.tasks);
+  assert.equal(porTarefa.length, 1);
+  assert.equal(porTarefa[0].result?.length, 500);
+  const porProjeto = buildStatus(tasks, NOW, { projectId: "beta" }).flatMap((g) => g.tasks.map((r) => r.task_id));
+  assert.deepEqual(porProjeto, ["t-2"]);
+});
+
+test("tamanho da saída compacta cresce pouco com o número de tarefas (fixture 1, 20, 200)", () => {
+  const fixture = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      t({
+        task_id: `t-${i}`,
+        project_id: `p-${i % 4}`,
+        status: i % 3 === 0 ? "running" : "done",
+        result: "Implementado e verificado com testes; PR aberta. ".repeat(12),
+        artifacts: [`https://github.com/o/r/pull/${i}`],
+        usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 0, totalTokens: 6, cost: 0.01, costFromProvider: true },
+      }),
+    );
+  const size = (n: number) => JSON.stringify(compactStatus(buildStatus(fixture(n), NOW, { all: true }))).length;
+  const [s1, s20, s200] = [size(1), size(20), size(200)];
+  assert.ok(s200 < 40_000, `saída compacta com 200 tarefas: ${s200} caracteres`);
+  assert.ok(s1 < s20 && s20 < s200, "cresce com o número de tarefas");
 });

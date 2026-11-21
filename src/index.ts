@@ -29,7 +29,8 @@ import { Store, defaultStateDir } from "./store.ts";
 import { PlanStore, ITEM_STATUSES, type ItemStatus } from "./plans.ts";
 import { NoticeBatcher } from "./notices.ts";
 import { notificationFor, notifyArgs, notifyEnabled } from "./notify.ts";
-import { buildStatus, oldHoursFrom } from "./status.ts";
+import { buildStatus, compactStatus, oldHoursFrom } from "./status.ts";
+import { tailLog } from "./logs.ts";
 import { chainDepth, classifyFailure, failureHintFor, MAX_AUTO_RELAUNCH, nextModelFor } from "./failure.ts";
 import { capError, maxActiveFrom } from "./cap.ts";
 import { isActive, type TaskRecord } from "./contract.ts";
@@ -124,6 +125,18 @@ export function formatEvent(e: WatchEvent): string {
     default:
       return `${ref}: ${e.status}`;
   }
+}
+
+const INBOX_RESULT_MAX = 300;
+
+function compactEvent(ev: WatchEvent) {
+  const r = ev.result;
+  const long = r !== null && r.length > INBOX_RESULT_MAX;
+  return {
+    ...ev,
+    result: r !== null && long ? `${r.slice(0, INBOX_RESULT_MAX - 1)}…` : r,
+    result_truncated: long,
+  };
 }
 
 function asText(value: unknown) {
@@ -753,23 +766,30 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     name: "orch_status",
     label: "orch status",
     description:
-      "Tarefas agrupadas por projeto, com idade, resumo curto, artefatos e verificação. Canceladas e terminais antigas (mais de 24 h) ficam de fora; all=true mostra todas. Não altera estado e não consome LLM.",
+      "Resumo compacto por projeto: contagem por estado, tarefas abertas (ativas ou bloqueadas) inteiras e até 10 terminais recentes por projeto (omitted_terminal informa quantas ficaram de fora). Resultado truncado a 120 caracteres; para o texto completo, de uma tarefa, use task_id; detail=true devolve todas as linhas completas. Canceladas e terminais antigas (mais de 24 h) ficam de fora; all=true inclui todas. Não consome avisos do orch_inbox.",
     parameters: {
       type: "object",
-      properties: { all: { type: "boolean", description: "Incluir canceladas e terminais antigas." } },
+      properties: {
+        all: { type: "boolean", description: "Incluir canceladas e terminais antigas." },
+        project_id: { type: "string", description: "Restringe a um projeto." },
+        task_id: { type: "string", description: "Uma tarefa, com resultado completo e todos os campos." },
+        detail: { type: "boolean", description: "Linhas completas (sem compactar) de todas as tarefas filtradas." },
+      },
       additionalProperties: false,
     },
-    async execute(_id: string, params: { all?: boolean }) {
+    async execute(_id: string, params: { all?: boolean; project_id?: string; task_id?: string; detail?: boolean }) {
       if (owner) await orch.refreshAll();
+      const detail = params.detail === true || params.task_id !== undefined;
       const groups = buildStatus(orch.list(), Date.now(), {
-        all: params.all === true,
+        all: params.all === true || params.task_id !== undefined,
         oldHours: oldHoursFrom(process.env.PI_ORCH_OLD_HOURS),
+        projectId: params.project_id,
+        taskId: params.task_id,
+        fullResult: detail,
       });
+      const view = detail ? groups : compactStatus(groups);
       return asText(
-        groups.map((g) => ({
-          project_id: g.project_id,
-          tasks: g.tasks.map((r) => ({ ...r, deadline_at: formatBrasilia(r.deadline_at) })),
-        })),
+        view.map((g) => ({ ...g, tasks: g.tasks.map((r) => ({ ...r, deadline_at: formatBrasilia(r.deadline_at) })) })),
       );
     },
   });
@@ -778,11 +798,16 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     name: "orch_inbox",
     label: "orch inbox",
     description:
-      "Mostra decisões abertas (bloqueadas) e tarefas concluídas, falhas ou expiradas ainda não avisadas. Cada aviso terminal aparece uma vez.",
-    parameters: { type: "object", properties: {}, additionalProperties: false },
-    async execute() {
+      "Mostra decisões abertas (bloqueadas) e tarefas concluídas, falhas ou expiradas ainda não avisadas. Por padrão cada aviso terminal aparece uma vez (consume=true). consume=false só lê e não marca o aviso como entregue. Resultado truncado a 300 caracteres; texto completo em orch_status com task_id.",
+    parameters: {
+      type: "object",
+      properties: { consume: { type: "boolean", description: "Marcar avisos terminais como entregues. Padrão true." } },
+      additionalProperties: false,
+    },
+    async execute(_id: string, params: { consume?: boolean }) {
       assertWritable();
-      return asText(await orch.inbox());
+      const items = await orch.inbox({ consume: params.consume !== false });
+      return asText(items.map((ev) => compactEvent(ev)));
     },
   });
 
@@ -801,7 +826,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       additionalProperties: false,
     },
     async execute(_id: string, params: { task_id: string; lines?: number }) {
-      return asText({ task_id: params.task_id, text: await orch.logs(params.task_id, params.lines) });
+      const tail = tailLog(await orch.logs(params.task_id, params.lines));
+      return asText({ task_id: params.task_id, ...tail });
     },
   });
 
