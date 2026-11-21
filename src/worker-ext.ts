@@ -35,11 +35,9 @@ export const ASK_BLOCK_REASON =
   "Chame orch_report com status blocked e question: a pergunta, em uma frase, e as opções numeradas (uma por linha, com a descrição). " +
   "Se houver mais de uma pergunta, junte-as na mesma question. Pare o trabalho até a resposta chegar.";
 
-/** Entrada do brief no histórico da sessão. */
-export const BRIEF_ENTRY = "orch-brief";
+const BRIEF_ENTRY = "orch-brief";
 
-/** O brief desta versão (mesmo hash) já está no ramo ativo da sessão? Sem histórico disponível, não está. */
-export function briefInHistory(ctx: unknown, sha256: string): boolean {
+function briefInHistory(ctx: unknown, sha256: string): boolean {
   const manager = (ctx as { sessionManager?: { getBranch?: () => unknown[] } } | undefined)?.sessionManager;
   const entries = manager?.getBranch?.() ?? [];
   return entries.some((e) => {
@@ -71,12 +69,10 @@ export default function workerExtension(pi: ExtensionAPI): void {
   });
   pi.on("before_agent_start", (event, ctx) => {
     // O brief vai como contexto da sessão, lido da pasta da própria tarefa (sem passar pelo shell).
-    // Falha de leitura é erro explícito: o worker não inicia sem o pedido original (#100).
     const briefPath = join(taskDir as string, "brief.md");
     if (!existsSync(briefPath)) throw new Error(`brief.md ausente na pasta da tarefa (${briefPath}); o worker não inicia sem o pedido original.`);
     const brief = readFileSync(briefPath, "utf8");
     const systemPrompt = event.systemPrompt.includes(WORKER_PREAMBLE) ? event.systemPrompt : `${event.systemPrompt}\n\n${WORKER_PREAMBLE}`;
-    // Entregue uma vez por versão do brief: o histórico da sessão (persistido; sobrevive a reload e fork) guarda o hash.
     const sha256 = createHash("sha256").update(brief).digest("hex");
     if (briefInHistory(ctx, sha256)) return { systemPrompt };
     return {

@@ -8,7 +8,8 @@
     "test": "node --import tsx --test test/*.test.ts scripts/quality-lib.test.mjs",
     "quality": "node scripts/quality.mjs",
     "quality:baseline": "node scripts/quality.mjs --update",
-    "quality:test": "node --test scripts/quality-lib.test.mjs"
+    "quality:test": "node --test scripts/quality-lib.test.mjs",
+    "eval:approval": "node --import tsx evals/approval-flow.ts"
   },
   "engines": {
     "node": ">=22.18"
