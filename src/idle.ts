@@ -13,6 +13,7 @@
  */
 import { isActive, type TaskRecord } from "./contract.ts";
 import type { PaneInfo } from "./herdr.ts";
+import { prUrlOf } from "./pr-watch.ts";
 
 export interface IdleSurface {
   task_id: string;
@@ -55,7 +56,7 @@ export function whyNotIdle(t: TaskRecord, live: LiveSurfaces): string | null {
   if (!t.notified) return "resultado ainda não entregue ao usuário";
   if (!t.tab_id) return "sem tab registrada";
   if (!confirmedInHerdr(t, live)) return STALE_SURFACE_REASON;
-  if (t.source && /\/pull\/\d+/.test(t.source)) return "aguarda merge da PR; o orquestrador fecha a aba quando ela for mergeada";
+  if (prUrlOf(t) !== null) return "aguarda merge da PR; o orquestrador fecha a aba quando ela for mergeada";
   return null;
 }
 

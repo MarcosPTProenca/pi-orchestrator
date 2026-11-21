@@ -14,7 +14,7 @@ import { HerdrCli } from "./herdr.ts";
 import { availableModels, resolveModel } from "./models.ts";
 import { Orchestrator, MODES, type DelegateInput, type WatchEvent } from "./orchestrator.ts";
 import { fixInputFor, listRedPrs, prFromUrl, fetchPrState, verificationLine, verifyPr, prStateLine } from "./prs.ts";
-import { PrActionWatch, ciInstruction, conflictInstruction, failingChecks, isPrWatched, prVerdict, type PrAction } from "./pr-watch.ts";
+import { PrActionWatch, ciInstruction, conflictInstruction, failingChecks, isPrWatched, prUrlOf, prVerdict, type PrAction } from "./pr-watch.ts";
 import { judgeDone, type VerifyEnv } from "./verify.ts";
 import { existsSync } from "node:fs";
 import { FixQueue } from "./queue.ts";
@@ -414,11 +414,12 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       }
       // PR entregue por worker: a aba só fecha no merge; conflito aciona o próprio worker. Uma consulta a cada PR_CHECK_MS.
       for (const t of orch.owned()) {
-        if (!isPrWatched(t) || !t.source) continue;
-        const pr = prFromUrl(t.source);
+        const url = prUrlOf(t);
+        if (!isPrWatched(t) || !url) continue;
+        const pr = prFromUrl(url);
         if (!pr || Date.now() - (prChecked.get(t.task_id) ?? 0) < PR_CHECK_MS) continue;
         prChecked.set(t.task_id, Date.now());
-        await checkPr(t, t.source, pr).catch(() => undefined);
+        await checkPr(t, url, pr).catch(() => undefined);
       }
     } catch {
       if (idleWatch.fail()) {
