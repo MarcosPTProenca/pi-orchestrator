@@ -540,7 +540,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     parameters: {
       type: "object",
       properties: {
-        tasks: { type: "array", minItems: 1, maxItems: 8, items: DELEGATE_ITEM, description: "Um item por worker. Copie o pedido do usuário, sem reescrever." },
+        tasks: { type: "array", minItems: 1, maxItems: 8, items: DELEGATE_ITEM, description: "Um item por worker, com o trabalho formulado por você. Pedidos de coordenação do usuário (lançar outros workers, fechar abas ou ociosos) ficam com você." },
       },
       required: ["tasks"],
       additionalProperties: false,

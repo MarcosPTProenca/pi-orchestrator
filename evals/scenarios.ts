@@ -48,7 +48,7 @@ export const scenarios: Scenario[] = [
       (run) => ({ name: "modo report nos 2", ok: itemsOf(run).every((i) => i.mode === "report"), detail: JSON.stringify(itemsOf(run).map((i) => i.mode)) }),
       (_r, t) => ({ name: "projetos corretos", ok: t.projects.some((p) => p.endsWith("alpha")) && t.projects.some((p) => p.endsWith("beta")), detail: JSON.stringify(t.projects) }),
       (run) => ({ name: "request é o trabalho, sem instruções de lançamento", ok: itemsOf(run).every((i) => !/\blance\b|claude-bridge|\bworkers?\b/i.test(String(i.request))), detail: JSON.stringify(itemsOf(run).map((i) => i.request)) }),
-      (_r, t) => ({ name: "brief leva o pedido literal (alpha e beta)", ok: t.briefs.every((b) => /## Pedido do usuário \(literal\)/.test(b)) && t.briefs.some((b) => /alpha/.test(b)) && t.briefs.some((b) => /beta/.test(b)), detail: "ver brief" }),
+      (_r, t) => ({ name: "brief leva o trabalho formulado (alpha e beta)", ok: t.briefs.every((b) => /## O que fazer/.test(b)) && t.briefs.some((b) => /alpha/.test(b)) && t.briefs.some((b) => /beta/.test(b)), detail: "ver brief" }),
       (_r, t) => ({ name: "brief leva instruções do projeto (AGENTS.md)", ok: t.briefs.every((b) => /Commits em português/.test(b)), detail: "AGENTS.md ausente no brief" }),
       (run) => ({ name: "sem pesquisa nem ferramentas proibidas", ok: !run.calls.some((c) => forbidden.includes(c.name)), detail: run.calls.map((c) => c.name).join(",") }),
       (run) => ({ name: "sem perguntas desnecessárias", ok: !run.calls.some((c) => c.name === "AskUserQuestion"), detail: "AskUserQuestion chamado" }),
