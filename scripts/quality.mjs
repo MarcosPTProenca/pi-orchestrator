@@ -30,7 +30,9 @@ function commentLines() {
 
 function typeErrors() {
   const r = spawnSync("npx", ["tsc", "--noEmit", "-p", "tsconfig.json"], { cwd: root, encoding: "utf8" });
-  return typeErrorCount(`${r.stdout}\n${r.stderr}`);
+  const count = typeErrorCount(`${r.stdout}\n${r.stderr}`);
+  if (r.status !== 0 && count === 0) throw new Error(`tsc saiu com ${r.status} sem diagnóstico reconhecível; não dá para medir type_errors`);
+  return count;
 }
 
 const current = {
