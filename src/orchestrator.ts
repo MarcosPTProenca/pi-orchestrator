@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, s
 import { basename, dirname, join } from "node:path";
 import { clampLines, maskSecrets } from "./logs.ts";
 import { classifyFailure } from "./failure.ts";
+import { RELAUNCH_MARK, relaunchContext, relaunchNotice } from "./relaunch-context.ts";
 import { isActive, reportKey, validateReport, type TaskRecord, type TaskStatus } from "./contract.ts";
 import type { Report } from "./contract.ts";
 import { belowFloor, PRESENTATION_FLOOR, type HerdrPort, type TabResult } from "./herdr.ts";
@@ -624,17 +625,20 @@ export class Orchestrator {
     if (kind === "auth" && model && old.model && model.split("/")[0] === old.model.split("/")[0]) {
       throw new Error(`credencial falhou no provedor ${old.model.split("/")[0]}; escolha modelo de outro provedor`);
     }
+    const original = (old.delegate_input as unknown as DelegateInput).constraints ?? [];
+    const notice = relaunchNotice({
+      taskId,
+      context: relaunchContext(previous),
+      kind,
+      reportPath: this.reportPath(old),
+      report,
+      branch: old.branch ?? null,
+      artifacts: old.artifacts,
+    });
     const input = {
       ...(old.delegate_input as unknown as DelegateInput),
       model: model ?? old.model ?? undefined,
-      constraints: [
-        ...((old.delegate_input as unknown as DelegateInput).constraints ?? []),
-        `Tentativa anterior (${taskId}) falhou. Relatório completo:\n${report || "sem detalhe"}\n${
-          previous
-            ? "A conversa da tentativa anterior foi copiada para esta sessão: leia o histórico antes de refazer. Confira o que já existe antes de refazer."
-            : "Sem conversa da tentativa anterior disponível. Confira o que já existe antes de refazer."
-        }`,
-      ],
+      constraints: [...original.filter((c) => !c.startsWith(RELAUNCH_MARK)), notice],
     };
     const task = await this.delegate(input, { forkSession: previous ?? undefined });
     this.update(task.task_id, (x) => {
