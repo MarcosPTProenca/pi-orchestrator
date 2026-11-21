@@ -90,3 +90,10 @@ test("tarefa de issue com PR nos artefatos é acompanhada depois de entregue", (
   assert.equal(isPrWatched({ ...base, source: "https://github.com/o/r/issues/118", artifacts: ["https://github.com/o/r/pull/172"] }), true);
   assert.equal(isPrWatched({ ...base, source: "https://github.com/o/r/issues/118", artifacts: [] }), false);
 });
+
+test("com várias PRs nos artefatos, prefere a do mesmo repositório da issue", () => {
+  const outra = "https://github.com/o/outro/pull/5";
+  const mesma = "https://github.com/o/r/pull/172";
+  assert.equal(prUrlOf({ source: "https://github.com/o/r/issues/118", artifacts: [outra, mesma] }), mesma);
+  assert.equal(prUrlOf({ source: "https://github.com/o/r/issues/118", artifacts: [outra] }), outra, "sem PR do mesmo repo, usa a primeira");
+});

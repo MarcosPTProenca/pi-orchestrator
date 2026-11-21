@@ -23,7 +23,10 @@ export function prVerdict(s: PrState): PrVerdict {
 export function prUrlOf(t: { source?: string | null; artifacts?: string[] }): string | null {
   const isPr = (u: string) => /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/.test(u);
   if (t.source && isPr(t.source)) return t.source;
-  return (t.artifacts ?? []).find(isPr) ?? null;
+  const prs = (t.artifacts ?? []).filter(isPr);
+  // Entre várias PRs, prefere a do mesmo repositório da issue: artefato de outra tarefa pode citar outro repo.
+  const repo = t.source?.match(/^https:\/\/github\.com\/([^/]+\/[^/]+)\/issues\/\d+/)?.[1];
+  return (repo && prs.find((u) => u.startsWith(`https://github.com/${repo}/pull/`))) ?? prs[0] ?? null;
 }
 
 /**
