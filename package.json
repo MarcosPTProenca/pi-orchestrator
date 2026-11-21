@@ -5,7 +5,10 @@
   "type": "module",
   "description": "Orquestração mínima de sessões Pi independentes via Herdr (MVP).",
   "scripts": {
-    "test": "node --import tsx --test test/*.test.ts"
+    "test": "node --import tsx --test test/*.test.ts scripts/quality-lib.test.mjs",
+    "quality": "node scripts/quality.mjs",
+    "quality:baseline": "node scripts/quality.mjs --update",
+    "quality:test": "node --test scripts/quality-lib.test.mjs"
   },
   "engines": {
     "node": ">=22.18"
@@ -13,6 +16,8 @@
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "1.5.2",
     "@types/node": "22.20.5",
+    "jscpd": "5.4.3",
+    "knip": "6.47.0",
     "tsx": "4.23.15",
     "typescript": "5.9.3"
   }
