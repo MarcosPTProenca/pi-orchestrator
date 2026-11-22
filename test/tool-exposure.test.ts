@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { DEFERRABLE_TOOLS, toolExposureFor } from "../src/tool-exposure.ts";
+import { DEFERRABLE_TOOLS, deferredToolsNote, toolExposureFor } from "../src/tool-exposure.ts";
 import orchestratorExtension from "../src/index.ts";
 
 const DESTRUCTIVE_OR_ACTING = [
@@ -47,6 +47,13 @@ test("hybrid difere só as consultas somente-leitura; ações continuam diretas"
   for (const name of DEFERRABLE_TOOLS) assert.equal(toolExposureFor(name, env), "deferred", name);
   for (const name of DESTRUCTIVE_OR_ACTING) assert.equal(toolExposureFor(name, env), "direct", name);
   assert.equal(toolExposureFor("orch_delegate", env), "direct");
+});
+
+test("nota do papel só aparece no modo híbrido e nomeia as ferramentas diferidas", () => {
+  assert.equal(deferredToolsNote({}), "");
+  const note = deferredToolsNote({ PI_ORCH_TOOL_EXPOSURE: "hybrid" });
+  for (const name of DEFERRABLE_TOOLS) assert.match(note, new RegExp(name));
+  assert.match(note, /via codemode/);
 });
 
 test("valor desconhecido de PI_ORCH_TOOL_EXPOSURE não ativa o modo híbrido", () => {

@@ -38,7 +38,7 @@ import { orphanLeases, releaseLease, type WorktreeOps } from "./worktrees.ts";
 import { closeBlocker, deadTabTaskIds, idleReport, IdleWatch, idleSurfaces } from "./idle.ts";
 import { StallWatch, stallNoticeFor } from "./stall.ts";
 import { acquireOwnership, legacyAdopter, ownsByRepo, releaseOwnership, scopeKey, scopeOwnerDir } from "./lock.ts";
-import { toolExposureFor } from "./tool-exposure.ts";
+import { deferredToolsNote, toolExposureFor } from "./tool-exposure.ts";
 
 export const envPositive = (raw: string | undefined, fallback: number): number => {
   const n = Number(raw);
@@ -616,7 +616,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 
   pi.on("before_agent_start", (event) => {
     if (event.systemPrompt.includes(FIRST_MATE_ROLE)) return;
-    return { systemPrompt: `${event.systemPrompt}\n\n${FIRST_MATE_ROLE}` };
+    const note = deferredToolsNote();
+    return { systemPrompt: `${event.systemPrompt}\n\n${FIRST_MATE_ROLE}${note ? `\n\n${note}` : ""}` };
   });
 
   pi.on("session_shutdown", () => {
