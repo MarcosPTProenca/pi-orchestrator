@@ -38,6 +38,7 @@ import { orphanLeases, releaseLease, type WorktreeOps } from "./worktrees.ts";
 import { closeBlocker, deadTabTaskIds, idleReport, IdleWatch, idleSurfaces } from "./idle.ts";
 import { StallWatch, stallNoticeFor } from "./stall.ts";
 import { acquireOwnership, legacyAdopter, ownsByRepo, releaseOwnership, scopeKey, scopeOwnerDir } from "./lock.ts";
+import { toolExposureFor } from "./tool-exposure.ts";
 
 export const envPositive = (raw: string | undefined, fallback: number): number => {
   const n = Number(raw);
@@ -745,6 +746,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "orch_locate_project",
     label: "orch locate project",
+    exposure: toolExposureFor("orch_locate_project"),
     description:
       "Procura repositórios git em ~/github pelo nome ou pelo conteúdo de README, AGENTS, CLAUDE e package.json. Devolve candidatos com caminho, remote e termos encontrados. Use antes de pedir ao usuário o caminho de um projeto.",
     parameters: {
@@ -814,6 +816,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "orch_logs",
     label: "orch logs",
+    exposure: toolExposureFor("orch_logs"),
     description:
       "Mostra as últimas linhas do terminal de um worker (padrão 40, máximo 200), para acompanhar sem abrir a tab. Só lê se o painel ainda for da tarefa. Não consome LLM e não altera o estado.",
     parameters: {
@@ -922,6 +925,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "orch_plan_show",
     label: "orch plan show",
+    exposure: toolExposureFor("orch_plan_show"),
     description: "Mostra um plano (itens, status, tarefa e PR de cada um) ou, sem id, lista os planos existentes.",
     parameters: { type: "object", properties: { id: { type: "string" } }, additionalProperties: false },
     async execute(_id: string, params: { id?: string }) {
@@ -986,6 +990,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "orch_idle",
     label: "orch idle",
+    exposure: toolExposureFor("orch_idle"),
     description:
       "Mostra, sem fechar nada, quais tarefas desta sessão são candidatas a fechar (concluídas, entregues, com tab confirmada) e o motivo de cada uma das outras não ser candidata.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
