@@ -24,14 +24,15 @@ export const ASK_BLOCK_REASON =
   "Chame orch_report com status blocked e question: a pergunta, em uma frase, e as opções numeradas (uma por linha, com a descrição). " +
   "Se houver mais de uma pergunta, junte-as na mesma question. Pare o trabalho até a resposta chegar.";
 
+// Entrada `custom` (fora do contexto do LLM) só para exibir o brief no chat do trabalhador.
 const BRIEF_ENTRY = "orch-brief";
 
 function briefInHistory(ctx: unknown, sha256: string): boolean {
   const manager = (ctx as { sessionManager?: { getBranch?: () => unknown[] } } | undefined)?.sessionManager;
   const entries = manager?.getBranch?.() ?? [];
   return entries.some((e) => {
-    const entry = e as { customType?: string; details?: { sha256?: string } };
-    return entry.customType === BRIEF_ENTRY && entry.details?.sha256 === sha256;
+    const entry = e as { type?: string; customType?: string; data?: { sha256?: string } };
+    return entry.type === "custom" && entry.customType === BRIEF_ENTRY && entry.data?.sha256 === sha256;
   });
 }
 
@@ -56,25 +57,21 @@ export default function workerExtension(pi: ExtensionAPI): void {
       continue: true,
     };
   });
+  pi.registerEntryRenderer(BRIEF_ENTRY, (entry) => {
+    const text = (entry.data as { content?: string } | undefined)?.content ?? "";
+    return { render: () => text.split("\n"), invalidate: () => {} };
+  });
   pi.on("before_agent_start", (event, ctx) => {
     const briefPath = join(taskDir as string, "brief.md");
     if (!existsSync(briefPath))
       throw new Error(`brief.md ausente na pasta da tarefa (${briefPath}); o worker não inicia sem o pedido original.`);
     const brief = readFileSync(briefPath, "utf8");
-    const systemPrompt = event.systemPrompt.includes(WORKER_PREAMBLE)
-      ? event.systemPrompt
-      : `${event.systemPrompt}\n\n${WORKER_PREAMBLE}`;
+    const content = maskSecrets(brief);
     const sha256 = createHash("sha256").update(brief).digest("hex");
-    if (briefInHistory(ctx, sha256)) return { systemPrompt };
-    return {
-      systemPrompt,
-      message: {
-        customType: BRIEF_ENTRY,
-        content: maskSecrets(brief),
-        display: true,
-        details: { sha256, task_id: taskId },
-      },
-    };
+    if (!briefInHistory(ctx, sha256)) pi.appendEntry(BRIEF_ENTRY, { sha256, task_id: taskId, content });
+    const base = event.systemPrompt;
+    const withPreamble = base.includes(WORKER_PREAMBLE) ? base : `${base}\n\n${WORKER_PREAMBLE}`;
+    return { systemPrompt: withPreamble };
   });
   const taskId = process.env.PI_ORCH_TASK_ID;
   const taskDir = process.env.PI_ORCH_TASK_DIR;

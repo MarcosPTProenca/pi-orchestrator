@@ -19,6 +19,8 @@ test("o worker grava o caminho da própria sessão Pi na pasta da tarefa", () =>
         handlers[name] = fn;
       },
       registerTool: () => {},
+      registerEntryRenderer: () => {},
+      appendEntry: () => {},
     } as never);
     handlers.session_start({ reason: "startup" }, { sessionManager: { getSessionFile: () => "/sessions/abc.jsonl" } });
     assert.equal(readFileSync(join(dir, "session.txt"), "utf8"), "/sessions/abc.jsonl");

@@ -3,34 +3,22 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import workerExtension from "../src/worker-ext.ts";
 
-type Entry = { type: string; customType?: string; content?: string; details?: unknown };
+type Result = { systemPrompt?: string; message?: unknown } | undefined;
+type Handler = (event: { systemPrompt: string }, ctx?: unknown) => Result;
+type Appended = { customType: string; data: { sha256: string; content: string } };
 
-function sessionWith(entries: Entry[]) {
-  return { ctx: { sessionManager: { getBranch: () => entries, getEntries: () => entries } } };
-}
-
-function persist(entries: Entry[], result: { message?: Entry } | undefined) {
-  if (result?.message)
-    entries.push({
-      type: "custom_message",
-      customType: result.message.customType,
-      content: result.message.content,
-      details: result.message.details,
-    });
-}
-
-type Result = { systemPrompt?: string; message?: Entry } | undefined;
-type Handler = (event: { systemPrompt: string; messageType?: string; prompt?: string }, ctx?: unknown) => Result;
-
-function loadWorker(): Record<string, Handler> {
+function loadWorker(appended: Appended[] = []): Record<string, Handler> {
   const handlers: Record<string, Handler> = {};
   workerExtension({
     on: (name: string, fn: Handler) => {
       handlers[name] = fn;
     },
     registerTool: () => {},
+    registerEntryRenderer: () => {},
+    appendEntry: (customType: string, data: Appended["data"]) => appended.push({ customType, data }),
   } as never);
   return handlers;
 }
@@ -50,38 +38,111 @@ function withTask(brief: string | null, fn: (dir: string) => void): void {
   }
 }
 
-test("brief entregue uma vez: turnos seguintes e orch_send não acrescentam cópias (#100)", () =>
+test("o brief não entra no prompt de sistema nem como mensagem: o worker o lê por ferramenta (#102)", () =>
   withTask("## Pedido do usuário\nCorrija a revisão", () => {
-    const entries: Entry[] = [];
-    const s = sessionWith(entries);
+    const result = loadWorker().before_agent_start({ systemPrompt: "base" });
+    assert.equal(result?.message, undefined);
+    assert.doesNotMatch(result?.systemPrompt ?? "", /Corrija a revisão/);
+  }));
+
+test("exibição do brief: uma entrada custom por sha, fora do contexto do modelo (#100)", () =>
+  withTask("## Pedido do usuário\nCorrija a revisão", () => {
+    const appended: Appended[] = [];
+    const h = loadWorker(appended);
+    h.before_agent_start({ systemPrompt: "base" }, { sessionManager: { getBranch: () => [] } });
+    assert.equal(appended.length, 1);
+    assert.equal(appended[0]?.customType, "orch-brief");
+    const history = appended.map((a) => ({ type: "custom", customType: a.customType, data: a.data }));
+    h.before_agent_start({ systemPrompt: "base" }, { sessionManager: { getBranch: () => history } });
+    assert.equal(appended.length, 1, "reload/turno seguinte não repete a exibição");
+  }));
+
+test("preâmbulo do worker não se repete entre turnos", () =>
+  withTask("pedido", () => {
     const h = loadWorker();
-    for (let turn = 0; turn < 3; turn++)
-      persist(entries, h.before_agent_start({ systemPrompt: "base", messageType: "user", prompt: "continue" }, s.ctx));
-    assert.equal(entries.filter((e) => e.customType === "orch-brief").length, 1);
+    const once = h.before_agent_start({ systemPrompt: "base" })?.systemPrompt ?? "";
+    const twice = h.before_agent_start({ systemPrompt: once })?.systemPrompt ?? "";
+    assert.equal(twice, once);
+    assert.equal(once.split("worker lançado pelo orquestrador").length - 1, 1);
   }));
 
-test("reload: outro carregamento da extensão com o mesmo histórico não injeta outro brief (#100)", () =>
-  withTask("## Pedido do usuário\nCorrija a revisão", () => {
-    const entries: Entry[] = [];
-    const s = sessionWith(entries);
-    persist(entries, loadWorker().before_agent_start({ systemPrompt: "base" }, s.ctx));
-    assert.equal(loadWorker().before_agent_start({ systemPrompt: "base" }, s.ctx)?.message, undefined);
-  }));
-
-test("brief alterado é nova versão e entra de forma incremental (#100)", () =>
+test("brief alterado gera nova exibição com a versão nova (#100)", () =>
   withTask("versão 1", (dir) => {
-    const entries: Entry[] = [];
-    const s = sessionWith(entries);
-    const h = loadWorker();
-    persist(entries, h.before_agent_start({ systemPrompt: "base" }, s.ctx));
+    const appended: Appended[] = [];
+    const h = loadWorker(appended);
+    h.before_agent_start({ systemPrompt: "base" });
     writeFileSync(join(dir, "brief.md"), "versão 2");
-    assert.match(h.before_agent_start({ systemPrompt: "base" }, s.ctx)?.message?.content ?? "", /versão 2/);
+    h.before_agent_start({ systemPrompt: "base" });
+    assert.equal(appended.length, 2);
+    assert.match(appended[1]?.data.content ?? "", /versão 2/);
+    assert.notEqual(appended[0]?.data.sha256, appended[1]?.data.sha256);
+  }));
+
+test("segredo no brief é mascarado na exibição", () =>
+  withTask("usar token=abcdef123456 para o teste", () => {
+    const appended: Appended[] = [];
+    loadWorker(appended).before_agent_start({ systemPrompt: "base" });
+    assert.doesNotMatch(appended[0]?.data.content ?? "", /abcdef123456/);
+    assert.match(appended[0]?.data.content ?? "", /\[mascarado\]/);
   }));
 
 test("brief ausente é erro explícito: o worker não inicia sem o contexto obrigatório (#100)", () =>
   withTask(null, () => {
-    assert.throws(
-      () => loadWorker().before_agent_start({ systemPrompt: "base" }, sessionWith([]).ctx),
-      /brief\.md ausente/,
+    assert.throws(() => loadWorker().before_agent_start({ systemPrompt: "base" }), /brief\.md ausente/);
+  }));
+
+test("regressão #102: entradas de exibição não quebram a identidade do contexto do worker", () =>
+  withTask("## Pedido do usuário\nCorrija a revisão", () => {
+    // Mesma regra de cacheContextIsCurrent em core/sdk.js do Pi: itens capturados devem ser os mesmos objetos.
+    const sm = SessionManager.inMemory("/tmp");
+    sm.appendMessage({ role: "user", content: [{ type: "text", text: "oi" }], timestamp: Date.now() });
+    const appended: Appended[] = [];
+    const r = loadWorker(appended).before_agent_start({ systemPrompt: "base" });
+    const m = r?.message as { customType: string; content: string; display: boolean; details?: unknown } | undefined;
+    if (m) sm.appendCustomMessageEntry(m.customType, m.content, m.display, m.details);
+    for (const a of appended) sm.appendCustomEntry(a.customType, a.data);
+    const captured = sm.buildSessionProjection().messages;
+    sm.appendMessage(assistantStub());
+    const after = sm.buildSessionProjection().messages;
+    assert.equal(
+      captured.every((msg, i) => after[i] === msg),
+      true,
+    );
+    assert.equal(
+      sm.getEntries().some((e) => e.type === "custom_message"),
+      false,
     );
   }));
+
+test("regressão #102 (controle): brief como custom_message quebra a identidade", () => {
+  const sm = SessionManager.inMemory("/tmp");
+  sm.appendMessage({ role: "user", content: [{ type: "text", text: "oi" }], timestamp: Date.now() });
+  sm.appendCustomMessageEntry("orch-brief", "pedido", true, { sha256: "x" });
+  const captured = sm.buildSessionProjection().messages;
+  sm.appendMessage(assistantStub());
+  const after = sm.buildSessionProjection().messages;
+  assert.equal(
+    captured.every((msg, i) => after[i] === msg),
+    false,
+  );
+});
+
+function assistantStub(): never {
+  return {
+    role: "assistant",
+    content: [{ type: "text", text: "ok" }],
+    api: "anthropic-messages",
+    provider: "anthropic",
+    model: "claude-sonnet-5-5",
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: "stop",
+    timestamp: Date.now(),
+  } as never;
+}

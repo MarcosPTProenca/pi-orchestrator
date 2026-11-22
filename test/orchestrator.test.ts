@@ -1003,3 +1003,36 @@ test("restrições do brief são numeradas sem repetir números", async () => {
   const numbers = [...readFileSync(t.brief_path, "utf8").matchAll(/^(\d+)\. /gm)].map((m) => Number(m[1]));
   assert.deepEqual(numbers.slice(0, 4), [1, 2, 3, 4]);
 });
+
+test("lançamento manda ler o brief por ferramenta e o brief gravado sai mascarado (#102)", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({
+    project_path: h.project,
+    role: "investigate",
+    request: "Analise o login usando token=abcdef123456",
+    objective: "Analise o login",
+    mode: "report",
+  });
+  const run = h.herdr.opsOf("runInPane")[0].args as { command: string };
+  assert.match(run.command, /Leia o brief em .*brief\.md com a ferramenta read/);
+  const brief = readFileSync(t.brief_path, "utf8");
+  assert.doesNotMatch(brief, /abcdef123456/);
+  assert.match(brief, /\[mascarado\]/);
+});
+
+test("retomada por fork não manda reler um brief que já está na sessão copiada (#100/#102)", async () => {
+  const h = makeHarness();
+  await h.orch.delegate(
+    {
+      project_path: h.project,
+      role: "investigate",
+      request: "Analise o login",
+      objective: "Analise o login",
+      mode: "report",
+    },
+    { forkSession: "/tmp/fork-origem.jsonl" },
+  );
+  const run = h.herdr.opsOf("runInPane")[0].args as { command: string };
+  assert.match(run.command, /Se o conteúdo dele já estiver nesta sessão, não o releia/);
+  assert.doesNotMatch(run.command, /Leia o brief em/);
+});
