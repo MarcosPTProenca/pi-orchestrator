@@ -471,6 +471,18 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
           const task = orch.get(item.task_id);
           const url = prUrlOf(task);
           const pr = url ? prFromUrl(url) : null;
+          if (task.status === "done" && !url && planStore.markTaskDone(task.task_id).length > 0) {
+            pi.sendMessage(
+              {
+                customType: "orch-event",
+                content: `Plano ${planId}, item ${item.id}: tarefa ${task.task_id} concluída sem PR. Lançando o próximo passo.`,
+                display: true,
+              },
+              { triggerTurn: false },
+            );
+            await advancePlans();
+            continue;
+          }
           if (!url || !pr || Date.now() - (prChecked.get(task.task_id) ?? 0) < PR_CHECK_MS) continue;
           prChecked.set(task.task_id, Date.now());
           const remote = execFileSync("git", ["remote", "get-url", "origin"], {

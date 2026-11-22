@@ -60,6 +60,11 @@ function normalize(input: string | ItemInput, index: number): ItemInput {
   if (typeof input === "string") return { title: input };
   if (typeof input !== "object" || input === null || typeof input.title !== "string" || input.title.trim() === "")
     throw new Error(`item ${index + 1} sem título`);
+  if (
+    input.depends_on !== undefined &&
+    (!Array.isArray(input.depends_on) || !input.depends_on.every((d) => typeof d === "string"))
+  )
+    throw new Error(`item ${index + 1}: depends_on deve ser lista de ids`);
   return input;
 }
 
@@ -185,15 +190,24 @@ export class PlanStore {
     return item;
   }
 
+  markTaskDone(taskId: string): { plan: string; item: string }[] {
+    return this.transition(taskId, "in_progress", "done");
+  }
+
   markMerged(taskId: string): { plan: string; item: string }[] {
+    return this.transition(taskId, "*", "merged");
+  }
+
+  private transition(taskId: string, from: ItemStatus | "*", to: ItemStatus): { plan: string; item: string }[] {
     const touched: { plan: string; item: string }[] = [];
     for (const planId of this.list()) {
       try {
         const plan = this.show(planId);
         const hit: { plan: string; item: string }[] = [];
         for (const item of plan.items) {
-          if (item.task_id === taskId && item.status !== "merged") {
-            item.status = "merged";
+          const matches = item.task_id === taskId && (from === "*" ? item.status !== to : item.status === from);
+          if (matches) {
+            item.status = to;
             item.updated_at = this.now();
             hit.push({ plan: planId, item: item.id });
           }

@@ -172,3 +172,26 @@ test("reserva impede o segundo lançamento do mesmo item", () => {
   assert.throws(() => s.reserve("res", "1"), /não está disponível/);
   assert.deepEqual(s.ready(s.show("res")), [], "item reservado não aparece como lançável");
 });
+
+test("item sem PR (modo report) concluído libera os dependentes", () => {
+  const s = fresh();
+  s.create("rep", "R", [
+    { title: "A", delegate: { ...spec, mode: "report" } },
+    { title: "B", depends_on: ["1"], delegate: spec },
+  ]);
+  s.launched("rep", "1", "t-bbbbbbbb");
+  assert.deepEqual(s.ready(s.show("rep")), []);
+  assert.deepEqual(s.markTaskDone("t-bbbbbbbb"), [{ plan: "rep", item: "1" }]);
+  assert.deepEqual(
+    s.ready(s.show("rep")).map((i) => i.id),
+    ["2"],
+  );
+});
+
+test("depends_on que não é lista de ids é recusado", () => {
+  const s = fresh();
+  assert.throws(
+    () => s.create("dep", "D", [{ title: "A", depends_on: "1" as unknown as string[] }]),
+    /depends_on deve ser lista/,
+  );
+});
