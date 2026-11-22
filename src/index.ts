@@ -79,6 +79,18 @@ export function projectLabel(id: string | null | undefined): string {
   return id && id.trim() ? id.trim() : "projeto não identificado";
 }
 
+/** Linha de contexto de um evento de PR: título, projeto, tarefa, objetivo e link. */
+export function taskHeadline(
+  t: { project_id: string; task_id: string; delegate_input?: unknown },
+  prUrl: string,
+  title: string,
+): string {
+  const objective = (t.delegate_input as { objective?: string } | null | undefined)?.objective ?? "";
+  const short = objective.length > 100 ? `${objective.slice(0, 97)}...` : objective;
+  const about = short ? ` Objetivo: "${short}".` : "";
+  return `${title} (${projectLabel(t.project_id)}, tarefa ${t.task_id}): ${prUrl}.${about}`;
+}
+
 export function idleNoticeFor(idle: { task_id: string; project_id: string }[]): string {
   const items = idle.map((s) => `${s.task_id} (${projectLabel(s.project_id)})`).join(", ");
   return `Tarefas concluídas e entregues com aba aberta (${idle.length}): ${items}. Decida por tarefa: se nada depende da aba (PR aberta com CI vermelho, conflito de merge ou review pendente), feche com orch_close; se algo ainda precisa dela, mantenha e diga o motivo.`;
@@ -422,25 +434,18 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     const verdict = prVerdict(s);
     if (verdict === "merged") {
       prWatch.forget(t.task_id);
-      for (const m of planStore.markMerged(t.task_id))
-        pi.sendMessage(
-          {
-            customType: "orch-event",
-            content: `Plano ${m.plan}, item ${m.item}: tarefa ${t.task_id} mergeada.`,
-            display: true,
-          },
-          { triggerTurn: false },
-        );
       const outcome = await orch.closeOutcome(t.task_id);
-      if (outcome.closed)
-        pi.sendMessage(
-          {
-            customType: "orch-event",
-            content: `PR #${pr.number} mergeada: fechei a aba de ${t.task_id} (${label}).`,
-            display: true,
-          },
-          { triggerTurn: false },
-        );
+      const plan = planStore.markMerged(t.task_id).map((m) => `plano ${m.plan}, item ${m.item}`);
+      const closed = outcome.closed ? "Fechei a aba do worker" : "A aba já não existia";
+      const planLine = plan.length > 0 ? ` Atualizei ${plan.join("; ")}.` : "";
+      pi.sendMessage(
+        {
+          customType: "orch-event",
+          content: `${taskHeadline(t, source, `PR #${pr.number} mergeada`)}. ${closed}.${planLine} Confira se há próximo item no plano e diga ao usuário o que vem a seguir.`,
+          display: true,
+        },
+        { triggerTurn: true },
+      );
       return;
     }
     if (verdict === "pending") return;
@@ -458,7 +463,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       pi.sendMessage(
         {
           customType: "orch-event",
-          content: `PR #${pr.number} de ${t.task_id} (${label}) ${what}. Acionei o próprio worker para corrigir; acompanho a PR.`,
+          content: `${taskHeadline(t, source, `PR #${pr.number} ${what}`)}. Acionei o próprio worker para corrigir; acompanho a PR.`,
           display: true,
         },
         { triggerTurn: true },
