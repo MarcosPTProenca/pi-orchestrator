@@ -219,3 +219,13 @@ test("tamanho da saída compacta cresce pouco com o número de tarefas (fixture 
   assert.ok(s200 < 40_000, `saída compacta com 200 tarefas: ${s200} caracteres`);
   assert.ok(s1 < s20 && s20 < s200, "cresce com o número de tarefas");
 });
+
+test("links: URL além do corte de 120 caracteres continua visível na saída compacta", () => {
+  const result = `${"x".repeat(150)} PR https://github.com/o/r/pull/9.`;
+  const out = compactStatus(
+    buildStatus([t({ task_id: "t-9", status: "done", result, updated_at: "2026-11-17T11:50:00Z" })], NOW, {}),
+  );
+  const row = out[0].tasks[0];
+  assert.ok(!row.result!.includes("pull/9"));
+  assert.deepEqual(row.links, ["https://github.com/o/r/pull/9"]);
+});
