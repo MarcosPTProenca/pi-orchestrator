@@ -93,7 +93,6 @@ test("brief ausente é erro explícito: o worker não inicia sem o contexto obri
 
 test("regressão #102: entradas de exibição não quebram a identidade do contexto do worker", () =>
   withTask("## Pedido do usuário\nCorrija a revisão", () => {
-    // Mesma regra de cacheContextIsCurrent em core/sdk.js do Pi: itens capturados devem ser os mesmos objetos.
     const sm = SessionManager.inMemory("/tmp");
     sm.appendMessage({ role: "user", content: [{ type: "text", text: "oi" }], timestamp: Date.now() });
     const appended: Appended[] = [];

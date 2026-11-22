@@ -73,7 +73,6 @@ export interface WatchEvent {
 function shellQuote(arg: string): string {
   return /^[A-Za-z0-9_./:=@%+-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, `'\\''`)}'`;
 }
-// O worker lê o brief por ferramenta no primeiro turno: o conteúdo entra no contexto como resultado de ferramenta (#102).
 const launchMessage = (briefPath: string, forked: boolean): string =>
   forked
     ? `Continue a tarefa do brief em ${briefPath}. Se o conteúdo dele já estiver nesta sessão, não o releia; caso contrário, leia-o com a ferramenta read. Ao terminar, chame orch_report.`
@@ -292,7 +291,6 @@ export class Orchestrator {
     const briefPath = join(taskDir, "brief.md");
     const reportPath = join(taskDir, "report.json");
 
-    // Mascarado na gravação: o worker lê o arquivo inteiro por ferramenta, sem o filtro do prompt de sistema.
     writeFileSync(briefPath, maskSecrets(renderBrief(taskId, intake, reportPath)));
 
     const deadlineAt = input.timeout_minutes ? this.iso(this.d.now() + input.timeout_minutes * 60_000) : null;

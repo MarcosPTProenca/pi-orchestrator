@@ -24,7 +24,6 @@ export const ASK_BLOCK_REASON =
   "Chame orch_report com status blocked e question: a pergunta, em uma frase, e as opções numeradas (uma por linha, com a descrição). " +
   "Se houver mais de uma pergunta, junte-as na mesma question. Pare o trabalho até a resposta chegar.";
 
-// Entrada `custom` (fora do contexto do LLM) só para exibir o brief no chat do trabalhador.
 const BRIEF_ENTRY = "orch-brief";
 
 function briefInHistory(ctx: unknown, sha256: string): boolean {
