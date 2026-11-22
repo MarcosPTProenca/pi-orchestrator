@@ -441,7 +441,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       pi.sendMessage(
         {
           customType: "orch-event",
-          content: `${taskHeadline(t, source, `PR #${pr.number} mergeada`)}. ${closed}.${planLine} Confira se há próximo item no plano e diga ao usuário o que vem a seguir.`,
+          content: `${taskHeadline(t, source, `PR #${pr.number} mergeada`)} ${closed}.${planLine} Confira se há próximo item no plano e diga ao usuário o que vem a seguir.`,
           display: true,
         },
         { triggerTurn: true },
@@ -463,7 +463,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       pi.sendMessage(
         {
           customType: "orch-event",
-          content: `${taskHeadline(t, source, `PR #${pr.number} ${what}`)}. Acionei o próprio worker para corrigir; acompanho a PR.`,
+          content: `${taskHeadline(t, source, `PR #${pr.number} ${what}`)} Acionei o próprio worker para corrigir; acompanho a PR.`,
           display: true,
         },
         { triggerTurn: true },
