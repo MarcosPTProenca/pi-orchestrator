@@ -79,7 +79,6 @@ export function projectLabel(id: string | null | undefined): string {
   return id && id.trim() ? id.trim() : "projeto não identificado";
 }
 
-/** Linha de contexto de um evento de PR: título, projeto, tarefa, objetivo e link. */
 export function taskHeadline(
   t: { project_id: string; task_id: string; delegate_input?: unknown },
   prUrl: string,
