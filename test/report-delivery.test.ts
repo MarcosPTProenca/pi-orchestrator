@@ -73,6 +73,8 @@ function withWorkerEnv(taskId: string, dir: string, fn: (handlers: Record<string
           handlers[name] = f;
         },
         registerTool: () => {},
+        registerEntryRenderer: () => {},
+        appendEntry: () => {},
       } as never);
       await fn(handlers);
     } finally {

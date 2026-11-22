@@ -12,6 +12,8 @@ function loadWorker(): Record<string, Function> {
       handlers[name] = f;
     },
     registerTool: () => {},
+    registerEntryRenderer: () => {},
+    appendEntry: () => {},
   } as never);
   return handlers;
 }

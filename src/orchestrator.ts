@@ -73,7 +73,10 @@ export interface WatchEvent {
 function shellQuote(arg: string): string {
   return /^[A-Za-z0-9_./:=@%+-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, `'\\''`)}'`;
 }
-const LAUNCH_MESSAGE = "Execute a tarefa do brief que voce recebeu no contexto. Ao terminar, chame orch_report.";
+const launchMessage = (briefPath: string, forked: boolean): string =>
+  forked
+    ? `Continue a tarefa do brief em ${briefPath}. Se o conteúdo dele já estiver nesta sessão, não o releia; caso contrário, leia-o com a ferramenta read. Ao terminar, chame orch_report.`
+    : `Leia o brief em ${briefPath} com a ferramenta read e execute a tarefa que ele descreve. Ao terminar, chame orch_report.`;
 
 function isFallbackRaw(raw: string): boolean {
   try {
@@ -288,7 +291,7 @@ export class Orchestrator {
     const briefPath = join(taskDir, "brief.md");
     const reportPath = join(taskDir, "report.json");
 
-    writeFileSync(briefPath, renderBrief(taskId, intake, reportPath));
+    writeFileSync(briefPath, maskSecrets(renderBrief(taskId, intake, reportPath)));
 
     const deadlineAt = input.timeout_minutes ? this.iso(this.d.now() + input.timeout_minutes * 60_000) : null;
     const initialStatus: TaskStatus = this.d.dryRun ? "planned" : "starting";
@@ -368,7 +371,7 @@ export class Orchestrator {
       const piArgs = ["-e", this.d.workerExtPath];
       if (opts.forkSession) piArgs.push("--fork", opts.forkSession);
       if (model) piArgs.push("--model", model);
-      piArgs.push(LAUNCH_MESSAGE);
+      piArgs.push(launchMessage(join(taskDir, "brief.md"), opts.forkSession !== undefined));
       const launch = ["pi", ...piArgs];
       if (projected)
         // keep: o token do webhook fica fora do pane; qualquer leitura do pane o exporia.

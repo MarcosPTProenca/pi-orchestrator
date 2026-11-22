@@ -30,6 +30,8 @@ async function withWorker(
         handlers[name] = (event, ctx) => f(event, ctx ?? FAKE_CTX);
       },
       registerTool: () => {},
+      registerEntryRenderer: () => {},
+      appendEntry: () => {},
     } as never);
     await fn(handlers, dir);
   } finally {
