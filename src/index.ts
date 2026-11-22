@@ -26,7 +26,7 @@ import { locateProject } from "./locate.ts";
 import { orchestratorAgentName } from "./label.ts";
 import { execFile } from "node:child_process";
 import { Store, defaultStateDir } from "./store.ts";
-import { PlanStore, ITEM_STATUSES, type ItemStatus } from "./plans.ts";
+import { PlanStore, ITEM_STATUSES, type ItemInput, type ItemStatus } from "./plans.ts";
 import { NoticeBatcher } from "./notices.ts";
 import { notificationFor, notifyArgs, notifyEnabled } from "./notify.ts";
 import { buildStatus, compactStatus, oldHoursFrom } from "./status.ts";
@@ -419,6 +419,82 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   const stallWatch = new StallWatch();
   const prWatch = new PrActionWatch();
   const prChecked = new Map<string, number>();
+  const planStore = new PlanStore(join(defaultStateDir(), "plans"));
+  const launchReady = async (planId: string): Promise<void> => {
+    for (const item of planStore.ready(planStore.show(planId))) {
+      const spec = item.delegate;
+      if (!spec) continue;
+      try {
+        planStore.reserve(planId, item.id);
+      } catch {
+        continue;
+      }
+      try {
+        const task = await orch.delegate({
+          ...spec,
+          role: spec.role ?? `plano-${planId}`,
+          mode: spec.mode as DelegateInput["mode"],
+        });
+        planStore.launched(planId, item.id, task.task_id);
+        pi.sendMessage(
+          {
+            customType: "orch-event",
+            content: `Plano ${planId}, item ${item.id} (${item.title}): lancei a tarefa ${task.task_id} (${projectLabel(task.project_id)}).`,
+            display: true,
+          },
+          { triggerTurn: false },
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        planStore.blocked(planId, item.id, msg);
+        pi.sendMessage(
+          {
+            customType: "orch-event",
+            content: `Plano ${planId}, item ${item.id} (${item.title}) não foi lançado: ${msg}. Decida: corrigir a especificação ou seguir manualmente.`,
+            display: true,
+          },
+          { triggerTurn: true },
+        );
+      }
+    }
+  };
+  const advancePlans = async (): Promise<void> => {
+    for (const planId of planStore.list()) await launchReady(planId).catch(() => undefined);
+  };
+  // keep: a PR é consultada pela tarefa, não pelo pane; a aba pode já ter sido fechada e o plano segue mesmo assim.
+  const reconcilePlans = async (): Promise<void> => {
+    for (const planId of planStore.list()) {
+      const plan = planStore.show(planId);
+      for (const item of plan.items) {
+        if (item.status !== "in_progress" || !item.task_id) continue;
+        try {
+          const task = orch.get(item.task_id);
+          const url = prUrlOf(task);
+          const pr = url ? prFromUrl(url) : null;
+          if (!url || !pr || Date.now() - (prChecked.get(task.task_id) ?? 0) < PR_CHECK_MS) continue;
+          prChecked.set(task.task_id, Date.now());
+          const remote = execFileSync("git", ["remote", "get-url", "origin"], {
+            cwd: task.project_path,
+            encoding: "utf8",
+          }).trim();
+          const state = await fetchPrState(remote, pr.number, pr.owner, pr.name, task.project_path);
+          if (prVerdict(state) !== "merged") continue;
+          planStore.markMerged(task.task_id);
+          pi.sendMessage(
+            {
+              customType: "orch-event",
+              content: `Plano ${planId}, item ${item.id}: PR #${pr.number} mergeada (tarefa ${task.task_id}). Lançando o próximo passo.`,
+              display: true,
+            },
+            { triggerTurn: false },
+          );
+          await advancePlans();
+        } catch {
+          continue;
+        }
+      }
+    }
+  };
   const checkPr = async (
     t: TaskRecord,
     source: string,
@@ -435,15 +511,20 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       prWatch.forget(t.task_id);
       const outcome = await orch.closeOutcome(t.task_id);
       const plan = planStore.markMerged(t.task_id).map((m) => `plano ${m.plan}, item ${m.item}`);
+      await advancePlans();
       const closed = outcome.closed ? "Fechei a aba do worker" : "A aba já não existia";
       const planLine = plan.length > 0 ? ` Atualizei ${plan.join("; ")}.` : "";
+      const headline = taskHeadline(t, source, `PR #${pr.number} mergeada`);
       pi.sendMessage(
         {
           customType: "orch-event",
-          content: `${taskHeadline(t, source, `PR #${pr.number} mergeada`)} ${closed}.${planLine} Confira se há próximo item no plano e diga ao usuário o que vem a seguir.`,
+          content:
+            plan.length > 0
+              ? `${headline} ${closed}.${planLine}`
+              : `${headline} ${closed}. Confira se há próximo passo e diga ao usuário.`,
           display: true,
         },
-        { triggerTurn: true },
+        { triggerTurn: plan.length === 0 },
       );
       return;
     }
@@ -513,6 +594,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         prChecked.set(t.task_id, Date.now());
         await checkPr(t, url, pr).catch(() => undefined);
       }
+      await reconcilePlans().catch(() => undefined);
     } catch {
       if (idleWatch.fail()) {
         pi.sendMessage(
@@ -904,26 +986,58 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     },
   });
 
-  const planStore = new PlanStore(join(defaultStateDir(), "plans"));
   pi.registerTool({
     name: "orch_plan_create",
     label: "orch plan create",
     description:
-      "Registra um plano entregue pelo usuário: id (minúsculas, hífen), título e a lista de itens, todos pendentes. Fica fora dos repositórios.",
+      "Registra um plano entregue pelo usuário, fora dos repositórios. Cada item é um título (manual) ou um objeto com `depends_on` (ids de itens anteriores) e `delegate` (especificação de lançamento: project_path, request, objective, mode, e opcionalmente role, model, source, branch). Itens com `delegate` são lançados sozinhos quando as dependências são concluídas; o orquestrador não precisa ser lembrado.",
     parameters: {
       type: "object",
       properties: {
         id: { type: "string" },
         title: { type: "string" },
-        items: { type: "array", items: { type: "string" } },
+        items: {
+          type: "array",
+          items: {
+            anyOf: [
+              { type: "string" },
+              {
+                type: "object",
+                properties: {
+                  title: { type: "string" },
+                  depends_on: { type: "array", items: { type: "string" } },
+                  delegate: {
+                    type: "object",
+                    properties: {
+                      project_path: { type: "string" },
+                      role: { type: "string" },
+                      request: { type: "string" },
+                      objective: { type: "string" },
+                      mode: { type: "string", enum: ["report", "direct-pr", "design"] },
+                      model: { type: "string" },
+                      source: { type: "string" },
+                      branch: { type: "string" },
+                    },
+                    required: ["project_path", "request", "objective", "mode"],
+                    additionalProperties: false,
+                  },
+                },
+                required: ["title"],
+                additionalProperties: false,
+              },
+            ],
+          },
+        },
       },
       required: ["id", "title", "items"],
       additionalProperties: false,
     },
-    async execute(_id: string, params: { id: string; title: string; items: string[] }) {
+    async execute(_id: string, raw: Record<string, unknown>) {
       assertWritable();
-      const plan = planStore.create(params.id, params.title, params.items);
-      return asText({ id: plan.id, items: plan.items.length });
+      const items = Array.isArray(raw.items) ? (raw.items as (string | ItemInput)[]) : [];
+      const plan = planStore.create(String(raw.id ?? ""), String(raw.title ?? ""), items);
+      const delegated = plan.items.filter((i) => i.delegate !== null).length;
+      return asText({ id: plan.id, items: plan.items.length, lancaveis: delegated });
     },
   });
 

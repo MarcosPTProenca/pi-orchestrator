@@ -4,12 +4,28 @@ import { join } from "node:path";
 export const ITEM_STATUSES = ["pending", "in_progress", "pr_open", "merged", "done", "blocked"] as const;
 export type ItemStatus = (typeof ITEM_STATUSES)[number];
 
+const MODES = ["report", "direct-pr", "design"] as const;
+
+interface PlanDelegate {
+  project_path: string;
+  role?: string;
+  request: string;
+  objective: string;
+  mode: string;
+  model?: string;
+  source?: string;
+  branch?: string;
+}
+
 export interface PlanItem {
   id: string;
   title: string;
   status: ItemStatus;
   task_id: string | null;
   pr: string | null;
+  depends_on: string[];
+  delegate: PlanDelegate | null;
+  error: string | null;
   updated_at: string;
 }
 
@@ -20,10 +36,31 @@ export interface Plan {
   items: PlanItem[];
 }
 
+export interface ItemInput {
+  title: string;
+  depends_on?: string[];
+  delegate?: PlanDelegate;
+}
+
 const ID = /^[a-z0-9][a-z0-9-]{0,62}$/;
+const DONE_FOR_DEPENDENCY: readonly ItemStatus[] = ["merged", "done"];
 
 function checkId(id: string, what: string): void {
   if (!ID.test(id)) throw new Error(`${what} inválido: use minúsculas, números e hífen (até 63 caracteres)`);
+}
+
+function checkDelegate(d: PlanDelegate, where: string): void {
+  for (const key of ["project_path", "request", "objective"] as const) {
+    if (typeof d[key] !== "string" || d[key].trim() === "") throw new Error(`${where}: delegate.${key} obrigatório`);
+  }
+  if (!(MODES as readonly string[]).includes(d.mode)) throw new Error(`${where}: delegate.mode inválido: ${d.mode}`);
+}
+
+function normalize(input: string | ItemInput, index: number): ItemInput {
+  if (typeof input === "string") return { title: input };
+  if (typeof input !== "object" || input === null || typeof input.title !== "string" || input.title.trim() === "")
+    throw new Error(`item ${index + 1} sem título`);
+  return input;
 }
 
 export class PlanStore {
@@ -45,18 +82,32 @@ export class PlanStore {
     renameSync(tmp, path);
   }
 
-  create(id: string, title: string, itemTitles: string[]): Plan {
+  create(id: string, title: string, rawItems: (string | ItemInput)[]): Plan {
     if (existsSync(this.file(id))) throw new Error(`plano ${id} já existe`);
-    if (itemTitles.length === 0) throw new Error("plano sem itens");
+    if (rawItems.length === 0) throw new Error("plano sem itens");
     const at = this.now();
-    const items: PlanItem[] = itemTitles.map((t, i) => ({
-      id: `${i + 1}`,
-      title: t,
-      status: "pending",
-      task_id: null,
-      pr: null,
-      updated_at: at,
-    }));
+    const ids = rawItems.map((_, i) => `${i + 1}`);
+    const items: PlanItem[] = rawItems.map((raw, i) => {
+      const input = normalize(raw, i);
+      const depends = input.depends_on ?? [];
+      for (const dep of depends) {
+        const at_ = ids.indexOf(dep);
+        if (at_ === -1) throw new Error(`item ${ids[i]}: depende de ${dep}, que não existe`);
+        if (at_ >= i) throw new Error(`item ${ids[i]}: só pode depender de itens anteriores (${dep})`);
+      }
+      if (input.delegate) checkDelegate(input.delegate, `item ${ids[i]}`);
+      return {
+        id: ids[i],
+        title: input.title,
+        status: "pending",
+        task_id: null,
+        pr: null,
+        depends_on: depends,
+        delegate: input.delegate ?? null,
+        error: null,
+        updated_at: at,
+      };
+    });
     const plan: Plan = { id, title, created_at: at, items };
     this.write(plan);
     return plan;
@@ -65,7 +116,13 @@ export class PlanStore {
   show(id: string): Plan {
     const path = this.file(id);
     if (!existsSync(path)) throw new Error(`plano ${id} não existe`);
-    return JSON.parse(readFileSync(path, "utf8")) as Plan;
+    const plan = JSON.parse(readFileSync(path, "utf8")) as Plan;
+    for (const item of plan.items) {
+      item.depends_on ??= [];
+      item.delegate ??= null;
+      item.error ??= null;
+    }
+    return plan;
   }
 
   list(): string[] {
@@ -74,6 +131,13 @@ export class PlanStore {
       .filter((f) => f.endsWith(".json"))
       .map((f) => f.slice(0, -5))
       .sort();
+  }
+
+  ready(plan: Plan): PlanItem[] {
+    const done = new Set(plan.items.filter((i) => DONE_FOR_DEPENDENCY.includes(i.status)).map((i) => i.id));
+    return plan.items.filter(
+      (i) => i.status === "pending" && i.delegate !== null && i.depends_on.every((d) => done.has(d)),
+    );
   }
 
   update(planId: string, itemId: string, fields: { status?: ItemStatus; task_id?: string; pr?: string }): PlanItem {
@@ -89,6 +153,33 @@ export class PlanStore {
     if (fields.status !== undefined) item.status = fields.status;
     if (fields.task_id !== undefined) item.task_id = fields.task_id;
     if (fields.pr !== undefined) item.pr = fields.pr;
+    item.updated_at = this.now();
+    this.write(plan);
+    return item;
+  }
+
+  reserve(planId: string, itemId: string): PlanItem {
+    const plan = this.show(planId);
+    const item = plan.items.find((i) => i.id === itemId);
+    if (!item) throw new Error(`item ${itemId} não existe no plano ${planId}`);
+    if (item.status !== "pending" || item.delegate === null)
+      throw new Error(`item ${itemId} não está disponível para reserva`);
+    item.status = "in_progress";
+    item.updated_at = this.now();
+    this.write(plan);
+    return item;
+  }
+
+  launched(planId: string, itemId: string, taskId: string): PlanItem {
+    return this.update(planId, itemId, { status: "in_progress", task_id: taskId });
+  }
+
+  blocked(planId: string, itemId: string, error: string): PlanItem {
+    const plan = this.show(planId);
+    const item = plan.items.find((i) => i.id === itemId);
+    if (!item) throw new Error(`item ${itemId} não existe no plano ${planId}`);
+    item.status = "blocked";
+    item.error = error;
     item.updated_at = this.now();
     this.write(plan);
     return item;
