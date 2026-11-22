@@ -82,3 +82,116 @@ test("task_id e pr fora do formato são recusados antes de gravar", () => {
     "https://github.com/o/r/pull/172",
   );
 });
+
+const spec = { project_path: "/repo", request: "faça X", objective: "X feito", mode: "direct-pr" as const };
+
+test("item com especificação é lançável só depois que as dependências são concluídas", () => {
+  const s = fresh();
+  s.create("fase", "Fase", [
+    "manual",
+    { title: "A", delegate: spec },
+    { title: "B", depends_on: ["2"], delegate: spec },
+  ]);
+  let plan = s.show("fase");
+  assert.deepEqual(
+    s.ready(plan).map((i) => i.id),
+    ["2"],
+    "A é lançável; B espera A",
+  );
+  s.launched("fase", "2", "t-aaaaaaaa");
+  plan = s.show("fase");
+  assert.deepEqual(s.ready(plan), [], "A em andamento não libera B");
+  s.markMerged("t-aaaaaaaa");
+  plan = s.show("fase");
+  assert.deepEqual(
+    s.ready(plan).map((i) => i.id),
+    ["3"],
+    "A mergeada libera B",
+  );
+});
+
+test("item só de título nunca é lançável automaticamente", () => {
+  const s = fresh();
+  s.create("manual", "Manual", ["fazer à mão"]);
+  assert.deepEqual(s.ready(s.show("manual")), []);
+});
+
+test("dependência de item futuro ou inexistente é recusada", () => {
+  const s = fresh();
+  assert.throws(
+    () => s.create("p1", "P", [{ title: "A", depends_on: ["2"], delegate: spec }, { title: "B" }]),
+    /só pode depender de itens anteriores/,
+  );
+  assert.throws(() => s.create("p2", "P", [{ title: "A", depends_on: ["9"] }]), /não existe/);
+});
+
+test("especificação incompleta ou modo inválido é recusado antes de gravar", () => {
+  const s = fresh();
+  assert.throws(
+    () => s.create("p3", "P", [{ title: "A", delegate: { ...spec, objective: "" } }]),
+    /delegate.objective obrigatório/,
+  );
+  assert.throws(
+    () => s.create("p4", "P", [{ title: "A", delegate: { ...spec, mode: "yolo" } }]),
+    /delegate.mode inválido/,
+  );
+  assert.deepEqual(s.list(), []);
+});
+
+test("item que não pôde ser lançado fica bloqueado com o motivo, e não é lançado de novo", () => {
+  const s = fresh();
+  s.create("bl", "B", [{ title: "A", delegate: spec }]);
+  s.blocked("bl", "1", "modelo indisponível");
+  const plan = s.show("bl");
+  assert.equal(plan.items[0]!.status, "blocked");
+  assert.equal(plan.items[0]!.error, "modelo indisponível");
+  assert.deepEqual(s.ready(plan), []);
+});
+
+test("plano gravado antes dos campos novos continua legível e sem itens lançáveis", () => {
+  const dir = mkdtempSync(join(tmpdir(), "plans-"));
+  const old = {
+    id: "antigo",
+    title: "Antigo",
+    created_at: "x",
+    items: [{ id: "1", title: "a", status: "pending", task_id: null, pr: null, updated_at: "x" }],
+  };
+  writeFileSync(join(dir, "antigo.json"), JSON.stringify(old));
+  const s = new PlanStore(dir);
+  const plan = s.show("antigo");
+  assert.deepEqual(plan.items[0]!.depends_on, []);
+  assert.equal(plan.items[0]!.delegate, null);
+  assert.deepEqual(s.ready(plan), []);
+});
+
+test("reserva impede o segundo lançamento do mesmo item", () => {
+  const s = fresh();
+  s.create("res", "R", [{ title: "A", delegate: spec }]);
+  s.reserve("res", "1");
+  assert.equal(s.show("res").items[0]!.status, "in_progress");
+  assert.throws(() => s.reserve("res", "1"), /não está disponível/);
+  assert.deepEqual(s.ready(s.show("res")), [], "item reservado não aparece como lançável");
+});
+
+test("item sem PR (modo report) concluído libera os dependentes", () => {
+  const s = fresh();
+  s.create("rep", "R", [
+    { title: "A", delegate: { ...spec, mode: "report" } },
+    { title: "B", depends_on: ["1"], delegate: spec },
+  ]);
+  s.launched("rep", "1", "t-bbbbbbbb");
+  assert.deepEqual(s.ready(s.show("rep")), []);
+  assert.deepEqual(s.markTaskDone("t-bbbbbbbb"), [{ plan: "rep", item: "1" }]);
+  assert.deepEqual(
+    s.ready(s.show("rep")).map((i) => i.id),
+    ["2"],
+  );
+});
+
+test("depends_on que não é lista de ids é recusado", () => {
+  const s = fresh();
+  assert.throws(
+    () => s.create("dep", "D", [{ title: "A", depends_on: "1" as unknown as string[] }]),
+    /depends_on deve ser lista/,
+  );
+});
