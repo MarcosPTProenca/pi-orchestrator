@@ -667,7 +667,7 @@ export class Orchestrator {
     return true;
   }
 
-  async inbox(opts: { consume?: boolean; limit?: number } = {}): Promise<WatchEvent[]> {
+  async inbox(opts: { consume?: boolean } = {}): Promise<WatchEvent[]> {
     return (await this.inboxPage(opts)).items;
   }
 
