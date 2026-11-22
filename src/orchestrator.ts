@@ -667,18 +667,23 @@ export class Orchestrator {
     return true;
   }
 
-  async inbox(opts: { consume?: boolean } = {}): Promise<WatchEvent[]> {
+  async inbox(opts: { consume?: boolean; limit?: number } = {}): Promise<WatchEvent[]> {
+    return (await this.inboxPage(opts)).items;
+  }
+
+  async inboxPage(opts: { consume?: boolean; limit?: number } = {}): Promise<{ items: WatchEvent[]; omitted: number }> {
     await this.refreshAll();
     const consume = opts.consume !== false;
-    const items: WatchEvent[] = [];
-    for (const t of this.owned()) {
-      if (t.status === "blocked") items.push(this.toEvent(t));
-      else if (!t.notified && !isActive(t.status) && t.status !== "cancelled") {
-        items.push(this.toEvent(t));
-        if (consume) this.takeNotice(t.task_id);
-      }
-    }
-    return items;
+    const pending = this.owned().filter(
+      (t) => t.status === "blocked" || (!t.notified && !isActive(t.status) && t.status !== "cancelled"),
+    );
+    const ordered = [
+      ...pending.filter((t) => t.status === "blocked"),
+      ...pending.filter((t) => t.status !== "blocked"),
+    ];
+    const shown = ordered.slice(0, opts.limit ?? ordered.length);
+    for (const t of shown) if (consume && t.status !== "blocked") this.takeNotice(t.task_id);
+    return { items: shown.map((t) => this.toEvent(t)), omitted: ordered.length - shown.length };
   }
 
   private takePending(taskId: string): WatchEvent | null {

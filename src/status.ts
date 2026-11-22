@@ -4,6 +4,13 @@ import { cacheHitRatio } from "./usage.ts";
 export const DEFAULT_OLD_HOURS = 24;
 const RESULT_MAX = 200;
 const COMPACT_RESULT_MAX = 120;
+const LINKS_MAX = 5;
+
+export function linksIn(text: string | null): string[] {
+  if (!text) return [];
+  const found = text.match(/https?:\/\/[^\s)\]>"']+/g) ?? [];
+  return [...new Set(found.map((u) => u.replace(/[.,;:]+$/, "")))].slice(0, LINKS_MAX);
+}
 export const COMPACT_TERMINAL_LIMIT = 10;
 
 export function oldHoursFrom(env: string | undefined): number | undefined {
@@ -104,6 +111,7 @@ interface CompactTask {
   question: string | null;
   result: string | null;
   artifacts: string[];
+  links: string[];
   verification: TaskRecord["verification"];
   tokens: number | null;
   cost_usd: number | null;
@@ -138,6 +146,7 @@ export function compactStatus(groups: StatusGroup[]): CompactGroup[] {
         result:
           r.result && r.result.length > COMPACT_RESULT_MAX ? `${r.result.slice(0, COMPACT_RESULT_MAX - 1)}…` : r.result,
         artifacts: r.artifacts,
+        links: linksIn(r.result),
         verification: r.verification,
         tokens: r.tokens,
         cost_usd: r.cost_usd,
