@@ -743,7 +743,9 @@ export class Orchestrator {
     if (t.status === "blocked") return this.answerLocked(taskId, text);
     if (t.status === "done") {
       const pane = (await this.d.herdr.panes()).find((p) => p.pane_id === t.pane_id && p.terminal_id === t.terminal_id);
-      if (!pane || pane.agent !== "pi" || pane.agent_status !== "idle")
+      // Herdr reporta "done" no painel de quem já terminou a vez e espera a próxima mensagem; "idle" é o mesmo estado.
+      const waiting = pane?.agent_status === "idle" || pane?.agent_status === "done";
+      if (!pane || pane.agent !== "pi" || !waiting)
         throw new Error("o worker não está disponível e ocioso; nada foi enviado");
       if (t.delegate_input) this.assertNotActive(t.delegate_input as unknown as DelegateInput);
       const report = this.reportPath(t);
