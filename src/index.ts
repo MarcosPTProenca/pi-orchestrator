@@ -29,6 +29,7 @@ import { Store, defaultStateDir } from "./store.ts";
 import { PlanStore, ITEM_STATUSES, type ItemInput, type ItemStatus } from "./plans.ts";
 import { EVENT_POLICY, statusKind, wakesLlm } from "./event-policy.ts";
 import { orchestratorUsage } from "./usage.ts";
+import { summarizeUsage } from "./usage-report.ts";
 import { NoticeBatcher } from "./notices.ts";
 import { notificationFor, notifyArgs, notifyEnabled } from "./notify.ts";
 import { buildStatus, compactStatus, linksIn, oldHoursFrom } from "./status.ts";
@@ -879,7 +880,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     name: "orch_status",
     label: "orch status",
     description:
-      "Resumo compacto por projeto: contagem por estado, tarefas abertas (ativas ou bloqueadas) inteiras e até 10 terminais recentes por projeto (omitted_terminal informa quantas ficaram de fora). Resultado truncado a 120 caracteres; links traz as URLs do texto completo; para o texto completo, de uma tarefa, use task_id; detail=true devolve todas as linhas completas. Canceladas e terminais antigas (mais de 24 h) ficam de fora; all=true inclui todas. Não consome avisos do orch_inbox.",
+      "Resumo compacto por projeto: contagem por estado, tarefas abertas (ativas ou bloqueadas, bloqueadas primeiro) até 50 por projeto (omitted_open informa quantas ficaram de fora) e até 10 terminais recentes por projeto (omitted_terminal informa quantas ficaram de fora). Resultado truncado a 120 caracteres; links traz as URLs do texto completo; para o texto completo, de uma tarefa, use task_id; detail=true devolve todas as linhas completas. Canceladas e terminais antigas (mais de 24 h) ficam de fora; all=true inclui todas. Não consome avisos do orch_inbox.",
     parameters: {
       type: "object",
       properties: {
@@ -894,11 +895,10 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       },
       additionalProperties: false,
     },
-    async execute(
+    execute(
       _id: string,
       params: { all?: boolean; project_id?: string; task_id?: string; detail?: boolean; usage?: boolean },
     ) {
-      if (owner) await orch.refreshAll();
       const detail = params.detail === true || params.task_id !== undefined;
       const groups = buildStatus(orch.list(), Date.now(), {
         all: params.all === true || params.task_id !== undefined,
@@ -912,7 +912,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         ...g,
         tasks: g.tasks.map((r) => ({ ...r, deadline_at: formatBrasilia(r.deadline_at) })),
       }));
-      return asText(params.usage === true ? { projects, orquestrador: orchUsage } : projects);
+      return Promise.resolve(asText(params.usage === true ? { projects, orquestrador: orchUsage } : projects));
     },
   });
 
@@ -1136,6 +1136,17 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         tab_closed: outcome.closed,
         ...(outcome.reason ? { reason: outcome.reason } : {}),
       });
+    },
+  });
+
+  pi.registerTool({
+    name: "orch_usage",
+    label: "orch usage",
+    description:
+      "Mostra o uso de tokens e custo das tarefas desta sessão: totais, taxa de acerto de cache (denominador: entrada + leitura de cache + escrita de cache), custo informado pelo provedor separado do estimado, e totais por modelo. Somente leitura.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    execute() {
+      return Promise.resolve(asText(summarizeUsage(orch.owned().map((t) => ({ model: t.model, usage: t.usage })))));
     },
   });
 

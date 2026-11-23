@@ -12,6 +12,8 @@ export function linksIn(text: string | null): string[] {
   return [...new Set(found.map((u) => u.replace(/[.,;:]+$/, "")))].slice(0, LINKS_MAX);
 }
 export const COMPACT_TERMINAL_LIMIT = 10;
+// shortcut: teto fixo por projeto; acima disso a saída perde tarefas abertas (omitted_open), upgrade é paginar
+export const COMPACT_OPEN_LIMIT = 50;
 
 export function oldHoursFrom(env: string | undefined): number | undefined {
   if (env === undefined || env.trim() === "") return undefined;
@@ -129,6 +131,7 @@ export interface CompactGroup {
   project_id: string;
   counts: Record<string, number>;
   tasks: CompactTask[];
+  omitted_open: number;
   omitted_terminal: number;
 }
 
@@ -136,11 +139,17 @@ export function compactStatus(groups: StatusGroup[]): CompactGroup[] {
   return groups.map((g) => {
     const counts: Record<string, number> = {};
     for (const r of g.tasks) counts[r.status] = (counts[r.status] ?? 0) + 1;
-    const open = g.tasks.filter((r) => isActive(r.status) || r.status === "blocked");
+    const open = g.tasks
+      .filter((r) => isActive(r.status) || r.status === "blocked")
+      .sort(
+        (a, b) =>
+          Number(b.status === "blocked") - Number(a.status === "blocked") ||
+          Date.parse(b.updated_at) - Date.parse(a.updated_at),
+      );
     const terminal = g.tasks
       .filter((r) => !isActive(r.status) && r.status !== "blocked")
       .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
-    const shown = [...open, ...terminal.slice(0, COMPACT_TERMINAL_LIMIT)];
+    const shown = [...open.slice(0, COMPACT_OPEN_LIMIT), ...terminal.slice(0, COMPACT_TERMINAL_LIMIT)];
     return {
       project_id: g.project_id,
       counts,
@@ -159,6 +168,7 @@ export function compactStatus(groups: StatusGroup[]): CompactGroup[] {
         cost_usd: r.cost_usd,
         deadline_at: r.deadline_at,
       })),
+      omitted_open: Math.max(0, open.length - COMPACT_OPEN_LIMIT),
       omitted_terminal: Math.max(0, terminal.length - COMPACT_TERMINAL_LIMIT),
     };
   });
