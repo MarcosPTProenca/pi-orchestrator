@@ -10,6 +10,7 @@
     "quality:baseline": "node scripts/quality.mjs --update",
     "quality:test": "node --test scripts/quality-lib.test.mjs",
     "eval:approval": "node --import tsx evals/approval-flow.ts",
+    "eval:pipeline": "node --import tsx evals/pipeline-run.ts",
     "usage:real-pi": "node --import tsx scripts/usage-real-pi.ts",
     "usage:report": "node --import tsx scripts/usage-report.ts",
     "lint": "eslint .",
