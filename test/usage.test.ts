@@ -8,6 +8,7 @@ import {
   summarizeTurns,
   mergeTurnSummaries,
   turnsFromState,
+  orchestratorUsage,
 } from "../src/usage.ts";
 
 const asst = (ts: number, input: number, output: number, cacheRead = 0, cacheWrite = 0) => ({
@@ -182,7 +183,15 @@ test("registra um turno por resposta nova com duração, sucesso, modelo, tokens
   };
   const s = addNewUsage(newUsage(), [turnMsg(1, { durationMs: 1200, stopReason: "stop", usage })], []);
   assert.deepEqual(s.turns, [
-    { provider: "anthropic", model: "claude-haiku-5-5", durationMs: 1200, ok: true, totalTokens: 15, cost: 0.002 },
+    {
+      trigger: "indisponivel",
+      provider: "anthropic",
+      model: "claude-haiku-5-5",
+      durationMs: 1200,
+      ok: true,
+      totalTokens: 15,
+      cost: 0.002,
+    },
   ]);
 });
 
@@ -255,6 +264,7 @@ test("resume turnos: falhas, desconhecidos, duração média sobre turnos com du
     duration_samples: 2,
     cost: 0,
     by_model: { a: 2, b: 1 },
+    by_trigger: { indisponivel: 3 },
   });
 });
 
@@ -279,4 +289,94 @@ test("tarefa nova começa com lista vazia e estado com lista mantém a lista", (
   assert.deepEqual(turnsFromState({ total: newUsage(), counted: [] }), []);
   const t = [{ provider: null, model: null, durationMs: 1, ok: true, totalTokens: 1, cost: 0 }];
   assert.equal(turnsFromState({ total: newUsage(), counted: ["r:x"], turns: t }), t);
+});
+
+test("gatilho do turno: mensagem de usuário, ferramenta, extensão ou indisponível quando não há anterior", () => {
+  const s = addNewUsage(
+    newUsage(),
+    [
+      { role: "assistant", responseId: "a0", timestamp: 0, usage: { totalTokens: 1 } },
+      { role: "user", content: "oi", timestamp: 1 },
+      { role: "assistant", responseId: "a1", timestamp: 2, usage: { totalTokens: 1 } },
+      { role: "toolResult", timestamp: 3 },
+      { role: "assistant", responseId: "a2", timestamp: 4, usage: { totalTokens: 1 } },
+      { role: "custom", customType: "orch-event", timestamp: 5 },
+      { role: "assistant", responseId: "a3", timestamp: 6, usage: { totalTokens: 1 } },
+    ],
+    [],
+  );
+  assert.deepEqual(
+    s.turns!.map((t) => t.trigger),
+    ["indisponivel", "mensagem-de-usuario", "ferramenta", "extensao:orch-event"],
+  );
+});
+
+test("resumo de turnos conta gatilhos; turno sem gatilho gravado conta como indisponível", () => {
+  const sum = summarizeTurns([
+    { provider: "p", model: "a", durationMs: 1, ok: true, totalTokens: 1, cost: 0, trigger: "ferramenta" },
+    { provider: "p", model: "a", durationMs: 1, ok: true, totalTokens: 1, cost: 0 },
+  ]);
+  assert.deepEqual(sum.by_trigger, { ferramenta: 1, indisponivel: 1 });
+});
+
+test("uso da sessão do orquestrador soma mensagens, extensões e aquecimento; dedup por resposta; origem explícita indisponível", () => {
+  const entries = [
+    { type: "message", message: { role: "user", content: "status?", timestamp: 1 } },
+    {
+      type: "message",
+      message: {
+        role: "assistant",
+        responseId: "r1",
+        timestamp: 2,
+        provider: "p",
+        model: "m",
+        durationMs: 40,
+        stopReason: "stop",
+        usage: { input: 10, output: 2, cacheRead: 5, cacheWrite: 0, totalTokens: 17, cost: { total: 0.01 } },
+      },
+    },
+    {
+      type: "message",
+      message: {
+        role: "assistant",
+        responseId: "r1",
+        timestamp: 2,
+        provider: "p",
+        model: "m",
+        durationMs: 40,
+        stopReason: "stop",
+        usage: { input: 10, output: 2, cacheRead: 5, cacheWrite: 0, totalTokens: 17, cost: { total: 0.01 } },
+      },
+    },
+    { type: "custom_message", customType: "orch-event", content: "aviso", display: false },
+    {
+      type: "message",
+      message: {
+        role: "assistant",
+        responseId: "r2",
+        timestamp: 3,
+        provider: "p",
+        model: "m",
+        stopReason: "error",
+        usage: { input: 1, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 1, cost: { total: 0 } },
+      },
+    },
+    {
+      type: "usage",
+      kind: "cache_warm",
+      id: "w1",
+      provider: "p",
+      model: "m",
+      usage: { input: 3, output: 0, cacheRead: 100, cacheWrite: 0, totalTokens: 103, cost: { total: 0.002 } },
+    },
+  ];
+  const r = orchestratorUsage(entries);
+  assert.equal(r.origin, "indisponivel");
+  assert.equal(r.totalTokens, 18);
+  assert.equal(r.input, 11);
+  assert.equal(r.cacheWarmCost, 0.002);
+  assert.equal(r.turns.turns, 2);
+  assert.equal(r.turns.failed, 1);
+  assert.deepEqual(r.turns.by_trigger, { "mensagem-de-usuario": 1, "extensao:orch-event": 1 });
+  assert.equal(orchestratorUsage([]).turns.turns, 0);
 });

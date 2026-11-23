@@ -12,7 +12,10 @@ export function newUsage(): Usage {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: 0, costFromProvider: false };
 }
 
+export const TRIGGER_UNAVAILABLE = "indisponivel";
+
 export interface TurnRecord {
+  trigger?: string;
   provider: string | null;
   model: string | null;
   durationMs: number | null;
@@ -31,6 +34,7 @@ export interface UsageState {
 
 interface UsageMessage {
   role?: string;
+  customType?: string;
   timestamp?: number;
   responseId?: string;
   provider?: string;
@@ -52,10 +56,16 @@ export function addNewUsage(
   const out: Usage = { ...newUsage(), ...total };
   const ids = [...counted];
   const turns = [...prevTurns];
+  let trigger = TRIGGER_UNAVAILABLE;
   let providerParts = total.costFromProvider === true || total.cost === 0;
   let anyCost = total.cost > 0;
   for (const m of messages as UsageMessage[]) {
+    if (m?.role === "user") trigger = "mensagem-de-usuario";
+    else if (m?.role === "toolResult") trigger = "ferramenta";
+    else if (m?.role === "custom") trigger = `extensao:${m.customType ?? "desconhecida"}`;
     if (m?.role !== "assistant") continue;
+    const turnTrigger = trigger;
+    trigger = TRIGGER_UNAVAILABLE;
     const key =
       typeof m.responseId === "string" && m.responseId !== ""
         ? `r:${m.responseId}`
@@ -80,6 +90,7 @@ export function addNewUsage(
       providerParts = providerParts && u.cost.totalFromProvider === true;
     }
     turns.push({
+      trigger: turnTrigger,
       provider: m.provider ?? null,
       model: m.model ?? null,
       durationMs: typeof m.durationMs === "number" ? m.durationMs : null,
@@ -105,6 +116,49 @@ export interface TurnSummary {
   duration_samples: number;
   cost: number;
   by_model: Record<string, number>;
+  by_trigger: Record<string, number>;
+}
+
+export function entriesToMessages(entries: unknown[]): unknown[] {
+  return (entries as { type?: string; message?: unknown; customType?: string }[]).flatMap((e) => {
+    if (e?.type === "message") return [e.message];
+    if (e?.type === "custom_message") return [{ role: "custom", customType: e.customType }];
+    return [];
+  });
+}
+
+function sessionUsage(entries: unknown[]): {
+  total: Usage;
+  turns: TurnRecord[];
+  warm: Usage;
+} {
+  const state = addNewUsage(newUsage(), entriesToMessages(entries), []);
+  return { total: state.total, turns: state.turns ?? [], warm: addCacheWarmUsage({}, entries).warm };
+}
+
+export function orchestratorUsage(entries: unknown[]): {
+  origin: typeof TRIGGER_UNAVAILABLE;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  totalTokens: number;
+  cost: number;
+  cacheWarmCost: number;
+  turns: TurnSummary;
+} {
+  const r = sessionUsage(entries);
+  return {
+    origin: TRIGGER_UNAVAILABLE,
+    input: r.total.input,
+    output: r.total.output,
+    cacheRead: r.total.cacheRead,
+    cacheWrite: r.total.cacheWrite,
+    totalTokens: r.total.totalTokens,
+    cost: r.total.cost,
+    cacheWarmCost: r.warm.cost,
+    turns: summarizeTurns(r.turns),
+  };
 }
 
 export function summarizeTurns(turns: TurnRecord[]): TurnSummary {
@@ -116,6 +170,7 @@ export function summarizeTurns(turns: TurnRecord[]): TurnSummary {
     duration_samples: 0,
     cost: 0,
     by_model: {},
+    by_trigger: {},
   };
   for (const t of turns) {
     s.turns++;
@@ -128,6 +183,8 @@ export function summarizeTurns(turns: TurnRecord[]): TurnSummary {
     }
     const key = t.model ?? "desconhecido";
     s.by_model[key] = (s.by_model[key] ?? 0) + 1;
+    const trig = t.trigger ?? TRIGGER_UNAVAILABLE;
+    s.by_trigger[trig] = (s.by_trigger[trig] ?? 0) + 1;
   }
   return s;
 }
@@ -143,8 +200,10 @@ export function mergeTurnSummaries(list: (TurnSummary | null | undefined)[]): Tu
     duration_samples: 0,
     cost: 0,
     by_model: {},
+    by_trigger: {},
   };
   for (const s of present) {
+    for (const [k, v] of Object.entries(s.by_trigger ?? {})) m.by_trigger[k] = (m.by_trigger[k] ?? 0) + v;
     m.cost += s.cost;
     m.turns += s.turns;
     m.failed += s.failed;

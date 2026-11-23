@@ -28,6 +28,7 @@ import { execFile } from "node:child_process";
 import { Store, defaultStateDir } from "./store.ts";
 import { PlanStore, ITEM_STATUSES, type ItemInput, type ItemStatus } from "./plans.ts";
 import { EVENT_POLICY, statusKind, wakesLlm } from "./event-policy.ts";
+import { orchestratorUsage } from "./usage.ts";
 import { NoticeBatcher } from "./notices.ts";
 import { notificationFor, notifyArgs, notifyEnabled } from "./notify.ts";
 import { buildStatus, compactStatus, linksIn, oldHoursFrom } from "./status.ts";
@@ -649,6 +650,14 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     return task.task_id;
   };
 
+  let orchUsage: ReturnType<typeof orchestratorUsage> | null = null;
+  pi.on("session_start", (_event, ctx) => {
+    orchUsage = orchestratorUsage(ctx.sessionManager.getEntries());
+  });
+  pi.on("agent_end", (_event, ctx) => {
+    orchUsage = orchestratorUsage(ctx.sessionManager.getEntries());
+  });
+
   pi.on("session_start", async (_event, ctx) => {
     if (dryRun) return;
     const key = scopeKey(ctx.cwd);
@@ -878,10 +887,17 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         project_id: { type: "string", description: "Restringe a um projeto." },
         task_id: { type: "string", description: "Uma tarefa, com resultado completo e todos os campos." },
         detail: { type: "boolean", description: "Linhas completas (sem compactar) de todas as tarefas filtradas." },
+        usage: {
+          type: "boolean",
+          description: "Inclui o uso de tokens e turnos da sessão do orquestrador (origem do turno indisponível).",
+        },
       },
       additionalProperties: false,
     },
-    async execute(_id: string, params: { all?: boolean; project_id?: string; task_id?: string; detail?: boolean }) {
+    async execute(
+      _id: string,
+      params: { all?: boolean; project_id?: string; task_id?: string; detail?: boolean; usage?: boolean },
+    ) {
       if (owner) await orch.refreshAll();
       const detail = params.detail === true || params.task_id !== undefined;
       const groups = buildStatus(orch.list(), Date.now(), {
@@ -892,9 +908,11 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         fullResult: detail,
       });
       const view = detail ? groups : compactStatus(groups);
-      return asText(
-        view.map((g) => ({ ...g, tasks: g.tasks.map((r) => ({ ...r, deadline_at: formatBrasilia(r.deadline_at) })) })),
-      );
+      const projects = view.map((g) => ({
+        ...g,
+        tasks: g.tasks.map((r) => ({ ...r, deadline_at: formatBrasilia(r.deadline_at) })),
+      }));
+      return asText(params.usage === true ? { projects, orquestrador: orchUsage } : projects);
     },
   });
 

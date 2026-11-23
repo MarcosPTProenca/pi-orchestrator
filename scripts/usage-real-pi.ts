@@ -13,7 +13,15 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { addNewUsage, newUsage, summarizeTurns, type Usage, type UsageState } from "../src/usage.ts";
+import {
+  addNewUsage,
+  entriesToMessages,
+  newUsage,
+  orchestratorUsage,
+  summarizeTurns,
+  type Usage,
+  type UsageState,
+} from "../src/usage.ts";
 
 function run(
   cmd: string,
@@ -203,7 +211,8 @@ async function main(): Promise<void> {
   };
 
   const steps: Record<string, unknown>[] = [];
-  const log = async (label: string, args: string[]) => steps.push({ step: label, ...(await pi(args)) });
+  const log = async (label: string, args: string[], env: Record<string, string> = {}) =>
+    steps.push({ step: label, ...(await pi(args, env)) });
 
   await log("A1 status (sessão nova)", ["-p", "status?"]);
   const fileA = readdirSync(sessionDir).find((f) => f.endsWith(".jsonl"));
@@ -259,23 +268,33 @@ async function main(): Promise<void> {
     ...summarizeTurns(workerUsage?.turns ?? []),
   };
 
+  const orchStateDir = join(root, "orch-state");
+  mkdirSync(orchStateDir);
+  const orchExt = fileURLToPath(new URL("../src/index.ts", import.meta.url));
+  const orchEnv = { PI_ORCH_DRY_RUN: "1", PI_ORCH_STATE_DIR: orchStateDir };
+  const beforeOrch = new Set(files0());
+  await log("E1 orquestrador: consulta", ["-e", orchExt, "-p", "status?"], orchEnv);
+  const fileE = files0().find((f) => !beforeOrch.has(f));
+  if (!fileE) throw new Error("sessão do orquestrador não foi criada");
+  const pathE = join(sessionDir, fileE);
+  await log("E2 orquestrador: continuação", ["-e", orchExt, "--session", pathE, "-p", "continua"], orchEnv);
+  const orchEntries = readFileSync(pathE, "utf8")
+    .split("\n")
+    .filter((l) => l.trim() !== "")
+    .map((l) => JSON.parse(l) as unknown);
+  const orchestrator = orchestratorUsage(orchEntries);
+
   server.close();
 
   const files = readdirSync(sessionDir).filter((f) => f.endsWith(".jsonl"));
   const perFile = files.map((f) => ({ file: f, rows: readAssistants(join(sessionDir, f)) }));
   let state: UsageState = { total: newUsage(), counted: [], turns: [] };
   for (const pf of perFile) {
-    const msgs = pf.rows.map((r) => ({
-      role: "assistant",
-      responseId: r.responseId,
-      timestamp: r.timestamp,
-      provider: r.provider,
-      model: r.model,
-      durationMs: r.durationMs,
-      stopReason: r.stopReason,
-      usage: r.usage,
-    }));
-    state = addNewUsage(state.total, msgs, state.counted, state.turns ?? []);
+    const entries = readFileSync(join(sessionDir, pf.file), "utf8")
+      .split("\n")
+      .filter((l) => l.trim() !== "")
+      .map((l) => JSON.parse(l) as unknown);
+    state = addNewUsage(state.total, entriesToMessages(entries), state.counted, state.turns ?? []);
   }
   const naive = perFile.flatMap((pf) => pf.rows);
   const uniq = new Map<string, AssistantRow>();
@@ -302,6 +321,7 @@ async function main(): Promise<void> {
     turns: summarizeTurns(state.turns ?? []),
     idle,
     delegation,
+    orchestrator,
   };
   const text = JSON.stringify(result, null, 2);
   console.log(text);
