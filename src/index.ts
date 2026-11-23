@@ -882,7 +882,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       additionalProperties: false,
     },
     async execute(_id: string, params: { all?: boolean; project_id?: string; task_id?: string; detail?: boolean }) {
-      if (owner) await orch.refreshAll();
+      // leitura pura: sem refreshAll, que grava relatório, prazo e estado terminal; o sweep (PI_ORCH_SWEEP_MS, 20 s) atualiza
       const detail = params.detail === true || params.task_id !== undefined;
       const groups = buildStatus(orch.list(), Date.now(), {
         all: params.all === true || params.task_id !== undefined,
