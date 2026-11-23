@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validateReport, reportKey } from "../src/contract.ts";
@@ -892,6 +892,19 @@ test("uso de tokens do worker (usage.json) entra no registro da tarefa ao atuali
   );
   await h.orch.refresh(t.task_id);
   assert.equal(h.orch.get(t.task_id).usage?.totalTokens, 135);
+});
+
+test("turnos de worker real (usage.json gravado por worker-ext) entram no registro da tarefa em execução", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  copyFileSync("test/fixtures/worker-turnos/usage.json", join(t.task_dir, "usage.json"));
+  await h.orch.refresh(t.task_id);
+  const turns = h.orch.get(t.task_id).usage?.turns;
+  assert.equal(h.orch.get(t.task_id).status, "running");
+  assert.equal(turns?.turns, 5);
+  assert.equal(turns?.failed, 1);
+  assert.equal(turns?.by_trigger["ferramenta"], 4);
+  assert.equal(turns?.by_trigger["mensagem-de-usuario"], 1);
 });
 
 test("release s\u00f3 devolve worktree de tarefa terminal e recusa tarefa ativa", async () => {

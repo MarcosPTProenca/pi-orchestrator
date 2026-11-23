@@ -113,6 +113,7 @@ Os números vêm do `usage` que o próprio Pi grava em cada mensagem de assistan
 - Limitação observada: com extensões ativas que injetam mensagens customizadas, o Pi não arma o aquecimento. A verificação de identidade das mensagens (`isCurrent`, `sdk.js`) falha logo após o turno, porque a mensagem customizada é recriada na reconstrução do contexto. Em `claude-bridge` (custo reportado zero) o aquecimento fica desativado por custo indisponível.
 - Origem do turno (usuário, automático, retry): não disponível. As mensagens de usuário do Pi têm só `role`, `content` e `timestamp`; o orquestrador não tenta inferir a origem.
 - Gatilho observado por turno (`trigger`): `mensagem-de-usuario` (mensagem de usuário anterior), `ferramenta` (resultado de ferramenta anterior), `extensao:<customType>` (mensagem injetada por extensão, entrada `custom_message`) ou `indisponivel`. Não é a origem: o gatilho diz o que veio antes, não por que o turno foi pedido.
+- Turnos por tarefa: a visão compacta do `orch_status` traz `turns` (contagem, falhas, duração e gatilhos) para cada tarefa, inclusive em execução. Atualiza a cada fim de turno do worker, não durante o turno.
 - Orquestrador: `orch_status` com `usage: true` devolve `orquestrador` com tokens, custo, aquecimento e turnos da sessão do orquestrador, com `origin: "indisponivel"` explícito.
 
 ### Semântica por provedor (código do `pi-ai`, versão 1.5.2 do Pi)

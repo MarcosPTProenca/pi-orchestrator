@@ -124,6 +124,7 @@ interface CompactTask {
   verification: TaskRecord["verification"];
   tokens: number | null;
   cost_usd: number | null;
+  turns: TurnSummary | null;
   deadline_at: string | null;
 }
 
@@ -166,6 +167,7 @@ export function compactStatus(groups: StatusGroup[]): CompactGroup[] {
         verification: r.verification,
         tokens: r.tokens,
         cost_usd: r.cost_usd,
+        turns: r.turns,
         deadline_at: r.deadline_at,
       })),
       omitted_open: Math.max(0, open.length - COMPACT_OPEN_LIMIT),
