@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { idleNoticeFor, modelMessageFor, orphanNoticeFor, projectLabel } from "../src/index.ts";
+import { idleNoticeFor, modelMessageFor, orphanReleaseNoticeFor, projectLabel } from "../src/index.ts";
 import { makeHarness, writeReport } from "./fakes.ts";
 
 test("projeto vazio vira 'projeto não identificado', sem nome inventado", () => {
@@ -31,10 +31,13 @@ test("aviso de ociosas leva o projeto de cada tarefa, inclusive com o mesmo núm
 });
 
 test("aviso de worktrees arrendadas separa por projeto", () => {
-  const msg = orphanNoticeFor([
-    { path: "/wt/a/1", holder: "t-a1", project: "alpha" },
-    { path: "/wt/b/1", holder: "t-b2", project: "beta" },
-  ]);
+  const msg = orphanReleaseNoticeFor({
+    released: [
+      { path: "/wt/a/1", holder: "t-a1", project: "alpha" },
+      { path: "/wt/b/1", holder: "t-b2", project: "beta" },
+    ],
+    kept: [],
+  });
   assert.match(msg, /alpha: \/wt\/a\/1 \(t-a1\); beta: \/wt\/b\/1 \(t-b2\)/);
 });
 
