@@ -445,7 +445,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
             content: `Plano ${planId}, item ${item.id} (${item.title}): lancei a tarefa ${task.task_id} (${projectLabel(task.project_id)}).`,
             display: true,
           },
-          { triggerTurn: false },
+          { triggerTurn: wakesLlm(EVENT_POLICY["plan-launched"]) },
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -481,7 +481,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
                 content: `Plano ${planId}, item ${item.id}: tarefa ${task.task_id} concluída sem PR. Lançando o próximo passo.`,
                 display: true,
               },
-              { triggerTurn: false },
+              { triggerTurn: wakesLlm(EVENT_POLICY["plan-transition"]) },
             );
             await advancePlans();
             continue;
@@ -501,7 +501,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
               content: `Plano ${planId}, item ${item.id}: PR #${pr.number} mergeada (tarefa ${task.task_id}). Lançando o próximo passo.`,
               display: true,
             },
-            { triggerTurn: false },
+            { triggerTurn: wakesLlm(EVENT_POLICY["plan-transition"]) },
           );
           await advancePlans();
         } catch {
@@ -618,7 +618,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
             content: "Não foi possível conferir superfícies ociosas no Herdr; nova tentativa no próximo ciclo.",
             display: true,
           },
-          { triggerTurn: false },
+          { triggerTurn: wakesLlm(EVENT_POLICY["herdr-check-failed"]) },
         );
       }
     } finally {
@@ -663,7 +663,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
           content: `Outra sessão do orquestrador (pid ${ownerPid}) já cuida deste projeto (${ctx.cwd}). Esta sessão está em modo somente leitura: consulta sim; não lança, não responde, não cancela e não avisa.`,
           display: true,
         },
-        { triggerTurn: false },
+        { triggerTurn: wakesLlm(EVENT_POLICY["readonly-session"]) },
       );
       return;
     }
@@ -683,7 +683,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       if (orphans.length > 0) {
         pi.sendMessage(
           { customType: "orch-event", content: orphanNoticeFor(orphans), display: true },
-          { triggerTurn: false },
+          { triggerTurn: wakesLlm(EVENT_POLICY["orphan-worktrees"]) },
         );
       }
     } catch {}

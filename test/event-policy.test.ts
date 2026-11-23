@@ -43,3 +43,9 @@ test("status de tarefa vira conclusão só quando done", () => {
   assert.equal(statusKind("done"), "conclusion");
   for (const status of ["blocked", "failed", "lost", "timeout"]) assert.equal(statusKind(status), "decision", status);
 });
+
+test("nenhum envio fixa triggerTurn em código: todo ponto lê a tabela", async () => {
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /triggerTurn: (true|false)\b/);
+});
