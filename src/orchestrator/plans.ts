@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { DeliveryEvent, DeliveryName } from "./delivery.ts";
 
 export const ITEM_STATUSES = ["pending", "in_progress", "pr_open", "merged", "done", "blocked"] as const;
 export type ItemStatus = (typeof ITEM_STATUSES)[number];
@@ -17,6 +18,13 @@ interface PlanDelegate {
   branch?: string;
 }
 
+interface ItemDelivery {
+  phase: DeliveryName;
+  head_sha: string | null;
+  pr: string | null;
+  reason: string | null;
+}
+
 export interface PlanItem {
   id: string;
   title: string;
@@ -26,6 +34,7 @@ export interface PlanItem {
   depends_on: string[];
   delegate: PlanDelegate | null;
   error: string | null;
+  delivery: ItemDelivery | null;
   updated_at: string;
 }
 
@@ -57,6 +66,10 @@ function actionLabel(action: PlanAction): string {
 }
 export function launchable(plan: Plan): PlanItem[] {
   return plan.state === "approved" ? readyItems(plan) : [];
+}
+
+export function trackedItems(plan: Plan): PlanItem[] {
+  return plan.items.filter((i) => i.task_id !== null && (i.status === "in_progress" || i.status === "pr_open"));
 }
 function isComplete(plan: Plan): boolean {
   return (
@@ -147,6 +160,7 @@ export class PlanStore {
         depends_on: depends,
         delegate: input.delegate ?? null,
         error: null,
+        delivery: null,
         updated_at: at,
       };
     });
@@ -163,6 +177,7 @@ export class PlanStore {
       item.depends_on ??= [];
       item.delegate ??= null;
       item.error ??= null;
+      item.delivery ??= null;
     }
     plan.state ??= "draft";
     return plan;
@@ -221,6 +236,37 @@ export class PlanStore {
     item.updated_at = this.now();
     this.write(plan);
     return item;
+  }
+
+  recordDelivery(ev: DeliveryEvent): void {
+    for (const planId of this.list()) {
+      const plan = this.show(planId);
+      let changed = false;
+      for (const item of plan.items) {
+        if (item.task_id !== ev.task_id) continue;
+        const next: ItemDelivery = {
+          phase: ev.name,
+          head_sha: ev.head_sha ?? null,
+          pr: ev.pr ?? item.pr,
+          reason: ev.reason ?? null,
+        };
+        const promote = ev.name === "pr_open" && item.status === "in_progress";
+        if (!promote && JSON.stringify(item.delivery) === JSON.stringify(next)) continue;
+        if (promote) item.status = "pr_open";
+        if (ev.name === "pr_open" && ev.pr !== undefined) item.pr = ev.pr;
+        item.delivery = next;
+        item.updated_at = this.now();
+        changed = true;
+      }
+      if (changed) this.write(plan);
+    }
+  }
+
+  pausedFor(taskId: string): boolean {
+    return this.list().some((planId) => {
+      const plan = this.show(planId);
+      return (plan.state === "paused" || plan.state === "cancelled") && plan.items.some((i) => i.task_id === taskId);
+    });
   }
 
   launched(planId: string, itemId: string, taskId: string): PlanItem {
