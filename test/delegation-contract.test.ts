@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { buildIntake, renderBrief } from "../src/intake.ts";
-import { FIRST_MATE_ROLE } from "../src/index.ts";
+import { buildIntake, renderBrief } from "../src/shared/intake.ts";
+import { FIRST_MATE_ROLE } from "../src/orchestrator/extension.ts";
 
 function project(): string {
   const dir = join(mkdtempSync(join(tmpdir(), "delegation-contract-")), "proj");

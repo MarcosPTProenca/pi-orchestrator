@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseQuota, pickModel, checkRequestedQuota, DEFAULT_PRIORITY, quotaProviderOf } from "../src/quota.ts";
-import { fallbackReportFor, lastModelError } from "../src/fallback.ts";
-import { startHook, postToHook } from "../src/hook.ts";
+import { parseQuota, pickModel, checkRequestedQuota, DEFAULT_PRIORITY, quotaProviderOf } from "../src/shared/quota.ts";
+import { fallbackReportFor, lastModelError } from "../src/worker/fallback.ts";
+import { startHook, postToHook } from "../src/shared/hook.ts";
 import { makeHarness, writeReport } from "./fakes.ts";
 
 const AVAIL = ["claude-bridge/claude-haiku-5-5", "openai-codex/gpt-6-luna", "kiro/auto"];
@@ -112,8 +112,8 @@ test("worker não quebra se o orquestrador está fora do ar: POST falha sem lan�
 
 test("orquestrador: escolha de modelo que falha impede o lançamento de qualquer worker", async () => {
   const h = makeHarness();
-  const { Orchestrator } = await import("../src/orchestrator.ts");
-  const { Store } = await import("../src/store.ts");
+  const { Orchestrator } = await import("../src/orchestrator/orchestrator.ts");
+  const { Store } = await import("../src/shared/store.ts");
   const orch = new Orchestrator({
     herdr: h.herdr,
     store: new Store(join(h.stateDir, "q.json")),

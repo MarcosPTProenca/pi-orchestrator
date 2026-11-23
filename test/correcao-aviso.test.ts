@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
-import { modelMessageFor } from "../src/index.ts";
-import { Store } from "../src/store.ts";
+import { modelMessageFor } from "../src/orchestrator/extension.ts";
+import { Store } from "../src/shared/store.ts";
 import { makeHarness, writeReport } from "./fakes.ts";
 
 test("relatório válido que chega depois de 'lost' traz a correção do aviso anterior (#57)", async () => {

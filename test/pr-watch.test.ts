@@ -8,8 +8,8 @@ import {
   isPrWatched,
   prUrlOf,
   prVerdict,
-} from "../src/pr-watch.ts";
-import type { PrState } from "../src/prs.ts";
+} from "../src/orchestrator/pr-watch.ts";
+import type { PrState } from "../src/shared/prs.ts";
 
 const pr = (over: Partial<PrState>): PrState => ({
   number: 171,

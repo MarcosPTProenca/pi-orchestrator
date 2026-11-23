@@ -1,9 +1,9 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { HerdrPort, PaneInfo, TabResult, WorkspaceResult } from "../src/herdr.ts";
-import { Orchestrator } from "../src/orchestrator.ts";
-import { Store } from "../src/store.ts";
+import type { HerdrPort, PaneInfo, TabResult, WorkspaceResult } from "../src/shared/herdr.ts";
+import { Orchestrator } from "../src/orchestrator/orchestrator.ts";
+import { Store } from "../src/shared/store.ts";
 
 export type WaitFn = (
   target: string,

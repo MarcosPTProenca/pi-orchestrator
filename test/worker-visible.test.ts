@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import workerExtension from "../src/worker-ext.ts";
+import workerExtension from "../src/worker/worker-ext.ts";
 
 test("o pedido completo da tarefa aparece na sessão do trabalhador (entrada de exibição)", () => {
   const dir = mkdtempSync(join(tmpdir(), "orch-visible-"));

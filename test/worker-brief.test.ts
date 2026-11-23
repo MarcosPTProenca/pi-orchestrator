@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import workerExtension from "../src/worker-ext.ts";
+import workerExtension from "../src/worker/worker-ext.ts";
 
 type Result = { systemPrompt?: string; message?: unknown } | undefined;
 type Handler = (event: { systemPrompt: string }, ctx?: unknown) => Result;

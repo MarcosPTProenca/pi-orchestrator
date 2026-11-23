@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { formatEvent, modelMessageFor, FIRST_MATE_ROLE } from "../src/index.ts";
+import { formatEvent, modelMessageFor, FIRST_MATE_ROLE } from "../src/orchestrator/extension.ts";
 import { makeHarness, writeReport } from "./fakes.ts";
 
 const base = { task_id: "t-abcdef123456", project_id: "rko", result: null, question: null, artifacts: [], error: null };
@@ -61,7 +61,7 @@ test("mensagem ao orquestrador pede resumo curto e não cola o relatório", () =
 });
 
 test("nome do orquestrador no Herdr: orquestrador-<pasta>, no padrão aceito", async () => {
-  const { orchestratorAgentName } = await import("../src/label.ts");
+  const { orchestratorAgentName } = await import("../src/shared/label.ts");
   assert.equal(orchestratorAgentName("/home/marcos_pinho/github/pi-orchestrator"), "orquestrador-pi-orchestrator");
   assert.equal(orchestratorAgentName("/x/Job Planejamento_Oferta!"), "orquestrador-job-planejamento-of");
   const n = orchestratorAgentName("/x/" + "a".repeat(80));
@@ -70,13 +70,13 @@ test("nome do orquestrador no Herdr: orquestrador-<pasta>, no padrão aceito", a
 });
 
 test("horário exibido é o de Brasília (America/Sao_Paulo)", async () => {
-  const { formatBrasilia } = await import("../src/index.ts");
+  const { formatBrasilia } = await import("../src/orchestrator/extension.ts");
   assert.match(formatBrasilia("2026-11-16T19:44:15Z") ?? "", /16\/11\/2026.*16:44/);
   assert.equal(formatBrasilia(null), null);
 });
 
 test("nome do worker no Herdr: worker-<projeto>-<id>, no padrão aceito", async () => {
-  const { workerAgentName } = await import("../src/label.ts");
+  const { workerAgentName } = await import("../src/shared/label.ts");
   const n = workerAgentName("/home/u/github/adaptative-learning", "a1b2c3d4e5");
   assert.equal(n, "worker-adaptative-lea-a1b2c3");
   assert.match(n, /^[a-z][a-z0-9_-]{0,31}$/);

@@ -4,7 +4,14 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { acquireOwnership, legacyAdopter, ownsByRepo, releaseOwnership, scopeKey, scopeOwnerDir } from "../src/lock.ts";
+import {
+  acquireOwnership,
+  legacyAdopter,
+  ownsByRepo,
+  releaseOwnership,
+  scopeKey,
+  scopeOwnerDir,
+} from "../src/shared/lock.ts";
 
 function layout() {
   const base = realpathSync(mkdtempSync(join(tmpdir(), "orch-wt-")));

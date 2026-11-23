@@ -4,7 +4,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { TaskRecord } from "../src/contract.ts";
+import type { TaskRecord } from "../src/shared/contract.ts";
 import {
   acquireOwnership,
   hasLiveOwner,
@@ -12,10 +12,10 @@ import {
   releaseOwnership,
   scopeKey,
   scopeOwnerDir,
-} from "../src/lock.ts";
-import { Store } from "../src/store.ts";
+} from "../src/shared/lock.ts";
+import { Store } from "../src/shared/store.ts";
 import { makeHarness } from "./fakes.ts";
-import { idleSurfaces } from "../src/idle.ts";
+import { idleSurfaces } from "../src/orchestrator/idle.ts";
 
 const ROOT = process.cwd();
 
@@ -59,7 +59,7 @@ test("projetos diferentes têm posse simultânea; o mesmo projeto em outro proce
     assert.equal(acquireOwnership(dirA).owner, true);
     assert.equal(acquireOwnership(dirB).owner, true, "projeto B não pode ser bloqueado pelo A");
     const sameAsA = child(
-      `import("./src/lock.ts").then(m=>{console.log(JSON.stringify(m.acquireOwnership(${JSON.stringify(dirA)})));process.exit(0)})`,
+      `import("./src/shared/lock.ts").then(m=>{console.log(JSON.stringify(m.acquireOwnership(${JSON.stringify(dirA)})));process.exit(0)})`,
     ) as { owner: boolean };
     assert.equal(sameAsA.owner, false, "segunda sessão viva do mesmo projeto fica somente leitura");
   } finally {
@@ -72,7 +72,7 @@ test("projetos diferentes têm posse simultânea; o mesmo projeto em outro proce
 test("duas sessões gravando o mesmo estado não perdem atualizações (trava entre processos)", () => {
   const dir = mkdtempSync(join(tmpdir(), "orch-mutate-"));
   const file = join(dir, "state.json");
-  const script = `import("./src/store.ts").then(({Store})=>{const s=new Store(${JSON.stringify(file)});for(let i=0;i<60;i++){s.mutate(st=>{st.workspaces["k"+i+"-"+process.pid]={workspace_id:"w",seeded_tab_id:null};});}console.log("{}");process.exit(0)})`;
+  const script = `import("./src/shared/store.ts").then(({Store})=>{const s=new Store(${JSON.stringify(file)});for(let i=0;i<60;i++){s.mutate(st=>{st.workspaces["k"+i+"-"+process.pid]={workspace_id:"w",seeded_tab_id:null};});}console.log("{}");process.exit(0)})`;
   const runs = [0, 1].map(() =>
     spawnSync(process.execPath, ["--import", "tsx", "-e", script], { cwd: ROOT, encoding: "utf8" }),
   );

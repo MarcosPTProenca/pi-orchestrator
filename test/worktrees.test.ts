@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseLeases, releaseLease, type WorktreeOps } from "../src/worktrees.ts";
+import { parseLeases, releaseLease, type WorktreeOps } from "../src/shared/worktrees.ts";
 
 const STATUS = `A new version of treehouse is available
 1     leased       ~/.treehouse/al-0802e3/1/al  (held by t-e19b2fae)

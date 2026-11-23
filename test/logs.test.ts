@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { makeHarness } from "./fakes.ts";
-import { maskSecrets } from "../src/logs.ts";
+import { maskSecrets } from "../src/shared/logs.ts";
 
 test("orch_logs devolve o trecho recente do painel da tarefa, sem alterar o estado", async () => {
   const h = makeHarness();

@@ -1,4 +1,4 @@
-import { prFromUrl } from "./prs.ts";
+import { prFromUrl } from "../shared/prs.ts";
 
 type Verdict = "approved" | "rejected" | "not_applicable" | "unverified";
 export interface Verification {

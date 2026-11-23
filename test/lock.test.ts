@@ -4,11 +4,11 @@ import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { acquireOwnership, releaseOwnership } from "../src/lock.ts";
+import { acquireOwnership, releaseOwnership } from "../src/shared/lock.ts";
 
 const ROOT = process.cwd();
 function childAcquire(dir: string): { owner: boolean; holder?: { pid: number } } {
-  const code = `import("./src/lock.ts").then(m=>{const r=m.acquireOwnership(${JSON.stringify(dir)});console.log(JSON.stringify(r));process.exit(0)})`;
+  const code = `import("./src/shared/lock.ts").then(m=>{const r=m.acquireOwnership(${JSON.stringify(dir)});console.log(JSON.stringify(r));process.exit(0)})`;
   const out = spawnSync(process.execPath, ["--import", "tsx", "-e", code], { cwd: ROOT, encoding: "utf8" });
   if (out.status !== 0) throw new Error(out.stderr);
   return JSON.parse(out.stdout.trim().split("\n").pop() as string);

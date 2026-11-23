@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { MODES, buildIntake } from "../src/intake.ts";
-import { judgeDone } from "../src/verify.ts";
+import { MODES, buildIntake } from "../src/shared/intake.ts";
+import { judgeDone } from "../src/orchestrator/verify.ts";
 
 function project(): string {
   const dir = join(mkdtempSync(join(tmpdir(), "intake-modes-")), "proj");

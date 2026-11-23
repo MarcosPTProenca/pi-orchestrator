@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import workerExtension from "../src/worker-ext.ts";
-import { workerSessionFile } from "../src/session-file.ts";
+import workerExtension from "../src/worker/worker-ext.ts";
+import { workerSessionFile } from "../src/shared/session-file.ts";
 
 test("o worker grava o caminho da própria sessão Pi na pasta da tarefa", () => {
   const dir = mkdtempSync(join(tmpdir(), "orch-sess-ptr-"));

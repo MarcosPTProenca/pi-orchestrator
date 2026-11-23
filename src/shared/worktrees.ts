@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 
 export interface Lease {
@@ -75,3 +76,11 @@ export function orphanLeases(
     return [];
   }
 }
+
+export const treehouseOps: WorktreeOps = {
+  status: (repo) => execFileSync("treehouse", ["status"], { cwd: repo, encoding: "utf8", timeout: 30_000 }),
+  git: (path, args) => execFileSync("git", ["-C", path, ...args], { encoding: "utf8", timeout: 30_000 }),
+  returnTree: (path) => {
+    execFileSync("treehouse", ["return", path], { encoding: "utf8", timeout: 60_000 });
+  },
+};

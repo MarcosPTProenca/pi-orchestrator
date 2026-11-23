@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
-import { HerdrCli } from "../src/herdr.ts";
-import { Orchestrator, type WatchEvent } from "../src/orchestrator.ts";
-import { Store } from "../src/store.ts";
+import { HerdrCli } from "../src/shared/herdr.ts";
+import { Orchestrator, type WatchEvent } from "../src/orchestrator/orchestrator.ts";
+import { Store } from "../src/shared/store.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const workerExt = join(here, "..", "src", "worker-ext.ts");

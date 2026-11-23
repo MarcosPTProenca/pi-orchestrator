@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { FixQueue } from "../src/queue.ts";
+import { FixQueue } from "../src/orchestrator/queue.ts";
 
 test("falha de início que esgota as tentativas avisa na hora, mesmo fora da chamada original", async () => {
   const seen: string[] = [];

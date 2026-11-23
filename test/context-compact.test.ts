@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { makeHarness, writeReport } from "./fakes.ts";
-import { tailLog } from "../src/logs.ts";
+import { tailLog } from "../src/shared/logs.ts";
 
 test("orch_inbox sem consumo: lê o aviso sem marcá-lo como entregue", async () => {
   const h = makeHarness();

@@ -1,5 +1,5 @@
-import { modelMessageFor } from "../src/index.ts";
-import type { WatchEvent } from "../src/orchestrator.ts";
+import { modelMessageFor } from "../src/orchestrator/extension.ts";
+import type { WatchEvent } from "../src/orchestrator/orchestrator.ts";
 
 export interface Run {
   calls: { name: string; args: Record<string, unknown> }[];

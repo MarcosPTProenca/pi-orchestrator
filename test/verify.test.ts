@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { judgeDone, type VerifyEnv } from "../src/verify.ts";
+import { judgeDone, type VerifyEnv } from "../src/orchestrator/verify.ts";
 
 const PR = "https://github.com/o/r/pull/7";
 const ok = { prCheck: async () => ({ ok: true, line: "Verificação da PR #7: VERIFICADA." }) };

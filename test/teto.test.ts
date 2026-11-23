@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { capError, maxActiveFrom } from "../src/cap.ts";
-import { FixQueue } from "../src/queue.ts";
+import { capError, maxActiveFrom } from "../src/policy/cap.ts";
+import { FixQueue } from "../src/orchestrator/queue.ts";
 import { makeHarness } from "./fakes.ts";
 
 test("teto padrão é 6 e pode ser trocado por PI_ORCH_MAX_ACTIVE; valor inválido cai no padrão", () => {

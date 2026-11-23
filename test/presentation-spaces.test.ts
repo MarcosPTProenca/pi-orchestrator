@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { belowFloor, parseVersion } from "../src/herdr.ts";
+import { belowFloor, parseVersion } from "../src/shared/herdr.ts";
 import { makeHarness } from "./fakes.ts";
 
 test("parseVersion lê a saída de herdr --version e recusa o que não é versão", () => {

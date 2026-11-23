@@ -8,9 +8,9 @@ import {
   COMPACT_TERMINAL_LIMIT,
   DEFAULT_OLD_HOURS,
   oldHoursFrom,
-} from "../src/status.ts";
-import type { TaskRecord } from "../src/contract.ts";
-import { summarizeTurns } from "../src/usage.ts";
+} from "../src/orchestrator/status.ts";
+import type { TaskRecord } from "../src/shared/contract.ts";
+import { summarizeTurns } from "../src/shared/usage.ts";
 
 const NOW = Date.parse("2026-11-17T12:00:00Z");
 const t = (over: Record<string, unknown>) =>

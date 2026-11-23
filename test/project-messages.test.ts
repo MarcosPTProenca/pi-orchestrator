@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { idleNoticeFor, modelMessageFor, orphanReleaseNoticeFor, projectLabel } from "../src/index.ts";
+import { idleNoticeFor, modelMessageFor, orphanReleaseNoticeFor, projectLabel } from "../src/orchestrator/extension.ts";
 import { makeHarness, writeReport } from "./fakes.ts";
 
 test("projeto vazio vira 'projeto não identificado', sem nome inventado", () => {

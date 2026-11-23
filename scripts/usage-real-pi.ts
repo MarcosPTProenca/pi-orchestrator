@@ -21,7 +21,7 @@ import {
   summarizeTurns,
   type Usage,
   type UsageState,
-} from "../src/usage.ts";
+} from "../src/shared/usage.ts";
 
 function run(
   cmd: string,
@@ -254,7 +254,7 @@ async function main(): Promise<void> {
   const taskDir = join(root, "task");
   mkdirSync(taskDir);
   writeFileSync(join(taskDir, "brief.md"), "# Tarefa\nResponda com a palavra ok.\n");
-  const workerExt = fileURLToPath(new URL("../src/worker-ext.ts", import.meta.url));
+  const workerExt = fileURLToPath(new URL("../src/worker/worker-ext.ts", import.meta.url));
   const delegationRun = await pi(["-e", workerExt, "-p", "Execute a tarefa do brief."], {
     PI_ORCH_ROLE: "worker",
     PI_ORCH_TASK_ID: "t-baseline",
@@ -270,7 +270,7 @@ async function main(): Promise<void> {
 
   const orchStateDir = join(root, "orch-state");
   mkdirSync(orchStateDir);
-  const orchExt = fileURLToPath(new URL("../src/index.ts", import.meta.url));
+  const orchExt = fileURLToPath(new URL("../src/orchestrator/extension.ts", import.meta.url));
   const orchEnv = { PI_ORCH_DRY_RUN: "1", PI_ORCH_STATE_DIR: orchStateDir };
   const beforeOrch = new Set(files0());
   await log("E1 orquestrador: consulta", ["-e", orchExt, "-p", "status?"], orchEnv);

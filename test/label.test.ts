@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { workerAgentName, workerTabName } from "../src/label.ts";
+import { workerAgentName, workerTabName } from "../src/shared/label.ts";
 
 test("tab do worker usa worker-<role>-<id>, com o mesmo id do pane", () => {
   const tab = workerTabName("a", "e01fd3c6");

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { summarizeUsage } from "../src/usage-report.ts";
-import { newUsage, type Usage } from "../src/usage.ts";
+import { summarizeUsage } from "../src/orchestrator/usage-report.ts";
+import { newUsage, type Usage } from "../src/shared/usage.ts";
 
 const u = (over: Partial<Usage>): Usage => ({ ...newUsage(), ...over });
 
