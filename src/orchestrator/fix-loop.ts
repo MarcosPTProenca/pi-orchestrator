@@ -1,7 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-// Estados por tarefa/PR. Um head_sha novo sempre volta a REVIEW_PENDING: revisão antiga nunca autoriza outro commit.
 type FixState = "PR_OPEN" | "REVIEW_PENDING" | "FIXING" | "REVIEW_APPROVED" | "BLOCKED" | "REVOKED";
 
 type ReviewVerdict = "approve" | "request_changes" | "reject" | "unverified";
@@ -24,9 +23,7 @@ export interface FixRecord {
   task_id: string;
   state: FixState;
   head_sha: string;
-  // Ciclos de correção enviados ao worker, contados entre todos os heads.
   attempts: number;
-  // Chaves task|head|falha já enviadas para o head atual; resetam quando o head muda.
   sent: string[];
   reason: string | null;
   updated_at: string;
@@ -102,7 +99,6 @@ export interface FixLoopOptions {
   now?: () => string;
 }
 
-// Persistência em arquivo JSON único, gravado por rename atômico. Sobrevive a restart e a webhook duplicado.
 export class FixLoopStore {
   private readonly now: () => string;
 
@@ -127,7 +123,6 @@ export class FixLoopStore {
     return { action: out.action, previous };
   }
 
-  // Desfaz um apply quando o envio ao worker falha, para o próximo ciclo poder tentar de novo.
   restore(taskId: string, previous: FixRecord | null): void {
     const all = this.load();
     if (previous) all[taskId] = previous;
