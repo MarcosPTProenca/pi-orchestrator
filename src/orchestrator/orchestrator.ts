@@ -32,6 +32,7 @@ export interface OrchDeps {
 
 export { MODES } from "../shared/intake.ts";
 import { buildIntake, renderBrief } from "../shared/intake.ts";
+import { launchMessage } from "../shared/launch.ts";
 import type { DelegateInput, WatchEvent } from "../shared/task.ts";
 export type { DelegateInput, WatchEvent } from "../shared/task.ts";
 
@@ -50,11 +51,6 @@ function sameWork(a: DelegateInput, b: DelegateInput): string | null {
 function shellQuote(arg: string): string {
   return /^[A-Za-z0-9_./:=@%+-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, `'\\''`)}'`;
 }
-const launchMessage = (briefPath: string, forked: boolean): string =>
-  forked
-    ? `Continue a tarefa do brief em ${briefPath}. Se o conteúdo dele já estiver nesta sessão, não o releia; caso contrário, leia-o com a ferramenta read. Ao terminar, chame orch_report.`
-    : `Leia o brief em ${briefPath} com a ferramenta read e execute a tarefa que ele descreve. Ao terminar, chame orch_report.`;
-
 function isFallbackRaw(raw: string): boolean {
   try {
     return (JSON.parse(raw) as { source?: unknown }).source === "fallback";
@@ -348,7 +344,7 @@ export class Orchestrator {
       const piArgs = ["-e", this.d.workerExtPath];
       if (opts.forkSession) piArgs.push("--fork", opts.forkSession);
       if (model) piArgs.push("--model", model);
-      piArgs.push(launchMessage(join(taskDir, "brief.md"), opts.forkSession !== undefined));
+      piArgs.push(launchMessage(join(taskDir, "brief.md"), opts.forkSession !== undefined, intake.mode));
       const launch = ["pi", ...piArgs];
       if (projected)
         // keep: o token do webhook fica fora do pane; qualquer leitura do pane o exporia.
