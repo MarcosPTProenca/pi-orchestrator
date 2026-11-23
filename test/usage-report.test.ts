@@ -37,7 +37,7 @@ test("agrega por modelo e separa custo informado de custo estimado", () => {
   assert.equal(Number(s.cost_estimated.toFixed(2)), 0.1);
   assert.equal(s.by_model.a.tasks, 2);
   assert.equal(s.by_model.a.totalTokens, 30);
-  assert.equal(s.by_model.desconhecido.tasks, 1);
+  assert.equal(s.by_model["<sem modelo>"].tasks, 1);
 });
 
 test("campos ausentes contam como zero e não quebram a soma", () => {

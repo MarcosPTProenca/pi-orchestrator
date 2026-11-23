@@ -47,7 +47,7 @@ export function summarizeUsage(rows: UsageRow[]): UsageSummary {
     totals.cost += u.cost;
     if (u.costFromProvider === true) reported += u.cost;
     else estimated += u.cost;
-    const key = row.model ?? "desconhecido";
+    const key = row.model ?? "<sem modelo>";
     const slot = (byModel[key] ??= { tasks: 0, totalTokens: 0, cost: 0, cache_hit_ratio: null, usage: newUsage() });
     slot.tasks++;
     slot.totalTokens += u.totalTokens;
