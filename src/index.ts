@@ -27,7 +27,7 @@ import { orchestratorAgentName } from "./label.ts";
 import { execFile } from "node:child_process";
 import { Store, defaultStateDir } from "./store.ts";
 import { PlanStore, ITEM_STATUSES, launchable, type ItemInput, type ItemStatus } from "./plans.ts";
-import { EVENT_POLICY, statusKind, wakesLlm } from "./event-policy.ts";
+import { EVENT_POLICY, UI_ENTRY, emitEvent, statusKind, wakesLlm, type EventSink } from "./event-policy.ts";
 import { orchestratorUsage } from "./usage.ts";
 import { summarizeUsage } from "./usage-report.ts";
 import { NoticeBatcher } from "./notices.ts";
@@ -233,6 +233,14 @@ const DELEGATE_ITEM = {
 };
 
 export default function orchestratorExtension(pi: ExtensionAPI): void {
+  const eventSink: EventSink = {
+    sendMessage: (msg, opts) => pi.sendMessage(msg, opts),
+    appendEntry: (type, data) => pi.appendEntry(type, data),
+  };
+  pi.registerEntryRenderer(UI_ENTRY, (entry) => {
+    const text = (entry.data as { content?: string } | undefined)?.content ?? "";
+    return { render: () => text.split("\n"), invalidate: () => {} };
+  });
   const stateDir = defaultStateDir();
   const dryRun = process.env.PI_ORCH_DRY_RUN === "1";
   let quotaCache: { at: number; quotas: ProviderQuota[] } | undefined;
@@ -455,25 +463,19 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
           mode: spec.mode as DelegateInput["mode"],
         });
         planStore.launched(planId, item.id, task.task_id);
-        pi.sendMessage(
-          {
-            customType: "orch-event",
-            content: `Plano ${planId}, item ${item.id} (${item.title}): lancei a tarefa ${task.task_id} (${projectLabel(task.project_id)}).`,
-            display: true,
-          },
-          { triggerTurn: wakesLlm(EVENT_POLICY["plan-launched"]) },
-        );
+        emitEvent(eventSink, EVENT_POLICY["plan-launched"], {
+          customType: "orch-event",
+          content: `Plano ${planId}, item ${item.id} (${item.title}): lancei a tarefa ${task.task_id} (${projectLabel(task.project_id)}).`,
+          display: true,
+        });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         planStore.blocked(planId, item.id, msg);
-        pi.sendMessage(
-          {
-            customType: "orch-event",
-            content: `Plano ${planId}, item ${item.id} (${item.title}) não foi lançado: ${msg}. Decida: corrigir a especificação ou seguir manualmente.`,
-            display: true,
-          },
-          { triggerTurn: wakesLlm(EVENT_POLICY["launch-failed"]) },
-        );
+        emitEvent(eventSink, EVENT_POLICY["launch-failed"], {
+          customType: "orch-event",
+          content: `Plano ${planId}, item ${item.id} (${item.title}) não foi lançado: ${msg}. Decida: corrigir a especificação ou seguir manualmente.`,
+          display: true,
+        });
       }
     }
   };
@@ -482,14 +484,11 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       await launchReady(planId).catch(() => undefined);
       const plan = planStore.complete(planId);
       if (plan.state === "completed")
-        pi.sendMessage(
-          {
-            customType: "orch-event",
-            content: `Plano ${planId} (${plan.title}) concluído: ${plan.items.map((i) => `${i.id} ${i.title}${i.pr ? ` (${i.pr})` : ""}`).join("; ")}.`,
-            display: true,
-          },
-          { triggerTurn: wakesLlm(EVENT_POLICY["plan-completed"]) },
-        );
+        emitEvent(eventSink, EVENT_POLICY["plan-completed"], {
+          customType: "orch-event",
+          content: `Plano ${planId} (${plan.title}) concluído: ${plan.items.map((i) => `${i.id} ${i.title}${i.pr ? ` (${i.pr})` : ""}`).join("; ")}.`,
+          display: true,
+        });
     }
   };
   // keep: a PR é consultada pela tarefa, não pelo pane; a aba pode já ter sido fechada e o plano segue mesmo assim.
@@ -503,14 +502,11 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
           const url = prUrlOf(task);
           const pr = url ? prFromUrl(url) : null;
           if (task.status === "done" && !url && planStore.markTaskDone(task.task_id).length > 0) {
-            pi.sendMessage(
-              {
-                customType: "orch-event",
-                content: `Plano ${planId}, item ${item.id}: tarefa ${task.task_id} concluída sem PR. Lançando o próximo passo.`,
-                display: true,
-              },
-              { triggerTurn: wakesLlm(EVENT_POLICY["plan-transition"]) },
-            );
+            emitEvent(eventSink, EVENT_POLICY["plan-transition"], {
+              customType: "orch-event",
+              content: `Plano ${planId}, item ${item.id}: tarefa ${task.task_id} concluída sem PR. Lançando o próximo passo.`,
+              display: true,
+            });
             await advancePlans();
             continue;
           }
@@ -523,14 +519,11 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
           const state = await fetchPrState(remote, pr.number, pr.owner, pr.name, task.project_path);
           if (prVerdict(state) !== "merged") continue;
           planStore.markMerged(task.task_id);
-          pi.sendMessage(
-            {
-              customType: "orch-event",
-              content: `Plano ${planId}, item ${item.id}: PR #${pr.number} mergeada (tarefa ${task.task_id}). Lançando o próximo passo.`,
-              display: true,
-            },
-            { triggerTurn: wakesLlm(EVENT_POLICY["plan-transition"]) },
-          );
+          emitEvent(eventSink, EVENT_POLICY["plan-transition"], {
+            customType: "orch-event",
+            content: `Plano ${planId}, item ${item.id}: PR #${pr.number} mergeada (tarefa ${task.task_id}). Lançando o próximo passo.`,
+            display: true,
+          });
           await advancePlans();
         } catch {
           continue;
@@ -583,23 +576,17 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     try {
       await orch.send(t.task_id, text);
       prWatch.markActed(t.task_id, s.headRefOid, kind);
-      pi.sendMessage(
-        {
-          customType: "orch-event",
-          content: `${taskHeadline(t, source, `PR #${pr.number} ${what}`)} Acionei o próprio worker para corrigir; acompanho a PR.`,
-          display: true,
-        },
-        { triggerTurn: wakesLlm(EVENT_POLICY["ci-action-sent"]) },
-      );
+      emitEvent(eventSink, EVENT_POLICY["ci-action-sent"], {
+        customType: "orch-event",
+        content: `${taskHeadline(t, source, `PR #${pr.number} ${what}`)} Acionei o próprio worker para corrigir; acompanho a PR.`,
+        display: true,
+      });
     } catch (err) {
-      pi.sendMessage(
-        {
-          customType: "orch-event",
-          content: `PR #${pr.number} de ${t.task_id} (${label}) ${what}, e não consegui acionar o worker: ${err instanceof Error ? err.message : String(err)}. Decida: orch_send manual ou orch_relaunch.`,
-          display: true,
-        },
-        { triggerTurn: wakesLlm(EVENT_POLICY["send-failed"]) },
-      );
+      emitEvent(eventSink, EVENT_POLICY["send-failed"], {
+        customType: "orch-event",
+        content: `PR #${pr.number} de ${t.task_id} (${label}) ${what}, e não consegui acionar o worker: ${err instanceof Error ? err.message : String(err)}. Decida: orch_send manual ou orch_relaunch.`,
+        display: true,
+      });
     }
   };
   const checkIdle = async (): Promise<void> => {
@@ -611,10 +598,11 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       for (const id of deadTabTaskIds(orch.owned(), live)) orch.forgetDeadTab(id);
       const idle = idleSurfaces(orch.owned(), live);
       if (idleWatch.observe(idle)) {
-        pi.sendMessage(
-          { customType: "orch-event", content: idleNoticeFor(idle), display: true },
-          { triggerTurn: wakesLlm(EVENT_POLICY["idle-candidates"]) },
-        );
+        emitEvent(eventSink, EVENT_POLICY["idle-candidates"], {
+          customType: "orch-event",
+          content: idleNoticeFor(idle),
+          display: true,
+        });
       }
       const running = orch.owned().filter((t) => t.status === "running");
       stallWatch.prune(new Set(running.map((t) => t.task_id)));
@@ -624,10 +612,11 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         if (text !== null && stallWatch.observe(t.task_id, text, Date.now(), STALL_MIN * 60_000)) stalled.push(t);
       }
       if (stalled.length > 0) {
-        pi.sendMessage(
-          { customType: "orch-event", content: stallNoticeFor(stalled, STALL_MIN, projectLabel), display: true },
-          { triggerTurn: wakesLlm(EVENT_POLICY["worker-stalled"]) },
-        );
+        emitEvent(eventSink, EVENT_POLICY["worker-stalled"], {
+          customType: "orch-event",
+          content: stallNoticeFor(stalled, STALL_MIN, projectLabel),
+          display: true,
+        });
       }
       for (const t of orch.owned()) {
         const url = prUrlOf(t);
@@ -640,14 +629,11 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       await reconcilePlans().catch(() => undefined);
     } catch {
       if (idleWatch.fail()) {
-        pi.sendMessage(
-          {
-            customType: "orch-event",
-            content: "Não foi possível conferir superfícies ociosas no Herdr; nova tentativa no próximo ciclo.",
-            display: true,
-          },
-          { triggerTurn: wakesLlm(EVENT_POLICY["herdr-check-failed"]) },
-        );
+        emitEvent(eventSink, EVENT_POLICY["herdr-check-failed"], {
+          customType: "orch-event",
+          content: "Não foi possível conferir superfícies ociosas no Herdr; nova tentativa no próximo ciclo.",
+          display: true,
+        });
       }
     } finally {
       idleChecking = false;
@@ -693,14 +679,11 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     owner = own.owner;
     ownerPid = own.holder?.pid;
     if (!owner) {
-      pi.sendMessage(
-        {
-          customType: "orch-event",
-          content: `Outra sessão do orquestrador (pid ${ownerPid}) já cuida deste projeto (${ctx.cwd}). Esta sessão está em modo somente leitura: consulta sim; não lança, não responde, não cancela e não avisa.`,
-          display: true,
-        },
-        { triggerTurn: wakesLlm(EVENT_POLICY["readonly-session"]) },
-      );
+      emitEvent(eventSink, EVENT_POLICY["readonly-session"], {
+        customType: "orch-event",
+        content: `Outra sessão do orquestrador (pid ${ownerPid}) já cuida deste projeto (${ctx.cwd}). Esta sessão está em modo somente leitura: consulta sim; não lança, não responde, não cancela e não avisa.`,
+        display: true,
+      });
       return;
     }
     orch.setScope(key, (projectPath) => ownsByRepo(projectPath, key, ctx.cwd));
@@ -727,10 +710,11 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         const kept = orphans
           .filter((o) => stillLeased.has(o.path))
           .map((o) => ({ ...o, note: orch.get(o.holder).worktree_note ?? "motivo não registrado" }));
-        pi.sendMessage(
-          { customType: "orch-event", content: orphanReleaseNoticeFor({ released, kept }), display: true },
-          { triggerTurn: wakesLlm(EVENT_POLICY["orphan-worktrees"]) },
-        );
+        emitEvent(eventSink, EVENT_POLICY["orphan-worktrees"], {
+          customType: "orch-event",
+          content: orphanReleaseNoticeFor({ released, kept }),
+          display: true,
+        });
       }
     } catch {}
     await checkIdle();
@@ -749,15 +733,12 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     await orch.reconcile();
     const pending = await orch.pendingNotices();
     if (pending.length > 0) {
-      pi.sendMessage(
-        {
-          customType: "orch-event",
-          content: pending.map((e) => modelMessageFor(e)).join("\n\n---\n\n"),
-          display: false,
-          details: { pending: pending.map((e) => e.task_id) },
-        },
-        { triggerTurn: wakesLlm(EVENT_POLICY["pending-replay"]) },
-      );
+      emitEvent(eventSink, EVENT_POLICY["pending-replay"], {
+        customType: "orch-event",
+        content: pending.map((e) => modelMessageFor(e)).join("\n\n---\n\n"),
+        display: false,
+        details: { pending: pending.map((e) => e.task_id) },
+      });
     }
   });
 
@@ -861,14 +842,11 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         fixQueue = new FixQueue<DelegateInput>(concurrency, startTask, {
           canStart: () => orch.activeCount() < maxActive,
           onFailed: (f) => {
-            pi.sendMessage(
-              {
-                customType: "orch-event",
-                content: `Fila de PRs (${projectLabel(basename(f.item.project_path))}): não consegui iniciar a correção de ${f.item.role} após ${f.attempts} tentativas. Erro: ${f.error.slice(0, 300)}`,
-                display: true,
-              },
-              { triggerTurn: wakesLlm(EVENT_POLICY["queue-failed"]) },
-            );
+            emitEvent(eventSink, EVENT_POLICY["queue-failed"], {
+              customType: "orch-event",
+              content: `Fila de PRs (${projectLabel(basename(f.item.project_path))}): não consegui iniciar a correção de ${f.item.role} após ${f.attempts} tentativas. Erro: ${f.error.slice(0, 300)}`,
+              display: true,
+            });
           },
         });
       } else if (params.concurrency !== undefined) {
