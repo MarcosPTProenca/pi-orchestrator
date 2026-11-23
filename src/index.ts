@@ -27,6 +27,7 @@ import { orchestratorAgentName } from "./label.ts";
 import { execFile } from "node:child_process";
 import { Store, defaultStateDir } from "./store.ts";
 import { PlanStore, ITEM_STATUSES, type ItemInput, type ItemStatus } from "./plans.ts";
+import { statusKind, wakesLlm } from "./event-policy.ts";
 import { NoticeBatcher } from "./notices.ts";
 import { notificationFor, notifyArgs, notifyEnabled } from "./notify.ts";
 import { buildStatus, compactStatus, linksIn, oldHoursFrom } from "./status.ts";
@@ -312,7 +313,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
           display: false,
           details: batch.map((b) => b.event),
         },
-        { triggerTurn: true },
+        { triggerTurn: batch.some((b) => wakesLlm(statusKind(b.event.status))) },
       );
     },
     undefined,
@@ -455,7 +456,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
             content: `Plano ${planId}, item ${item.id} (${item.title}) não foi lançado: ${msg}. Decida: corrigir a especificação ou seguir manualmente.`,
             display: true,
           },
-          { triggerTurn: true },
+          { triggerTurn: wakesLlm("decision") },
         );
       }
     }
@@ -538,7 +539,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
               : `${headline} ${closed}. Confira se há próximo passo e diga ao usuário.`,
           display: true,
         },
-        { triggerTurn: plan.length === 0 },
+        { triggerTurn: plan.length === 0 && wakesLlm("conclusion") },
       );
       return;
     }
@@ -560,7 +561,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
           content: `${taskHeadline(t, source, `PR #${pr.number} ${what}`)} Acionei o próprio worker para corrigir; acompanho a PR.`,
           display: true,
         },
-        { triggerTurn: true },
+        { triggerTurn: wakesLlm("routine") },
       );
     } catch (err) {
       pi.sendMessage(
@@ -569,7 +570,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
           content: `PR #${pr.number} de ${t.task_id} (${label}) ${what}, e não consegui acionar o worker: ${err instanceof Error ? err.message : String(err)}. Decida: orch_send manual ou orch_relaunch.`,
           display: true,
         },
-        { triggerTurn: true },
+        { triggerTurn: wakesLlm("decision") },
       );
     }
   };
@@ -584,7 +585,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       if (idleWatch.observe(idle)) {
         pi.sendMessage(
           { customType: "orch-event", content: idleNoticeFor(idle), display: true },
-          { triggerTurn: true },
+          { triggerTurn: wakesLlm("routine") },
         );
       }
       const running = orch.owned().filter((t) => t.status === "running");
@@ -597,7 +598,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       if (stalled.length > 0) {
         pi.sendMessage(
           { customType: "orch-event", content: stallNoticeFor(stalled, STALL_MIN, projectLabel), display: true },
-          { triggerTurn: true },
+          { triggerTurn: wakesLlm("routine") },
         );
       }
       for (const t of orch.owned()) {
@@ -709,7 +710,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
           display: false,
           details: { pending: pending.map((e) => e.task_id) },
         },
-        { triggerTurn: true },
+        { triggerTurn: wakesLlm("conclusion") },
       );
     }
   });
@@ -820,7 +821,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
                 content: `Fila de PRs (${projectLabel(basename(f.item.project_path))}): não consegui iniciar a correção de ${f.item.role} após ${f.attempts} tentativas. Erro: ${f.error.slice(0, 300)}`,
                 display: true,
               },
-              { triggerTurn: true },
+              { triggerTurn: wakesLlm("decision") },
             );
           },
         });
