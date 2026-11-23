@@ -881,8 +881,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       },
       additionalProperties: false,
     },
-    async execute(_id: string, params: { all?: boolean; project_id?: string; task_id?: string; detail?: boolean }) {
-      // leitura pura: sem refreshAll, que grava relatório, prazo e estado terminal; o sweep (PI_ORCH_SWEEP_MS, 20 s) atualiza
+    execute(_id: string, params: { all?: boolean; project_id?: string; task_id?: string; detail?: boolean }) {
       const detail = params.detail === true || params.task_id !== undefined;
       const groups = buildStatus(orch.list(), Date.now(), {
         all: params.all === true || params.task_id !== undefined,
@@ -892,8 +891,13 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         fullResult: detail,
       });
       const view = detail ? groups : compactStatus(groups);
-      return asText(
-        view.map((g) => ({ ...g, tasks: g.tasks.map((r) => ({ ...r, deadline_at: formatBrasilia(r.deadline_at) })) })),
+      return Promise.resolve(
+        asText(
+          view.map((g) => ({
+            ...g,
+            tasks: g.tasks.map((r) => ({ ...r, deadline_at: formatBrasilia(r.deadline_at) })),
+          })),
+        ),
       );
     },
   });
