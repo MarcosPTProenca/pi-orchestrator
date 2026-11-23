@@ -26,5 +26,5 @@ export function stallNoticeFor(
   label: (projectId: string) => string,
 ): string {
   const items = stalled.map((s) => `${s.task_id} (${label(s.project_id)})`).join(", ");
-  return `Workers em execução sem saída nova há ${afterMin} min: ${items}. Confira com orch_logs. Se estiver travado, decida: orch_send para destravar, ou orch_cancel e relançar. Se estiver só em processo longo, aguarde.`;
+  return `Workers em execução sem saída nova há ${afterMin} min: ${items}. Aviso informativo: nenhum turno foi acionado. Para ver o que aconteceu, use orch_logs; se estiver travado, orch_send ou orch_cancel.`;
 }
