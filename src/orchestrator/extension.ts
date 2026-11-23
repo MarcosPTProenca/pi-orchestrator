@@ -25,7 +25,8 @@ import { judgeDone, type VerifyEnv } from "./verify.ts";
 import { FixQueue } from "./queue.ts";
 import { orchestratorAgentName } from "../shared/label.ts";
 import { Store, defaultStateDir } from "../shared/store.ts";
-import { PlanStore, launchable } from "./plans.ts";
+import { deliveryFromFix } from "./delivery.ts";
+import { PlanStore, launchable, trackedItems } from "./plans.ts";
 import { EVENT_POLICY, UI_ENTRY, emitEvent, statusKind, wakesLlm, type EventSink } from "../policy/event-policy.ts";
 import { orchestratorUsage } from "../shared/usage.ts";
 import { NoticeBatcher } from "./notices.ts";
@@ -341,11 +342,15 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         });
     }
   };
+  const recordFix = (taskId: string, action: FixAction): void => {
+    const ev = deliveryFromFix(action, taskId);
+    if (ev) planStore.recordDelivery(ev);
+  };
   const reconcilePlans = async (): Promise<void> => {
     for (const planId of planStore.list()) {
       const plan = planStore.show(planId);
-      for (const item of plan.items) {
-        if (item.status !== "in_progress" || !item.task_id) continue;
+      for (const item of trackedItems(plan)) {
+        if (!item.task_id) continue;
         try {
           const task = orch.get(item.task_id);
           const url = prUrlOf(task);
@@ -397,6 +402,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       fixLoop.apply(t.task_id, { type: "revoke", reason: "PR mergeada" });
       const outcome = await orch.closeOutcome(t.task_id);
       const plan = planStore.markMerged(t.task_id).map((m) => `plano ${m.plan}, item ${m.item}`);
+      planStore.recordDelivery({ name: "merged", task_id: t.task_id, pr: source });
       await advancePlans();
       const closed = outcome.closed ? "Fechei a aba do worker" : "A aba já não existia";
       const planLine = plan.length > 0 ? ` Atualizei ${plan.join("; ")}.` : "";
@@ -414,17 +420,20 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       );
       return;
     }
+    planStore.recordDelivery({ name: "pr_open", task_id: t.task_id, pr: source, head_sha: s.headRefOid });
     if (verdict === "pending") return;
-    fixLoop.apply(t.task_id, { type: "head", head_sha: s.headRefOid });
+    recordFix(t.task_id, fixLoop.apply(t.task_id, { type: "head", head_sha: s.headRefOid }).action);
     const conflict = verdict === "conflict";
     const red = conflict ? [] : failingChecks(s);
     const kind: PrAction | null = conflict ? "conflict" : red.length > 0 ? "ci" : null;
+    if (kind !== null && planStore.pausedFor(t.task_id)) return;
     prWatch.shouldAct(t.task_id, s.headRefOid, conflict, "conflict");
     prWatch.shouldAct(t.task_id, s.headRefOid, red.length > 0, "ci");
     if (kind === null || !prWatch.shouldAct(t.task_id, s.headRefOid, true, kind)) return;
     let fix: { action: FixAction; previous: FixRecord | null } | null = null;
     if (kind === "ci") {
       fix = fixLoop.apply(t.task_id, { type: "ci_red", head_sha: s.headRefOid, checks: red });
+      recordFix(t.task_id, fix.action);
       if (fix.action.kind === "blocked") {
         emitEvent(eventSink, EVENT_POLICY["fix-blocked"], {
           customType: "orch-event",
