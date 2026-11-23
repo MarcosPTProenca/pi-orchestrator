@@ -9,6 +9,7 @@ export const EVENT_POLICY = {
   "queue-failed": "decision",
   "worker-done": "conclusion",
   "pr-merged-no-plan": "conclusion",
+  "plan-completed": "conclusion",
   "pending-replay": "conclusion",
   "ci-action-sent": "routine",
   "plan-launched": "routine",
