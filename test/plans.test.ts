@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, existsSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PlanStore } from "../src/plans.ts";
+import { PlanStore, launchable, nextState } from "../src/plans.ts";
 
 const fresh = () => new PlanStore(mkdtempSync(join(tmpdir(), "plans-")), () => "2026-11-21T00:00:00.000Z");
 
@@ -194,4 +194,68 @@ test("depends_on que não é lista de ids é recusado", () => {
     () => s.create("dep", "D", [{ title: "A", depends_on: "1" as unknown as string[] }]),
     /depends_on deve ser lista/,
   );
+});
+
+test("plano nasce em rascunho e não lança nada até ser aprovado", () => {
+  const s = fresh();
+  const plan = s.create("rasc", "R", [{ title: "A", delegate: spec }]);
+  assert.equal(plan.state, "draft");
+  assert.deepEqual(launchable(s.show("rasc")), []);
+  s.act("rasc", "approve");
+  assert.deepEqual(
+    launchable(s.show("rasc")).map((i) => i.id),
+    ["1"],
+  );
+});
+
+test("transições: aprovar, pausar, retomar e cancelar seguem a tabela; o resto é recusado", () => {
+  assert.equal(nextState("draft", "approve"), "approved");
+  assert.equal(nextState("approved", "pause"), "paused");
+  assert.equal(nextState("paused", "approve"), "approved", "retomar é aprovar de novo");
+  assert.equal(nextState("approved", "cancel"), "cancelled");
+  assert.throws(() => nextState("draft", "pause"), /não é possível pausar um plano draft/);
+  assert.throws(() => nextState("cancelled", "approve"), /não é possível aprovar/);
+  assert.throws(() => nextState("completed", "cancel"), /não é possível cancelar/);
+});
+
+test("pausado não lança itens; cancelado não reativa", () => {
+  const s = fresh();
+  s.create("pz", "P", [{ title: "A", delegate: spec }]);
+  s.act("pz", "approve");
+  s.act("pz", "pause");
+  assert.deepEqual(launchable(s.show("pz")), []);
+  s.act("pz", "cancel");
+  assert.throws(() => s.act("pz", "approve"), /não é possível aprovar um plano cancelled/);
+});
+
+test("conclui quando todos os itens estão mergeados ou concluídos, e só se aprovado", () => {
+  const s = fresh();
+  s.create("cc", "C", [
+    { title: "A", delegate: spec },
+    { title: "B", depends_on: ["1"], delegate: spec },
+  ]);
+  assert.equal(s.complete("cc").state, "draft", "rascunho não conclui");
+  s.act("cc", "approve");
+  s.launched("cc", "1", "t-cccccccc");
+  s.launched("cc", "2", "t-dddddddd");
+  s.markMerged("t-cccccccc");
+  assert.equal(s.complete("cc").state, "approved", "item 2 ainda em andamento");
+  s.markMerged("t-dddddddd");
+  assert.equal(s.complete("cc").state, "completed");
+});
+
+test("plano antigo sem estado vira rascunho: não lança sozinho", () => {
+  const dir = mkdtempSync(join(tmpdir(), "plans-"));
+  writeFileSync(
+    join(dir, "velho.json"),
+    JSON.stringify({
+      id: "velho",
+      title: "V",
+      created_at: "x",
+      items: [{ id: "1", title: "a", status: "pending", task_id: null, pr: null, updated_at: "x", delegate: spec }],
+    }),
+  );
+  const plan = new PlanStore(dir).show("velho");
+  assert.equal(plan.state, "draft");
+  assert.deepEqual(launchable(plan), []);
 });

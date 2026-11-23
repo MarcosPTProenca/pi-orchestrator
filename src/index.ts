@@ -26,7 +26,7 @@ import { locateProject } from "./locate.ts";
 import { orchestratorAgentName } from "./label.ts";
 import { execFile } from "node:child_process";
 import { Store, defaultStateDir } from "./store.ts";
-import { PlanStore, ITEM_STATUSES, type ItemInput, type ItemStatus } from "./plans.ts";
+import { PlanStore, ITEM_STATUSES, launchable, type ItemInput, type ItemStatus } from "./plans.ts";
 import { EVENT_POLICY, statusKind, wakesLlm } from "./event-policy.ts";
 import { summarizeUsage } from "./usage-report.ts";
 import { NoticeBatcher } from "./notices.ts";
@@ -425,7 +425,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   const prChecked = new Map<string, number>();
   const planStore = new PlanStore(join(defaultStateDir(), "plans"));
   const launchReady = async (planId: string): Promise<void> => {
-    for (const item of planStore.ready(planStore.show(planId))) {
+    for (const item of launchable(planStore.show(planId))) {
       const spec = item.delegate;
       if (!spec) continue;
       try {
@@ -463,7 +463,19 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     }
   };
   const advancePlans = async (): Promise<void> => {
-    for (const planId of planStore.list()) await launchReady(planId).catch(() => undefined);
+    for (const planId of planStore.list()) {
+      await launchReady(planId).catch(() => undefined);
+      const plan = planStore.complete(planId);
+      if (plan.state === "completed")
+        pi.sendMessage(
+          {
+            customType: "orch-event",
+            content: `Plano ${planId} (${plan.title}) concluído: ${plan.items.map((i) => `${i.id} ${i.title}${i.pr ? ` (${i.pr})` : ""}`).join("; ")}.`,
+            display: true,
+          },
+          { triggerTurn: wakesLlm(EVENT_POLICY["plan-completed"]) },
+        );
+    }
   };
   // keep: a PR é consultada pela tarefa, não pelo pane; a aba pode já ter sido fechada e o plano segue mesmo assim.
   const reconcilePlans = async (): Promise<void> => {
@@ -1010,7 +1022,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     name: "orch_plan_create",
     label: "orch plan create",
     description:
-      "Registra um plano entregue pelo usuário, fora dos repositórios. Cada item é um título (manual) ou um objeto com `depends_on` (ids de itens anteriores) e `delegate` (especificação de lançamento: project_path, request, objective, mode, e opcionalmente role, model, source, branch). Itens com `delegate` são lançados sozinhos quando as dependências são concluídas; o orquestrador não precisa ser lembrado.",
+      "Registra um plano entregue pelo usuário, fora dos repositórios, em rascunho: não lança nada até orch_plan_approve. Cada item é um título (manual) ou um objeto com `depends_on` (ids de itens anteriores) e `delegate` (especificação de lançamento: project_path, request, objective, mode, e opcionalmente role, model, source, branch). Itens com `delegate` são lançados sozinhos quando as dependências são concluídas; o orquestrador não precisa ser lembrado.",
     parameters: {
       type: "object",
       properties: {
@@ -1071,6 +1083,43 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       return asText(params.id ? planStore.show(params.id) : { plans: planStore.list() });
     },
   });
+
+  for (const [name, action, label] of [
+    [
+      "orch_plan_approve",
+      "approve",
+      "Aprova o plano: a partir daqui os itens com especificação são lançados sozinhos quando as dependências forem concluídas. Retomar um plano pausado também usa esta ferramenta.",
+    ],
+    [
+      "orch_plan_pause",
+      "pause",
+      "Pausa o plano: nenhum item novo é lançado até aprovar de novo. Tarefas já em andamento não são tocadas.",
+    ],
+    [
+      "orch_plan_cancel",
+      "cancel",
+      "Cancela o plano: nenhum item novo é lançado. Tarefas já em andamento não são tocadas nem canceladas.",
+    ],
+  ] as const) {
+    pi.registerTool({
+      name,
+      label: name.replace("_", " "),
+      description: label,
+      parameters: {
+        type: "object",
+        properties: { id: { type: "string" } },
+        required: ["id"],
+        additionalProperties: false,
+      },
+      execute(_id: string, raw: Record<string, unknown>) {
+        assertWritable();
+        const id = typeof raw.id === "string" ? raw.id : "";
+        const plan = planStore.act(id, action);
+        const launching = action === "approve" ? launchReady(id).catch(() => undefined) : Promise.resolve();
+        return launching.then(() => asText({ id: plan.id, state: planStore.show(id).state }));
+      },
+    });
+  }
 
   pi.registerTool({
     name: "orch_plan_update",

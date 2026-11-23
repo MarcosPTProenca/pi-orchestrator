@@ -29,11 +29,48 @@ export interface PlanItem {
   updated_at: string;
 }
 
+export type PlanState = "draft" | "approved" | "paused" | "cancelled" | "completed";
+export type PlanAction = "approve" | "pause" | "cancel";
+
 export interface Plan {
   id: string;
   title: string;
   created_at: string;
+  state: PlanState;
   items: PlanItem[];
+}
+
+const TRANSITIONS: Record<PlanAction, { from: PlanState[]; to: PlanState }> = {
+  approve: { from: ["draft", "paused"], to: "approved" },
+  pause: { from: ["approved"], to: "paused" },
+  cancel: { from: ["draft", "approved", "paused"], to: "cancelled" },
+};
+
+export function nextState(state: PlanState, action: PlanAction): PlanState {
+  const rule = TRANSITIONS[action];
+  if (!rule.from.includes(state)) throw new Error(`não é possível ${actionLabel(action)} um plano ${state}`);
+  return rule.to;
+}
+
+function actionLabel(action: PlanAction): string {
+  return { approve: "aprovar", pause: "pausar", cancel: "cancelar" }[action];
+}
+export function launchable(plan: Plan): PlanItem[] {
+  return plan.state === "approved" ? readyItems(plan) : [];
+}
+function isComplete(plan: Plan): boolean {
+  return (
+    plan.state === "approved" &&
+    plan.items.length > 0 &&
+    plan.items.every((i) => i.status === "merged" || i.status === "done")
+  );
+}
+
+function readyItems(plan: Plan): PlanItem[] {
+  const done = new Set(plan.items.filter((i) => DONE_FOR_DEPENDENCY.includes(i.status)).map((i) => i.id));
+  return plan.items.filter(
+    (i) => i.status === "pending" && i.delegate !== null && i.depends_on.every((d) => done.has(d)),
+  );
 }
 
 export interface ItemInput {
@@ -113,7 +150,7 @@ export class PlanStore {
         updated_at: at,
       };
     });
-    const plan: Plan = { id, title, created_at: at, items };
+    const plan: Plan = { id, title, created_at: at, state: "draft", items };
     this.write(plan);
     return plan;
   }
@@ -127,6 +164,7 @@ export class PlanStore {
       item.delegate ??= null;
       item.error ??= null;
     }
+    plan.state ??= "draft";
     return plan;
   }
 
@@ -139,10 +177,20 @@ export class PlanStore {
   }
 
   ready(plan: Plan): PlanItem[] {
-    const done = new Set(plan.items.filter((i) => DONE_FOR_DEPENDENCY.includes(i.status)).map((i) => i.id));
-    return plan.items.filter(
-      (i) => i.status === "pending" && i.delegate !== null && i.depends_on.every((d) => done.has(d)),
-    );
+    return readyItems(plan);
+  }
+  act(planId: string, action: PlanAction): Plan {
+    const plan = this.show(planId);
+    plan.state = nextState(plan.state, action);
+    this.write(plan);
+    return plan;
+  }
+  complete(planId: string): Plan {
+    const plan = this.show(planId);
+    if (!isComplete(plan)) return plan;
+    plan.state = "completed";
+    this.write(plan);
+    return plan;
   }
 
   update(planId: string, itemId: string, fields: { status?: ItemStatus; task_id?: string; pr?: string }): PlanItem {
