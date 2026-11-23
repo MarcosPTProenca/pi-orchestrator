@@ -24,17 +24,20 @@ test("pergunta, falha, perda e erro de lançamento são decisão", () => {
   }
 });
 
-test("transições rotineiras de plano, ociosas, paradas e ações já tomadas não acordam o LLM", () => {
+test("transições de plano, ociosas, paradas e worktrees órfãs têm ação possível: acordam o LLM", () => {
   for (const name of [
-    "ci-action-sent",
     "plan-launched",
     "plan-transition",
     "idle-candidates",
     "worker-stalled",
-    "herdr-check-failed",
     "orphan-worktrees",
-    "readonly-session",
   ] as const) {
+    assert.equal(wakesLlm(EVENT_POLICY[name]), true, name);
+  }
+});
+
+test("ação já tomada ou sem recuperação possível: não acordam o LLM", () => {
+  for (const name of ["ci-action-sent", "herdr-check-failed", "readonly-session"] as const) {
     assert.equal(wakesLlm(EVENT_POLICY[name]), false, name);
   }
 });

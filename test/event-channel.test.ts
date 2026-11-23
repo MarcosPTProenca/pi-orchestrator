@@ -15,9 +15,9 @@ function fakeSink() {
 
 const msg = { customType: "orch-event", content: "aviso", display: true };
 
-test("evento rotineiro fica só na tela: não entra no contexto nem acorda a LLM", () => {
+test("evento rotineiro sem ação possível fica só na tela: não entra no contexto nem acorda a LLM", () => {
   const { sink, calls } = fakeSink();
-  emitEvent(sink, EVENT_POLICY["orphan-worktrees"], msg);
+  emitEvent(sink, EVENT_POLICY["readonly-session"], msg);
   assert.deepEqual(calls, [{ method: "appendEntry", args: [UI_ENTRY, { content: "aviso" }] }]);
 });
 
@@ -33,9 +33,9 @@ test("conclusão entra no contexto e acorda a LLM para apresentar o resultado", 
   assert.deepEqual(calls, [{ method: "sendMessage", args: [msg, { triggerTurn: true }] }]);
 });
 
-test("30 ciclos de avisos rotineiros: nenhum turno de LLM e nenhuma mensagem no contexto", () => {
+test("30 ciclos de avisos sem ação possível: nenhum turno de LLM e nenhuma mensagem no contexto", () => {
   const { sink, calls } = fakeSink();
-  for (let i = 0; i < 30; i++) emitEvent(sink, EVENT_POLICY["idle-candidates"], msg);
+  for (let i = 0; i < 30; i++) emitEvent(sink, EVENT_POLICY["herdr-check-failed"], msg);
   assert.equal(calls.filter((c) => c.method === "sendMessage").length, 0);
   assert.equal(calls.length, 30);
 });
@@ -52,12 +52,12 @@ const CHANNEL: Record<string, "tela" | "acorda"> = {
   "plan-completed": "acorda",
   "pending-replay": "acorda",
   "ci-action-sent": "tela",
-  "plan-launched": "tela",
-  "plan-transition": "tela",
-  "idle-candidates": "tela",
-  "worker-stalled": "tela",
+  "plan-launched": "acorda",
+  "plan-transition": "acorda",
+  "idle-candidates": "acorda",
+  "worker-stalled": "acorda",
+  "orphan-worktrees": "acorda",
   "herdr-check-failed": "tela",
-  "orphan-worktrees": "tela",
   "readonly-session": "tela",
 };
 

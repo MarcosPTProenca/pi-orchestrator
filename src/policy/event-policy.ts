@@ -12,12 +12,13 @@ export const EVENT_POLICY = {
   "plan-completed": "conclusion",
   "pending-replay": "conclusion",
   "ci-action-sent": "routine",
-  "plan-launched": "routine",
-  "plan-transition": "routine",
-  "idle-candidates": "routine",
-  "worker-stalled": "routine",
+  // keep: decision aqui tem orch_send/orch_close/orch_cancel/orch_release reais; herdr-check-failed e readonly-session não têm ação possível.
+  "plan-launched": "decision",
+  "plan-transition": "decision",
+  "idle-candidates": "decision",
+  "worker-stalled": "decision",
   "herdr-check-failed": "routine",
-  "orphan-worktrees": "routine",
+  "orphan-worktrees": "decision",
   "readonly-session": "routine",
 } as const satisfies Record<string, EventKind>;
 
