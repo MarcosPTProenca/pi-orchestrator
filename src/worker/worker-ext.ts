@@ -328,11 +328,13 @@ export default function workerExtension(pi: ExtensionAPI): void {
     if (event.toolName !== "bash") return;
     const raw = (event.input as { command?: unknown }).command;
     const command = typeof raw === "string" ? raw : "";
+    const structured = (event as { structuredContent?: { exit_code?: unknown } }).structuredContent;
     const details = event.details as { exit_code?: unknown } | undefined;
+    const exit = structured?.exit_code ?? details?.exit_code;
     const text = event.content.map((c) => (c.type === "text" ? c.text : "")).join("\n");
     appendCommand(taskDir, {
       command: maskSecrets(command),
-      exit_code: typeof details?.exit_code === "number" ? details.exit_code : null,
+      exit_code: typeof exit === "number" ? exit : null,
       at: new Date().toISOString(),
       excerpt: maskSecrets(text.split("\n").slice(-15).join("\n")),
     });

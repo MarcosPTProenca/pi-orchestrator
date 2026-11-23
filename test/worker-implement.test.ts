@@ -175,6 +175,24 @@ test("bash real: exit code vem do resultado da ferramenta e a marca TDD aponta p
   }
 });
 
+test("bash real do Pi: exit code vem de structuredContent, pois details não o traz", async () => {
+  const f = fixture("direct-pr");
+  try {
+    const w = loadWorker();
+    await w.handlers.tool_result({
+      toolName: "bash",
+      input: { command: "node --test test/a.test.ts" },
+      details: undefined,
+      structuredContent: { output: "not ok 1", truncated: false, exit_code: 1, wall_time_seconds: 0.1 },
+      content: [{ type: "text", text: "not ok 1\n\nCommand exited with code 1" }],
+      isError: true,
+    });
+    assert.equal(readEvidenceLog(f.taskDir).commands[0].exit_code, 1);
+  } finally {
+    f.cleanup();
+  }
+});
+
 test("push e PR registram o estado real no publish-state.json e capturam a URL da PR", async () => {
   const f = fixture("direct-pr");
   try {
