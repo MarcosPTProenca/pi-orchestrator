@@ -871,7 +871,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     name: "orch_status",
     label: "orch status",
     description:
-      "Resumo compacto por projeto: contagem por estado, tarefas abertas (ativas ou bloqueadas) inteiras e até 10 terminais recentes por projeto (omitted_terminal informa quantas ficaram de fora). Resultado truncado a 120 caracteres; links traz as URLs do texto completo; para o texto completo, de uma tarefa, use task_id; detail=true devolve todas as linhas completas. Canceladas e terminais antigas (mais de 24 h) ficam de fora; all=true inclui todas. Não consome avisos do orch_inbox.",
+      "Resumo compacto por projeto: contagem por estado, tarefas abertas (ativas ou bloqueadas, bloqueadas primeiro) até 50 por projeto (omitted_open informa quantas ficaram de fora) e até 10 terminais recentes por projeto (omitted_terminal informa quantas ficaram de fora). Resultado truncado a 120 caracteres; links traz as URLs do texto completo; para o texto completo, de uma tarefa, use task_id; detail=true devolve todas as linhas completas. Canceladas e terminais antigas (mais de 24 h) ficam de fora; all=true inclui todas. Não consome avisos do orch_inbox.",
     parameters: {
       type: "object",
       properties: {
@@ -882,8 +882,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       },
       additionalProperties: false,
     },
-    async execute(_id: string, params: { all?: boolean; project_id?: string; task_id?: string; detail?: boolean }) {
-      if (owner) await orch.refreshAll();
+    execute(_id: string, params: { all?: boolean; project_id?: string; task_id?: string; detail?: boolean }) {
       const detail = params.detail === true || params.task_id !== undefined;
       const groups = buildStatus(orch.list(), Date.now(), {
         all: params.all === true || params.task_id !== undefined,
@@ -893,8 +892,13 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         fullResult: detail,
       });
       const view = detail ? groups : compactStatus(groups);
-      return asText(
-        view.map((g) => ({ ...g, tasks: g.tasks.map((r) => ({ ...r, deadline_at: formatBrasilia(r.deadline_at) })) })),
+      return Promise.resolve(
+        asText(
+          view.map((g) => ({
+            ...g,
+            tasks: g.tasks.map((r) => ({ ...r, deadline_at: formatBrasilia(r.deadline_at) })),
+          })),
+        ),
       );
     },
   });
