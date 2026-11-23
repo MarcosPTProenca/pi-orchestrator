@@ -48,7 +48,7 @@ interface GateReason {
   message: string;
 }
 
-interface TicketFacts {
+export interface TicketFacts {
   id: string;
   state: "running" | "done" | "paused" | "cancelled";
   branch: string | null;
