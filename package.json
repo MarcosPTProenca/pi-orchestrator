@@ -11,6 +11,7 @@
     "quality:test": "node --test scripts/quality-lib.test.mjs",
     "eval:approval": "node --import tsx evals/approval-flow.ts",
     "usage:real-pi": "node --import tsx scripts/usage-real-pi.ts",
+    "usage:report": "node --import tsx scripts/usage-report.ts",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

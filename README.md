@@ -115,6 +115,22 @@ Os números vêm do `usage` que o próprio Pi grava em cada mensagem de assistan
 - Gatilho observado por turno (`trigger`): `mensagem-de-usuario` (mensagem de usuário anterior), `ferramenta` (resultado de ferramenta anterior), `extensao:<customType>` (mensagem injetada por extensão, entrada `custom_message`) ou `indisponivel`. Não é a origem: o gatilho diz o que veio antes, não por que o turno foi pedido.
 - Orquestrador: `orch_status` com `usage: true` devolve `orquestrador` com tokens, custo, aquecimento e turnos da sessão do orquestrador, com `origin: "indisponivel"` explícito.
 
+### Semântica por provedor (código do `pi-ai`, versão 1.5.2 do Pi)
+
+| API do Pi                                                 | `input`                                  | `cacheRead`                                  | `cacheWrite`                                                | `output`                                 | `reasoning`                                 | `totalTokens`                                                                           |
+| --------------------------------------------------------- | ---------------------------------------- | -------------------------------------------- | ----------------------------------------------------------- | ---------------------------------------- | ------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `anthropic-messages`                                      | `input_tokens`, sem o cache              | `cache_read_input_tokens`                    | `cache_creation_input_tokens`; `cacheWrite1h` é subconjunto | `output_tokens`                          | não reportado                               | calculado pelo Pi: `input + output + cacheRead + cacheWrite`                            |
+| `openai-completions` (OpenAI, OpenRouter, DeepSeek, Kimi) | `prompt_tokens − cacheRead − cacheWrite` | `cached_tokens` ou `prompt_cache_hit_tokens` | escrita de cache do provedor                                | `completion_tokens`, já inclui reasoning | `reasoning_tokens`, subconjunto de `output` | calculado pelo Pi: `input + output + cacheRead + cacheWrite`                            |
+| `openai-responses`                                        | `input_tokens − cacheRead − cacheWrite`  | `input_tokens_details`                       | escrita de cache do provedor                                | `output_tokens`, já inclui reasoning     | `reasoning_tokens`, subconjunto de `output` | vem da resposta do provedor; não recalculado e **não verificado de forma independente** |
+
+Regra de soma: `input`, `cacheRead` e `cacheWrite` são disjuntos em todos os provedores acima; `reasoning` e `cacheWrite1h` nunca são somados de novo. Taxa de acerto do cache = `cacheRead / (input + cacheRead + cacheWrite)`, nula sem denominador.
+
+### Relatório de linha de comando
+
+`npm run usage:report -- <sessao.jsonl> [mais sessões...]` imprime JSON com turnos (por origem `automatico`/`usuario`/`indisponivel`, falhas, duração, custo), tokens, taxa de acerto do cache com o denominador, custo informado e aquecimento. Duplicatas entre arquivos (fork, reload) são contadas uma vez. Não imprime conteúdo de prompt.
+
+Limites: `usuario` é toda mensagem de usuário do Pi, inclusive prompts enviados por automação pelo terminal; `automatico` é mensagem de extensão ou continuação após ferramenta. Origem real (quem pediu o turno) não é exposta pelo Pi.
+
 ## Smoke test real
 
 Cria workspace, tabs e workers Pi reais em um projeto descartável, com estado isolado.

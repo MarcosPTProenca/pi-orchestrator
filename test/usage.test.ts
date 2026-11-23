@@ -9,6 +9,8 @@ import {
   mergeTurnSummaries,
   turnsFromState,
   orchestratorUsage,
+  turnClass,
+  usageReport,
 } from "../src/usage.ts";
 
 const asst = (ts: number, input: number, output: number, cacheRead = 0, cacheWrite = 0) => ({
@@ -379,4 +381,74 @@ test("uso da sessão do orquestrador soma mensagens, extensões e aquecimento; d
   assert.equal(r.turns.failed, 1);
   assert.deepEqual(r.turns.by_trigger, { "mensagem-de-usuario": 1, "extensao:orch-event": 1 });
   assert.equal(orchestratorUsage([]).turns.turns, 0);
+});
+
+test("classe do turno: mensagem de usuário é usuário; extensão e ferramenta são automáticos; resto indisponível", () => {
+  assert.equal(turnClass("mensagem-de-usuario"), "usuario");
+  assert.equal(turnClass("extensao:orch-event"), "automatico");
+  assert.equal(turnClass("ferramenta"), "automatico");
+  assert.equal(turnClass("indisponivel"), "indisponivel");
+  assert.equal(turnClass(undefined), "indisponivel");
+});
+
+test("relatório das duas sessões reais (origem e fork) conta cada resposta uma vez, com oráculo independente", async () => {
+  const { readFileSync } = await import("node:fs");
+  const load = (f: string) =>
+    readFileSync(`test/fixtures/usage-real-pi/${f}`, "utf8")
+      .split("\n")
+      .filter((l) => l.trim() !== "")
+      .map((l) => JSON.parse(l) as unknown);
+  const files = [load("sessao-principal.jsonl"), load("sessao-fork.jsonl")];
+  const r = usageReport(files);
+  const uniq = new Map<string, { t: number; cr: number; cw: number; i: number }>();
+  for (const f of files)
+    for (const e of f as {
+      type?: string;
+      message?: { role?: string; responseId?: string; usage?: Record<string, number> };
+    }[]) {
+      if (e.type !== "message" || e.message?.role !== "assistant" || !e.message.usage) continue;
+      const u = e.message.usage;
+      uniq.set(e.message.responseId as string, {
+        t: u.totalTokens ?? 0,
+        cr: u.cacheRead ?? 0,
+        cw: u.cacheWrite ?? 0,
+        i: u.input ?? 0,
+      });
+    }
+  const vals = [...uniq.values()];
+  assert.equal(r.turns.turns, uniq.size);
+  assert.equal(
+    r.tokens.totalTokens,
+    vals.reduce((a, v) => a + v.t, 0),
+  );
+  assert.equal(
+    r.cache.denominator,
+    vals.reduce((a, v) => a + v.i + v.cr + v.cw, 0),
+  );
+  assert.equal(r.cache.hit_ratio, vals.reduce((a, v) => a + v.cr, 0) / r.cache.denominator);
+  assert.equal(
+    r.turns.by_origin.indisponivel + r.turns.by_origin.usuario + r.turns.by_origin.automatico,
+    r.turns.turns,
+  );
+});
+
+test("relatório: extensão conta como automático; taxa de acerto sem denominador fica nula, não zero", () => {
+  const r = usageReport([
+    [
+      { type: "custom_message", customType: "orch-event", content: "x", display: false },
+      {
+        type: "message",
+        message: {
+          role: "assistant",
+          responseId: "z",
+          timestamp: 1,
+          stopReason: "stop",
+          usage: { input: 0, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 1 },
+        },
+      },
+    ],
+  ]);
+  assert.equal(r.turns.by_origin.automatico, 1);
+  assert.equal(r.cache.hit_ratio, null);
+  assert.equal(usageReport([]).turns.turns, 0);
 });

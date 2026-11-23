@@ -249,3 +249,42 @@ export function cacheHitRatio(u: Pick<Usage, "input" | "cacheRead" | "cacheWrite
   const denom = u.input + u.cacheRead + u.cacheWrite;
   return denom > 0 ? u.cacheRead / denom : null;
 }
+
+export type TurnOrigin = "automatico" | "usuario" | "indisponivel";
+
+export function turnClass(trigger: string | undefined): TurnOrigin {
+  if (trigger === "mensagem-de-usuario") return "usuario";
+  if (trigger === "ferramenta" || trigger?.startsWith("extensao:")) return "automatico";
+  return "indisponivel";
+}
+
+export function usageReport(sessions: unknown[][]) {
+  let state: UsageState = { total: newUsage(), counted: [], turns: [] };
+  let warm: { warm: Usage; warmIds: string[] } = { warm: newUsage(), warmIds: [] };
+  for (const entries of sessions) {
+    state = addNewUsage(state.total, entriesToMessages(entries), state.counted, state.turns ?? []);
+    warm = addCacheWarmUsage(warm, entries);
+  }
+  const turns = state.turns ?? [];
+  const by_origin: Record<TurnOrigin, number> = { automatico: 0, usuario: 0, indisponivel: 0 };
+  for (const t of turns) by_origin[turnClass(t.trigger)]++;
+  const total = state.total;
+  return {
+    sessions: sessions.length,
+    turns: { ...summarizeTurns(turns), by_origin },
+    tokens: {
+      input: total.input,
+      output: total.output,
+      cacheRead: total.cacheRead,
+      cacheWrite: total.cacheWrite,
+      totalTokens: total.totalTokens,
+    },
+    cache: {
+      hit_ratio: cacheHitRatio(total),
+      denominator: total.input + total.cacheRead + total.cacheWrite,
+    },
+    cost_usd: total.cost,
+    cost_from_provider: total.costFromProvider,
+    cache_warm_cost_usd: warm.warm.cost,
+  };
+}
