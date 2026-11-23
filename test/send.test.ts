@@ -105,3 +105,16 @@ test("worker bloqueado com painel trocado: recusa e não envia (mesma checagem d
   assert.equal(h.herdr.opsOf("prompt").length, 0);
   assert.equal(h.orch.get(t.task_id).status, "blocked");
 });
+
+test("retoma worker concluído cujo painel está em done (estado que o Herdr reporta após terminar)", async () => {
+  const h = makeHarness();
+  const t = await running(h);
+  writeReport(t.task_dir, t.task_id, { status: "done", result: "ok" });
+  await h.orch.refresh(t.task_id);
+  h.herdr.panesList = h.herdr.panesList.map((p) =>
+    p.pane_id === t.pane_id ? { ...p, agent: "pi", agent_status: "done" } : p,
+  );
+  await h.orch.send(t.task_id, "corrija o conflito da PR");
+  assert.equal(h.orch.get(t.task_id).status, "running");
+  assert.equal(h.herdr.opsOf("prompt").length, 1);
+});
