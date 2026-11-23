@@ -4,6 +4,7 @@ import {
   ageText,
   buildStatus,
   compactStatus,
+  COMPACT_OPEN_LIMIT,
   COMPACT_TERMINAL_LIMIT,
   DEFAULT_OLD_HOURS,
   oldHoursFrom,
@@ -178,6 +179,18 @@ test("compacto: bloqueada e ativa saem inteiras; terminais ficam limitadas às m
   assert.equal(grupo.omitted_terminal, 5);
   assert.equal(grupo.counts.done, COMPACT_TERMINAL_LIMIT + 5);
   assert.equal(grupo.tasks.find((r) => r.task_id === "t-b")?.question, "A ou B?");
+});
+
+test("compacto: abertas acima do teto ficam de fora com omitted_open; bloqueadas vêm primeiro", () => {
+  const abertas = Array.from({ length: COMPACT_OPEN_LIMIT + 7 }, (_, i) =>
+    t({ task_id: `t-a${i}`, status: "running", updated_at: `2026-11-17T11:${String(i % 60).padStart(2, "0")}:00Z` }),
+  );
+  const bloqueada = t({ task_id: "t-bq", status: "blocked", question: "?", updated_at: "2026-11-01T00:00:00Z" });
+  const [grupo] = compactStatus(buildStatus([...abertas, bloqueada], NOW, {}));
+  assert.equal(grupo.tasks.length, COMPACT_OPEN_LIMIT);
+  assert.equal(grupo.tasks[0].task_id, "t-bq", "bloqueada primeiro mesmo sendo a mais antiga");
+  assert.equal(grupo.omitted_open, 8);
+  assert.equal(grupo.counts.running, COMPACT_OPEN_LIMIT + 7, "contagem continua completa");
 });
 
 test("compacto: resultado truncado a 120 e URL de PR preservada em artefatos", () => {
