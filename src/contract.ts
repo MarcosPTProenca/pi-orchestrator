@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { TurnSummary } from "./usage.ts";
 
 export const REPORT_STATUSES = ["done", "blocked", "failed"] as const;
 type ReportStatus = (typeof REPORT_STATUSES)[number];
@@ -60,6 +61,7 @@ export interface TaskRecord {
     cost?: number;
     costFromProvider?: boolean;
     cacheWarmCost?: number;
+    turns?: TurnSummary | null;
   } | null;
   model: string | null;
   mode?: string;

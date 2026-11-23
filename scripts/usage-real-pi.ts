@@ -1,9 +1,19 @@
 import { spawn } from "node:child_process";
 import { createServer, type Server } from "node:http";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { addNewUsage, newUsage, type Usage } from "../src/usage.ts";
+import { fileURLToPath } from "node:url";
+import { addNewUsage, newUsage, summarizeTurns, type Usage, type UsageState } from "../src/usage.ts";
 
 function run(
   cmd: string,
@@ -28,6 +38,11 @@ function run(
   });
 }
 const keep = process.argv.includes("--keep");
+const real = process.argv.includes("--real");
+const realExtIdx = process.argv.indexOf("--real-ext");
+const realExt = realExtIdx > 0 ? resolve(process.argv[realExtIdx + 1]) : null;
+if (real && !realExt) throw new Error("--real exige --real-ext <caminho da extensão claude-bridge>");
+const IDLE_MS = 10_000;
 const jsonOutIdx = process.argv.indexOf("--json-out");
 const jsonOut = jsonOutIdx > 0 ? resolve(process.argv[jsonOutIdx + 1]) : null;
 
@@ -65,6 +80,10 @@ function fakeLlm(): Server {
 interface AssistantRow {
   responseId?: string;
   timestamp?: number;
+  provider?: string;
+  model?: string;
+  durationMs?: number;
+  stopReason?: string;
   usage: Usage;
 }
 
@@ -74,12 +93,26 @@ function readAssistants(file: string): AssistantRow[] {
     if (!line.trim()) continue;
     const e = JSON.parse(line) as { type?: string; message?: Record<string, unknown> };
     const m = e.message as
-      { role?: string; responseId?: string; timestamp?: number; usage?: Record<string, number> } | undefined;
+      | {
+          role?: string;
+          responseId?: string;
+          timestamp?: number;
+          provider?: string;
+          model?: string;
+          durationMs?: number;
+          stopReason?: string;
+          usage?: Record<string, number>;
+        }
+      | undefined;
     if (e.type !== "message" || m?.role !== "assistant" || !m.usage) continue;
     const u = m.usage;
     rows.push({
       responseId: m.responseId,
       timestamp: m.timestamp,
+      provider: m.provider,
+      model: m.model,
+      durationMs: m.durationMs,
+      stopReason: m.stopReason,
       usage: {
         ...newUsage(),
         input: u.input ?? 0,
@@ -140,7 +173,7 @@ async function main(): Promise<void> {
     }),
   );
 
-  const pi = async (args: string[]) => {
+  const pi = async (args: string[], extraEnv: Record<string, string> = {}) => {
     const started = Date.now();
     const base = [
       "-ne",
@@ -152,16 +185,15 @@ async function main(): Promise<void> {
       "--offline",
       "--session-dir",
       sessionDir,
-      "--provider",
-      "fakellm",
-      "--model",
-      "fake-model",
+      ...(real
+        ? ["-e", realExt as string, "--provider", "claude-bridge", "--model", "claude-haiku-5-5"]
+        : ["--provider", "fakellm", "--model", "fake-model"]),
     ];
     try {
       await run("pi", [...base, ...args], {
         cwd,
         timeout: 180_000,
-        env: { ...process.env, PI_CODING_AGENT_DIR: agentDir },
+        env: { ...process.env, ...(real ? {} : { PI_CODING_AGENT_DIR: agentDir }), ...extraEnv },
       });
       return { exit: 0, ms: Date.now() - started };
     } catch (err) {
@@ -192,19 +224,58 @@ async function main(): Promise<void> {
   const newest = forks.sort((a, b) => statSync(join(sessionDir, b)).mtimeMs - statSync(join(sessionDir, a)).mtimeMs)[0];
   if (newest) await log("B2 reinício no fork", ["--session", join(sessionDir, newest), "-p", "após reinício"]);
 
+  const files0 = () => readdirSync(sessionDir).filter((f) => f.endsWith(".jsonl"));
+  const beforeIdle = new Set(files0());
+  await log("D1 sessão ociosa: início", ["-p", "status?"]);
+  const fileD = files0().find((f) => !beforeIdle.has(f));
+  if (!fileD) throw new Error("sessão ociosa não foi criada");
+  const pathD = join(sessionDir, fileD);
+  const turnsBeforeIdle = readAssistants(pathD).length;
+  await new Promise((ok) => setTimeout(ok, IDLE_MS));
+  const turnsAfterIdle = readAssistants(pathD).length;
+  await log("D2 retomada após ociosa", ["--session", pathD, "-p", "após ociosa"]);
+  const idle = {
+    kind: "sessão em disco sem processo Pi ativo",
+    idle_ms: IDLE_MS,
+    assistant_turns_before_idle: turnsBeforeIdle,
+    turns_added_while_idle: turnsAfterIdle - turnsBeforeIdle,
+    assistant_turns_after_resume: readAssistants(pathD).length,
+  };
+
+  const taskDir = join(root, "task");
+  mkdirSync(taskDir);
+  writeFileSync(join(taskDir, "brief.md"), "# Tarefa\nResponda com a palavra ok.\n");
+  const workerExt = fileURLToPath(new URL("../src/worker-ext.ts", import.meta.url));
+  const delegationRun = await pi(["-e", workerExt, "-p", "Execute a tarefa do brief."], {
+    PI_ORCH_ROLE: "worker",
+    PI_ORCH_TASK_ID: "t-baseline",
+    PI_ORCH_TASK_DIR: taskDir,
+  });
+  steps.push({ step: "C1 delegação (worker)", ...delegationRun });
+  const usageFile = join(taskDir, "usage.json");
+  const workerUsage = existsSync(usageFile) ? (JSON.parse(readFileSync(usageFile, "utf8")) as UsageState) : null;
+  const delegation = {
+    usage_json_written: workerUsage !== null,
+    ...summarizeTurns(workerUsage?.turns ?? []),
+  };
+
   server.close();
 
   const files = readdirSync(sessionDir).filter((f) => f.endsWith(".jsonl"));
   const perFile = files.map((f) => ({ file: f, rows: readAssistants(join(sessionDir, f)) }));
-  let state: { total: Usage; counted: (number | string)[] } = { total: newUsage(), counted: [] };
+  let state: UsageState = { total: newUsage(), counted: [], turns: [] };
   for (const pf of perFile) {
     const msgs = pf.rows.map((r) => ({
       role: "assistant",
       responseId: r.responseId,
       timestamp: r.timestamp,
+      provider: r.provider,
+      model: r.model,
+      durationMs: r.durationMs,
+      stopReason: r.stopReason,
       usage: r.usage,
     }));
-    state = addNewUsage(state.total, msgs, state.counted);
+    state = addNewUsage(state.total, msgs, state.counted, state.turns ?? []);
   }
   const naive = perFile.flatMap((pf) => pf.rows);
   const uniq = new Map<string, AssistantRow>();
@@ -225,7 +296,12 @@ async function main(): Promise<void> {
     groundTruthSum: sum([...uniq.values()]),
     cacheHitRatio: state.total.cacheRead / (state.total.input + state.total.cacheRead + state.total.cacheWrite),
     costFromProvider: state.total.costFromProvider,
-    kind: "real Pi processes + simulated LLM (local HTTP); not a provider call",
+    kind: real
+      ? "real Pi processes + real provider (claude-bridge/claude-haiku-5-5)"
+      : "real Pi processes + simulated LLM (local HTTP); not a provider call",
+    turns: summarizeTurns(state.turns ?? []),
+    idle,
+    delegation,
   };
   const text = JSON.stringify(result, null, 2);
   console.log(text);

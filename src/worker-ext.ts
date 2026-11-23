@@ -5,7 +5,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { REPORT_STATUSES, validateReport } from "./contract.ts";
 import { fallbackReportFor, lastModelError } from "./fallback.ts";
 import { postToHook } from "./hook.ts";
-import { addCacheWarmUsage, addNewUsage, newUsage, type UsageState } from "./usage.ts";
+import { addCacheWarmUsage, addNewUsage, newUsage, turnsFromState, type UsageState } from "./usage.ts";
 import { maskSecrets } from "./logs.ts";
 import { SESSION_POINTER } from "./session-file.ts";
 
@@ -121,9 +121,15 @@ export default function workerExtension(pi: ExtensionAPI): void {
 
   pi.on("agent_end", async (event, ctx) => {
     const prev = readUsage();
-    const acc = addNewUsage(prev.total, (event as { messages?: unknown[] }).messages ?? [], prev.counted ?? []);
+    const turns = turnsFromState(prev);
+    const acc = addNewUsage(
+      prev.total,
+      (event as { messages?: unknown[] }).messages ?? [],
+      prev.counted ?? [],
+      turns ?? [],
+    );
     const warm = addCacheWarmUsage(prev, ctx.sessionManager.getEntries());
-    writeUsage({ ...acc, warm: warm.warm, warmIds: warm.warmIds });
+    writeUsage({ ...acc, turns: turns === null ? undefined : acc.turns, warm: warm.warm, warmIds: warm.warmIds });
 
     const file = join(taskDir, "report.json");
     let invalidReason: string | null = deferredInvalidReason;

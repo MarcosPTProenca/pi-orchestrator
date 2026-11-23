@@ -10,6 +10,7 @@ import {
   oldHoursFrom,
 } from "../src/status.ts";
 import type { TaskRecord } from "../src/contract.ts";
+import { summarizeTurns } from "../src/usage.ts";
 
 const NOW = Date.parse("2026-11-17T12:00:00Z");
 const t = (over: Record<string, unknown>) =>
@@ -241,4 +242,40 @@ test("links: URL além do corte de 120 caracteres continua visível na saída co
   const row = out[0].tasks[0];
   assert.ok(!row.result!.includes("pull/9"));
   assert.deepEqual(row.links, ["https://github.com/o/r/pull/9"]);
+});
+
+test("orch_status expõe turnos por tarefa e soma por projeto; tarefa legada fica sem turnos", () => {
+  const turns = (ok: boolean | null, ms: number | null) => ({
+    provider: "p",
+    model: "m",
+    durationMs: ms,
+    ok,
+    totalTokens: 1,
+    cost: 0,
+  });
+  const comTurnos = t({
+    task_id: "t-tn",
+    status: "done",
+    updated_at: "2026-11-17T11:50:00Z",
+    usage: {
+      input: 1,
+      output: 2,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 3,
+      turns: summarizeTurns([turns(true, 100), turns(false, 50)]),
+    },
+  });
+  const legada = t({
+    task_id: "t-leg",
+    status: "done",
+    updated_at: "2026-11-17T11:50:00Z",
+    usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 3 },
+  });
+  const grupos = buildStatus([comTurnos, legada], NOW, {});
+  const rows = grupos.flatMap((g) => g.tasks);
+  assert.equal(rows.find((r) => r.task_id === "t-tn")!.turns!.turns, 2);
+  assert.equal(rows.find((r) => r.task_id === "t-leg")!.turns, null);
+  assert.equal(grupos[0].turns!.failed, 1);
+  assert.equal(grupos[0].turns!.duration_ms_total, 150);
 });

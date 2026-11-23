@@ -1,5 +1,5 @@
 import { isActive, type TaskRecord, type TaskStatus } from "./contract.ts";
-import { cacheHitRatio } from "./usage.ts";
+import { cacheHitRatio, mergeTurnSummaries, type TurnSummary } from "./usage.ts";
 
 export const DEFAULT_OLD_HOURS = 24;
 const RESULT_MAX = 200;
@@ -56,11 +56,13 @@ interface StatusRow {
   cost_usd: number | null;
   cost_from_provider: boolean | null;
   cache_warm_cost_usd: number | null;
+  turns: TurnSummary | null;
 }
 
 export interface StatusGroup {
   project_id: string;
   tasks: StatusRow[];
+  turns: TurnSummary | null;
 }
 
 export function buildStatus(tasks: TaskRecord[], now: number, opts: StatusOptions): StatusGroup[] {
@@ -95,6 +97,7 @@ export function buildStatus(tasks: TaskRecord[], now: number, opts: StatusOption
       cost_usd: t.usage ? (t.usage.cost ?? 0) : null,
       cost_from_provider: t.usage ? t.usage.costFromProvider === true : null,
       cache_warm_cost_usd: t.usage ? (t.usage.cacheWarmCost ?? 0) : null,
+      turns: t.usage?.turns ?? null,
     };
     const list = byProject.get(t.project_id) ?? [];
     list.push(row);
@@ -102,7 +105,11 @@ export function buildStatus(tasks: TaskRecord[], now: number, opts: StatusOption
   }
   return [...byProject.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([project_id, rows]) => ({ project_id, tasks: rows }));
+    .map(([project_id, rows]) => ({
+      project_id,
+      tasks: rows,
+      turns: mergeTurnSummaries(rows.map((r) => r.turns)),
+    }));
 }
 
 interface CompactTask {
