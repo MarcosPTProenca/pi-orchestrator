@@ -28,6 +28,7 @@ import { execFile } from "node:child_process";
 import { Store, defaultStateDir } from "./store.ts";
 import { PlanStore, ITEM_STATUSES, type ItemInput, type ItemStatus } from "./plans.ts";
 import { EVENT_POLICY, statusKind, wakesLlm } from "./event-policy.ts";
+import { summarizeUsage } from "./usage-report.ts";
 import { NoticeBatcher } from "./notices.ts";
 import { notificationFor, notifyArgs, notifyEnabled } from "./notify.ts";
 import { buildStatus, compactStatus, linksIn, oldHoursFrom } from "./status.ts";
@@ -1118,6 +1119,17 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         tab_closed: outcome.closed,
         ...(outcome.reason ? { reason: outcome.reason } : {}),
       });
+    },
+  });
+
+  pi.registerTool({
+    name: "orch_usage",
+    label: "orch usage",
+    description:
+      "Mostra o uso de tokens e custo das tarefas desta sessão: totais, taxa de acerto de cache (denominador: entrada + leitura de cache + escrita de cache), custo informado pelo provedor separado do estimado, e totais por modelo. Somente leitura.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    execute() {
+      return Promise.resolve(asText(summarizeUsage(orch.owned().map((t) => ({ model: t.model, usage: t.usage })))));
     },
   });
 
