@@ -27,6 +27,7 @@ import { orchestratorAgentName } from "./label.ts";
 import { execFile } from "node:child_process";
 import { Store, defaultStateDir } from "./store.ts";
 import { PlanStore, ITEM_STATUSES, type ItemInput, type ItemStatus } from "./plans.ts";
+import { EVENT_POLICY, statusKind, wakesLlm } from "./event-policy.ts";
 import { NoticeBatcher } from "./notices.ts";
 import { notificationFor, notifyArgs, notifyEnabled } from "./notify.ts";
 import { buildStatus, compactStatus, linksIn, oldHoursFrom } from "./status.ts";
@@ -312,7 +313,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
           display: false,
           details: batch.map((b) => b.event),
         },
-        { triggerTurn: true },
+        { triggerTurn: batch.some((b) => wakesLlm(statusKind(b.event.status))) },
       );
     },
     undefined,
@@ -444,7 +445,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
             content: `Plano ${planId}, item ${item.id} (${item.title}): lancei a tarefa ${task.task_id} (${projectLabel(task.project_id)}).`,
             display: true,
           },
-          { triggerTurn: false },
+          { triggerTurn: wakesLlm(EVENT_POLICY["plan-launched"]) },
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -455,7 +456,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
             content: `Plano ${planId}, item ${item.id} (${item.title}) não foi lançado: ${msg}. Decida: corrigir a especificação ou seguir manualmente.`,
             display: true,
           },
-          { triggerTurn: true },
+          { triggerTurn: wakesLlm(EVENT_POLICY["launch-failed"]) },
         );
       }
     }
@@ -480,7 +481,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
                 content: `Plano ${planId}, item ${item.id}: tarefa ${task.task_id} concluída sem PR. Lançando o próximo passo.`,
                 display: true,
               },
-              { triggerTurn: false },
+              { triggerTurn: wakesLlm(EVENT_POLICY["plan-transition"]) },
             );
             await advancePlans();
             continue;
@@ -500,7 +501,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
               content: `Plano ${planId}, item ${item.id}: PR #${pr.number} mergeada (tarefa ${task.task_id}). Lançando o próximo passo.`,
               display: true,
             },
-            { triggerTurn: false },
+            { triggerTurn: wakesLlm(EVENT_POLICY["plan-transition"]) },
           );
           await advancePlans();
         } catch {
@@ -538,7 +539,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
               : `${headline} ${closed}. Confira se há próximo passo e diga ao usuário.`,
           display: true,
         },
-        { triggerTurn: plan.length === 0 },
+        { triggerTurn: plan.length === 0 && wakesLlm(EVENT_POLICY["pr-merged-no-plan"]) },
       );
       return;
     }
@@ -560,7 +561,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
           content: `${taskHeadline(t, source, `PR #${pr.number} ${what}`)} Acionei o próprio worker para corrigir; acompanho a PR.`,
           display: true,
         },
-        { triggerTurn: true },
+        { triggerTurn: wakesLlm(EVENT_POLICY["ci-action-sent"]) },
       );
     } catch (err) {
       pi.sendMessage(
@@ -569,7 +570,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
           content: `PR #${pr.number} de ${t.task_id} (${label}) ${what}, e não consegui acionar o worker: ${err instanceof Error ? err.message : String(err)}. Decida: orch_send manual ou orch_relaunch.`,
           display: true,
         },
-        { triggerTurn: true },
+        { triggerTurn: wakesLlm(EVENT_POLICY["send-failed"]) },
       );
     }
   };
@@ -584,7 +585,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       if (idleWatch.observe(idle)) {
         pi.sendMessage(
           { customType: "orch-event", content: idleNoticeFor(idle), display: true },
-          { triggerTurn: true },
+          { triggerTurn: wakesLlm(EVENT_POLICY["idle-candidates"]) },
         );
       }
       const running = orch.owned().filter((t) => t.status === "running");
@@ -597,7 +598,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       if (stalled.length > 0) {
         pi.sendMessage(
           { customType: "orch-event", content: stallNoticeFor(stalled, STALL_MIN, projectLabel), display: true },
-          { triggerTurn: true },
+          { triggerTurn: wakesLlm(EVENT_POLICY["worker-stalled"]) },
         );
       }
       for (const t of orch.owned()) {
@@ -617,7 +618,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
             content: "Não foi possível conferir superfícies ociosas no Herdr; nova tentativa no próximo ciclo.",
             display: true,
           },
-          { triggerTurn: false },
+          { triggerTurn: wakesLlm(EVENT_POLICY["herdr-check-failed"]) },
         );
       }
     } finally {
@@ -662,7 +663,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
           content: `Outra sessão do orquestrador (pid ${ownerPid}) já cuida deste projeto (${ctx.cwd}). Esta sessão está em modo somente leitura: consulta sim; não lança, não responde, não cancela e não avisa.`,
           display: true,
         },
-        { triggerTurn: false },
+        { triggerTurn: wakesLlm(EVENT_POLICY["readonly-session"]) },
       );
       return;
     }
@@ -682,7 +683,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       if (orphans.length > 0) {
         pi.sendMessage(
           { customType: "orch-event", content: orphanNoticeFor(orphans), display: true },
-          { triggerTurn: false },
+          { triggerTurn: wakesLlm(EVENT_POLICY["orphan-worktrees"]) },
         );
       }
     } catch {}
@@ -709,7 +710,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
           display: false,
           details: { pending: pending.map((e) => e.task_id) },
         },
-        { triggerTurn: true },
+        { triggerTurn: wakesLlm(EVENT_POLICY["pending-replay"]) },
       );
     }
   });
@@ -820,7 +821,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
                 content: `Fila de PRs (${projectLabel(basename(f.item.project_path))}): não consegui iniciar a correção de ${f.item.role} após ${f.attempts} tentativas. Erro: ${f.error.slice(0, 300)}`,
                 display: true,
               },
-              { triggerTurn: true },
+              { triggerTurn: wakesLlm(EVENT_POLICY["queue-failed"]) },
             );
           },
         });
