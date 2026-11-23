@@ -39,3 +39,36 @@ test("30 ciclos de avisos rotineiros: nenhum turno de LLM e nenhuma mensagem no 
   assert.equal(calls.filter((c) => c.method === "sendMessage").length, 0);
   assert.equal(calls.length, 30);
 });
+
+const CHANNEL: Record<string, "tela" | "acorda"> = {
+  "worker-question": "acorda",
+  "worker-failed": "acorda",
+  "worker-lost": "acorda",
+  "launch-failed": "acorda",
+  "send-failed": "acorda",
+  "queue-failed": "acorda",
+  "worker-done": "acorda",
+  "pr-merged-no-plan": "acorda",
+  "plan-completed": "acorda",
+  "pending-replay": "acorda",
+  "ci-action-sent": "tela",
+  "plan-launched": "tela",
+  "plan-transition": "tela",
+  "idle-candidates": "tela",
+  "worker-stalled": "tela",
+  "herdr-check-failed": "tela",
+  "orphan-worktrees": "tela",
+  "readonly-session": "tela",
+};
+
+test("tabela da política: todo tipo de evento tem canal explícito, e rotineiros nunca vão ao contexto", () => {
+  assert.deepEqual(Object.keys(CHANNEL).sort(), Object.keys(EVENT_POLICY).sort());
+  for (const [kind, expected] of Object.entries(CHANNEL)) {
+    const { sink, calls } = fakeSink();
+    emitEvent(sink, EVENT_POLICY[kind as keyof typeof EVENT_POLICY], msg);
+    const methods = calls.map((c) => c.method);
+    if (expected === "tela") assert.deepEqual(methods, ["appendEntry"], kind);
+    else assert.deepEqual(methods, ["sendMessage"], kind);
+    if (expected === "acorda") assert.deepEqual(calls[0]?.args[1], { triggerTurn: true }, kind);
+  }
+});

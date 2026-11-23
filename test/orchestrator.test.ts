@@ -1036,3 +1036,12 @@ test("retomada por fork não manda reler um brief que já está na sessão copia
   assert.match(run.command, /Se o conteúdo dele já estiver nesta sessão, não o releia/);
   assert.doesNotMatch(run.command, /Leia o brief em/);
 });
+
+test("bloqueio com pergunta avisa uma vez; repetir noticeFor não reabre o aviso (#101)", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  writeReport(t.task_dir, t.task_id, { status: "blocked", question: "Usar A ou B?" }, "1");
+  await h.orch.refresh(t.task_id);
+  assert.equal((await h.orch.noticeFor(t.task_id))?.status, "blocked");
+  assert.equal(await h.orch.noticeFor(t.task_id), null, "não repete a pergunta");
+});
