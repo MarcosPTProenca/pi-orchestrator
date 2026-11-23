@@ -8,6 +8,18 @@ import { postToHook } from "../shared/hook.ts";
 import { addCacheWarmUsage, addNewUsage, newUsage, turnsFromState, type UsageState } from "../shared/usage.ts";
 import { maskSecrets } from "../shared/logs.ts";
 import { SESSION_POINTER } from "../shared/session-file.ts";
+import { parseExecutionTicket, type ExecutionTicket } from "../shared/execution-ticket.ts";
+import {
+  editBlockReason,
+  persistPlan,
+  readPhase,
+  reusablePlan,
+  TICKET_FILE,
+  ticketFingerprint,
+  validatePlan,
+  writePhase,
+  writePreflight,
+} from "../shared/plan.ts";
 
 const WORKER_PREAMBLE = [
   "Você é um worker lançado pelo orquestrador, que atende o mesmo usuário.",
@@ -24,6 +36,73 @@ export const ASK_BLOCK_REASON =
   "Chame orch_report com status blocked e question: a pergunta, em uma frase, e as opções numeradas (uma por linha, com a descrição). " +
   "Se houver mais de uma pergunta, junte-as na mesma question. Pare o trabalho até a resposta chegar.";
 
+const PLAN_PROTOCOL = [
+  "Esta tarefa tem ticket de execução (ticket.json na pasta da tarefa). Antes de editar arquivos:",
+  "1. Leia plan-phase.json. Se a fase for PLAN_READY e implementation-plan.md existir, reutilize esse plano: não refaça a análise.",
+  "2. Caso contrário, investigue só as superfícies relevantes (arquivos, callers, testes existentes, riscos) com file:line.",
+  "3. Chame orch_submit_plan com o plano completo. A identidade (task_id, fingerprint, base) é preenchida pelo worker. O plano é recusado se faltar critério, passo ou diagnóstico verificável.",
+  "4. Desvio de escopo, decisão de produto ou ambiguidade: orch_report com status blocked e question precisa, sem plano.",
+].join("\n");
+
+const EDIT_TOOLS = ["edit", "write"];
+const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+const hasTicket = (dir: string | undefined): dir is string => !!dir && existsSync(join(dir, TICKET_FILE));
+
+function planGateReason(dir: string | undefined): string | null {
+  if (!hasTicket(dir)) return null;
+  return editBlockReason(readPhase(dir)?.phase ?? null);
+}
+
+function readTicket(dir: string): ExecutionTicket {
+  return parseExecutionTicket(JSON.parse(readFileSync(join(dir, TICKET_FILE), "utf8")));
+}
+
+function prepareTicket(dir: string, root: string): void {
+  let ticket: ExecutionTicket;
+  try {
+    ticket = readTicket(dir);
+  } catch (err) {
+    writePhase(dir, { phase: "BLOCKED", reason: `ticket inválido: ${errorMessage(err)}` });
+    return;
+  }
+  if (ticket.status !== "ready") {
+    writePhase(dir, { phase: "BLOCKED", reason: ticket.clarification ?? "ticket sem critérios verificáveis" });
+    return;
+  }
+  const fingerprint = ticketFingerprint(ticket);
+  writePhase(dir, { phase: "TICKET_VALIDATED", ticket_fingerprint: fingerprint });
+  const reuse = reusablePlan(dir, ticket, root);
+  if (reuse.reuse) {
+    writePhase(dir, { phase: "PLAN_READY", ticket_fingerprint: fingerprint });
+    return;
+  }
+  writePreflight(dir, ticket, root);
+  writePhase(dir, { phase: "PREFLIGHT", ticket_fingerprint: fingerprint, reason: reuse.reason });
+}
+
+function submitPlan(dir: string, raw: unknown, root: string): string {
+  if (!hasTicket(dir)) return "Esta tarefa não tem ticket.json: não há plano a registrar.";
+  let ticket: ExecutionTicket;
+  try {
+    ticket = readTicket(dir);
+  } catch (err) {
+    return `Ticket inválido: ${errorMessage(err)}`;
+  }
+  const identified = {
+    ...(typeof raw === "object" && raw !== null && !Array.isArray(raw) ? raw : {}),
+    task_id: ticket.task_id,
+    attempt_id: ticket.attempt_id,
+    ticket_fingerprint: ticketFingerprint(ticket),
+    base_sha: ticket.origin.base_sha,
+  };
+  const result = validatePlan(identified, ticket, root);
+  if (!result.ok) return `Plano recusado: ${result.errors.join("; ")}. Corrija e envie de novo com orch_submit_plan.`;
+  persistPlan(dir, result.plan);
+  writePhase(dir, { phase: "PLAN_READY", ticket_fingerprint: ticketFingerprint(ticket) });
+  return "Plano aceito: fase PLAN_READY. Pode começar a editar.";
+}
+
 const BRIEF_ENTRY = "orch-brief";
 
 function briefInHistory(ctx: unknown, sha256: string): boolean {
@@ -37,9 +116,14 @@ function briefInHistory(ctx: unknown, sha256: string): boolean {
 
 export default function workerExtension(pi: ExtensionAPI): void {
   if (process.env.PI_ORCH_ROLE !== "worker") return;
-  pi.on("tool_call", (event) =>
-    event.toolName === "AskUserQuestion" ? { block: true, reason: ASK_BLOCK_REASON } : undefined,
-  );
+  pi.on("tool_call", (event) => {
+    if (event.toolName === "AskUserQuestion") return { block: true, reason: ASK_BLOCK_REASON };
+    if (EDIT_TOOLS.includes(event.toolName)) {
+      const reason = planGateReason(process.env.PI_ORCH_TASK_DIR);
+      return reason ? { block: true, reason } : undefined;
+    }
+    return undefined;
+  });
   let reminded = false;
   let deferredNoReport = false;
   let deferredInvalidReason: string | null = null;
@@ -70,7 +154,12 @@ export default function workerExtension(pi: ExtensionAPI): void {
     if (!briefInHistory(ctx, sha256)) pi.appendEntry(BRIEF_ENTRY, { sha256, task_id: taskId, content });
     const base = event.systemPrompt;
     const withPreamble = base.includes(WORKER_PREAMBLE) ? base : `${base}\n\n${WORKER_PREAMBLE}`;
-    return { systemPrompt: withPreamble };
+    if (hasTicket(taskDir)) prepareTicket(taskDir, process.cwd());
+    const withProtocol =
+      hasTicket(taskDir) && !withPreamble.includes(PLAN_PROTOCOL)
+        ? `${withPreamble}\n\n${PLAN_PROTOCOL}`
+        : withPreamble;
+    return { systemPrompt: withProtocol };
   });
   const taskId = process.env.PI_ORCH_TASK_ID;
   const taskDir = process.env.PI_ORCH_TASK_DIR;
@@ -149,6 +238,28 @@ export default function workerExtension(pi: ExtensionAPI): void {
       return;
     }
     await finish(messages, invalidReason);
+  });
+
+  pi.registerTool({
+    name: "orch_submit_plan",
+    label: "orch submit plan",
+    description:
+      "Registra o plano de implementação desta tarefa. Recusado se faltar critério, passo ou diagnóstico verificável. Chame antes de editar arquivos.",
+    parameters: {
+      type: "object",
+      properties: {
+        plan: {
+          type: "object",
+          description: "Plano: problema, diagnóstico file:line, abordagem, alternativas, etapas, critérios e riscos.",
+        },
+      },
+      required: ["plan"],
+      additionalProperties: false,
+    },
+    execute(_toolCallId: string, params: Record<string, unknown>) {
+      const text = submitPlan(taskDir, params.plan, process.cwd());
+      return Promise.resolve({ content: [{ type: "text" as const, text }], details: {} });
+    },
   });
 
   pi.registerTool({
