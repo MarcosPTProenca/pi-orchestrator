@@ -10,13 +10,9 @@ import {
 } from "./merge-policy.ts";
 import { FAILING } from "./prs.ts";
 
-// Jobs obrigatórios: nomes dos check runs do workflow CI (.github/workflows/ci.yml, job `test`).
 const REQUIRED_CHECKS = ["test"] as const;
-// Só check runs publicados por esta identidade do GitHub contam. Status fabricados pelo worker não contam.
 const TRUSTED_CI_APP = "github-actions";
 
-// Revisor confiável: um GitHub App distinto do worker publicando um check run no head.
-// Sem revisor configurado, a revisão é não verificável e o merge fica manual.
 export interface TrustedReviewer {
   app_slug: string;
   check_name: string;
@@ -230,8 +226,6 @@ export function decideIntegration(input: IntegrationInput): IntegrationResult {
   });
 }
 
-// ---- Pedido de merge único por (repo, PR, head_sha) ----
-
 interface IntegrationRecord {
   status: "requesting" | "requested" | "failed";
   head_sha: string;
@@ -250,7 +244,6 @@ export class IntegrationStore {
     return join(this.dir, `${encodeURIComponent(key)}.json`);
   }
 
-  // Criação exclusiva: dois eventos simultâneos no mesmo SHA não geram duas chamadas ao gh.
   claim(key: string): ClaimResult {
     mkdirSync(this.dir, { recursive: true });
     const file = this.pathFor(key);

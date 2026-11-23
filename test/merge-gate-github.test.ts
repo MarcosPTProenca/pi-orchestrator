@@ -122,7 +122,7 @@ test("parseProtection: lê contextos obrigatórios de checks e contexts", () => 
 });
 
 test("ghMergeGithub.merge: recusa --admin e merge sem --match-head-commit antes de chamar o gh", async () => {
-  const gh = ghMergeGithub("git@github.com:MarcosPTProenca/pi-orchestrator.git", process.cwd());
+  const gh = ghMergeGithub("git@example.com:neutral/repo.git", process.cwd());
   const base = ["pr", "merge", "200", "--repo", REPO, "--auto", "--squash"];
   await assert.rejects(gh.merge([...base, "--match-head-commit", HEAD, "--admin"]), /--admin/);
   await assert.rejects(gh.merge(base), /--match-head-commit/);

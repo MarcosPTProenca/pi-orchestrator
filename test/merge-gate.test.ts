@@ -293,8 +293,6 @@ test("PR desconhecida, repo desconhecido ou política ausente: blocked", () => {
   assert.equal(decideIntegration(input({ policy: null })).decision, "blocked");
 });
 
-// ---- requestIntegration: um pedido por SHA, sem repetir chamada ao gh ----
-
 function fakeGithub(snapshot: { pr: PrSnapshot | null; repo: RepoFacts | null; protection: Protection }) {
   const calls: string[][] = [];
   let failMerge: Error | null = null;
@@ -374,7 +372,6 @@ test("requestIntegration: falha de permissão no gh gera blocked e não repete n
 test("requestIntegration: claim interrompido sem resultado bloqueia para reconciliação humana", async () => {
   const fake = fakeGithub({ pr: pr(), repo: REPO_OK, protection: PROTECTED_OK });
   const store = freshStore();
-  // claim órfão de um processo que caiu antes de registrar o resultado
   writeFileSync(store.pathFor(`${REPO}#${NUMBER}@${HEAD}`), JSON.stringify({ status: "requesting", head_sha: HEAD }));
   const r = await request(store, fake.github);
   assert.equal(r.decision, "blocked");

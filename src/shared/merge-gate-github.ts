@@ -27,7 +27,6 @@ export function parsePrSnapshot(json: unknown, repo: string): PrSnapshot | null 
   if (typeof pr.number !== "number") return null;
   const headSha = str(pr.headRefOid);
   const commit = obj(obj(list(obj(pr.commits).nodes)[0]).commit);
-  // Check runs só valem se o commit anexado é o head atual; senão ficam ausentes e o gate bloqueia.
   const rollup = str(commit.oid) === headSha ? list(obj(obj(commit.statusCheckRollup).contexts).nodes) : [];
   const checkRuns: CheckRunFact[] = rollup.map((raw) => {
     const c = obj(raw);
@@ -40,7 +39,6 @@ export function parsePrSnapshot(json: unknown, repo: string): PrSnapshot | null 
         conclusion: typeof c.conclusion === "string" ? c.conclusion : null,
       };
     }
-    // StatusContext não tem identidade de app: nunca conta como evidência confiável.
     return {
       name: str(c.context),
       app_slug: null,
@@ -101,7 +99,6 @@ function gh(args: string[], cwd: string, env: NodeJS.ProcessEnv): Promise<string
   });
 }
 
-// Único ponto que executa merge. Recusa qualquer argumento fora de `gh pr merge ... --auto --squash`.
 function assertMergeArgs(args: string[]): void {
   const ok =
     args[0] === "pr" &&
