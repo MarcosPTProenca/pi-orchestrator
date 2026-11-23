@@ -35,3 +35,31 @@ test("inboxPage: limite de itens, decisões primeiro, consumo só do que foi exi
   assert.equal(second.omitted, 0);
   assert.equal(second.items.filter((i) => i.status === "blocked").length, 1);
 });
+
+test("inboxPage(consume=false): leitura pura, nem coleta relatório nem altera estado, mesmo em concorrência", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({
+    project_path: h.project,
+    role: "a",
+    request: "leitura",
+    objective: "y",
+    mode: "report",
+  });
+  const antes = JSON.stringify(h.orch.list());
+  writeReport(t.task_dir, t.task_id, { status: "done", result: "pronto" }, "leitura");
+
+  const leituras = await Promise.all(Array.from({ length: 8 }, () => h.orch.inboxPage({ consume: false, limit: 40 })));
+  for (const r of leituras) assert.equal(r.items.length, 0, "leitura não coleta relatório pronto");
+  assert.equal(JSON.stringify(h.orch.list()), antes, "nenhuma leitura pura grava estado");
+  assert.equal(h.orch.get(t.task_id).status, "running");
+});
+
+test("inboxPage(consume=true) concorrente: cada aviso é entregue uma única vez", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  writeReport(t.task_dir, t.task_id, { status: "done", result: "feito" }, "c");
+
+  const [a, b] = await Promise.all([h.orch.inboxPage({ consume: true }), h.orch.inboxPage({ consume: true })]);
+  assert.equal(a.items.length + b.items.length, 1, "o aviso aparece em uma só leitura consumidora");
+  assert.equal(h.orch.get(t.task_id).notified, true);
+});
