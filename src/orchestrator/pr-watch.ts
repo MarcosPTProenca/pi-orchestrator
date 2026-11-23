@@ -69,6 +69,7 @@ export function ciInstruction(prUrl: string, failing: string[]): string {
     `A PR ${prUrl} tem checks do CI falhando: ${failing.join(", ")}.`,
     "Leia o log da falha (gh run view <id> --log-failed), corrija a causa na mesma branch, rode localmente os checks que",
     "falharam e envie o push. Não reescreva histórico nem faça force-push. Se a falha for de infraestrutura externa,",
-    "não relacionada à mudança, diga qual é a evidência e pare.",
+    "não relacionada à mudança, diga qual é a evidência e pare. Se não houver log legível, a falha for flaky ou o log não",
+    "apontar código seu, não edite por palpite: diga a evidência e pare.",
   ].join(" ");
 }
