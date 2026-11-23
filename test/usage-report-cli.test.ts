@@ -1,16 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
 const fixture = (f: string) => `test/fixtures/usage-real-pi/${f}`;
-const load = (f: string) =>
-  readFileSync(fixture(f), "utf8")
-    .split("\n")
-    .filter((l) => l.trim() !== "")
-    .map((l) => JSON.parse(l) as unknown);
 
 test("CLI imprime relatório JSON das sessões passadas, sem conteúdo de prompt", async () => {
   const { stdout } = await run(process.execPath, [
@@ -31,7 +25,6 @@ test("CLI imprime relatório JSON das sessões passadas, sem conteúdo de prompt
   assert.ok(r.cache.denominator > 0);
   assert.equal(stdout.includes("status?"), false);
   assert.equal(stdout.includes("continua"), false);
-  assert.equal(load("sessao-principal.jsonl").length > 0, true);
 });
 
 test("CLI sem argumentos sai com código 2 e explica o uso", async () => {
