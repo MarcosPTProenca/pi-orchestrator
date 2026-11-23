@@ -145,3 +145,29 @@ function assistantStub(): never {
     timestamp: Date.now(),
   } as never;
 }
+
+test("multi-turno: o brief não volta ao contexto do modelo em turnos seguintes nem em continuação (#100)", () =>
+  withTask("## Pedido do usuário\nCorrija a revisão", () => {
+    const sm = SessionManager.inMemory("/tmp");
+    const appended: Appended[] = [];
+    const h = loadWorker(appended);
+    const briefInContext = () => JSON.stringify(sm.buildSessionProjection().messages).includes("Corrija a revisão");
+    const runTurn = (prompt: string) => {
+      sm.appendMessage({ role: "user", content: [{ type: "text", text: prompt }], timestamp: Date.now() });
+      const history = sm.getEntries().map((e) => ({ type: e.type, ...(e as object) }));
+      const r = h.before_agent_start({ systemPrompt: "base" }, { sessionManager: { getBranch: () => history } });
+      const m = r?.message as { customType: string; content: string; display: boolean } | undefined;
+      if (m) sm.appendCustomMessageEntry(m.customType, m.content, m.display, undefined);
+      for (const a of appended.splice(0)) sm.appendCustomEntry(a.customType, a.data);
+      sm.appendMessage(assistantStub());
+    };
+    runTurn("primeira tarefa");
+    runTurn("orch_send: ajuste o teste");
+    runTurn("orch_answer: pode seguir");
+    assert.equal(briefInContext(), false);
+    assert.equal(
+      sm.getEntries().filter((e) => e.type === "custom_message").length,
+      0,
+      "nenhuma cópia do brief entra como mensagem",
+    );
+  }));
