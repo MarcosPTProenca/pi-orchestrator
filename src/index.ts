@@ -98,9 +98,23 @@ export function idleNoticeFor(idle: { task_id: string; project_id: string }[]): 
   return `Tarefas concluídas e entregues com aba aberta (${idle.length}): ${items}. Decida por tarefa: se nada depende da aba (PR aberta com CI vermelho, conflito de merge ou review pendente), feche com orch_close; se algo ainda precisa dela, mantenha e diga o motivo.`;
 }
 
-export function orphanNoticeFor(orphans: { path: string; holder: string; project: string }[]): string {
-  const items = orphans.map((o) => `${projectLabel(o.project)}: ${o.path} (${o.holder})`).join("; ");
-  return `Worktrees ainda arrendadas por tarefas terminais (não foram devolvidas): ${items}. Devolver com orch_release só se o usuário pedir; ela recusa o que tiver trabalho não publicado.`;
+type OrphanLease = { path: string; holder: string; project: string };
+
+export function orphanReleaseNoticeFor(r: {
+  released: OrphanLease[];
+  kept: (OrphanLease & { note: string })[];
+}): string {
+  const item = (o: OrphanLease): string => `${projectLabel(o.project)}: ${o.path} (${o.holder})`;
+  const parts: string[] = [];
+  if (r.released.length > 0)
+    parts.push(
+      `Worktrees de tarefas terminais devolvidas automaticamente (${r.released.length}): ${r.released.map(item).join("; ")}.`,
+    );
+  if (r.kept.length > 0)
+    parts.push(
+      `Worktrees de tarefas terminais mantidas (${r.kept.length}): ${r.kept.map((o) => `${item(o)}: ${o.note}`).join("; ")}. Nada foi apagado.`,
+    );
+  return `Limpeza automática de worktrees. ${parts.join(" ")}`;
 }
 
 export function modelMessageFor(e: WatchEvent): string {
@@ -699,12 +713,22 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
           .map((t) => t.task_id),
       );
       const projects = [...new Set(orch.owned().map((t) => t.project_path))];
-      const orphans = projects.flatMap((p) =>
-        orphanLeases(treehouseOps, p, terminal).map((l) => ({ ...l, project: basename(p) })),
-      );
+      const leasesNow = (): OrphanLease[] =>
+        projects.flatMap((p) => orphanLeases(treehouseOps, p, terminal).map((l) => ({ ...l, project: basename(p) })));
+      const orphans = leasesNow();
       if (orphans.length > 0) {
+        for (const o of orphans) {
+          try {
+            orch.release(o.holder);
+          } catch {}
+        }
+        const stillLeased = new Set(leasesNow().map((o) => o.path));
+        const released = orphans.filter((o) => !stillLeased.has(o.path));
+        const kept = orphans
+          .filter((o) => stillLeased.has(o.path))
+          .map((o) => ({ ...o, note: orch.get(o.holder).worktree_note ?? "motivo não registrado" }));
         pi.sendMessage(
-          { customType: "orch-event", content: orphanNoticeFor(orphans), display: true },
+          { customType: "orch-event", content: orphanReleaseNoticeFor({ released, kept }), display: true },
           { triggerTurn: wakesLlm(EVENT_POLICY["orphan-worktrees"]) },
         );
       }
