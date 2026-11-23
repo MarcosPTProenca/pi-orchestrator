@@ -28,3 +28,20 @@ export function wakesLlm(kind: EventKind): boolean {
 export function statusKind(status: string): EventKind {
   return status === "done" ? "conclusion" : "decision";
 }
+
+export const UI_ENTRY = "orch-ui";
+
+export type EventMessage = { customType: string; content: string; display: boolean; details?: unknown };
+export type EventSink = {
+  sendMessage(msg: EventMessage, opts: { triggerTurn: boolean }): void;
+  appendEntry(customType: string, data: { content: string }): void;
+};
+
+// keep: rotineiro vai só para a tela (appendEntry, fora do contexto da LLM); decisão e conclusão entram no contexto.
+export function emitEvent(sink: EventSink, kind: EventKind, msg: EventMessage): void {
+  if (kind === "routine") {
+    sink.appendEntry(UI_ENTRY, { content: msg.content });
+    return;
+  }
+  sink.sendMessage(msg, { triggerTurn: wakesLlm(kind) });
+}
