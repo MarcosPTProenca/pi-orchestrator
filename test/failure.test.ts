@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classifyFailure, failureHintFor, suggestModel } from "../src/failure.ts";
+import { classifyFailure, failureHintFor, suggestModel } from "../src/policy/failure.ts";
 
 test("cota esgotada é classificada como quota", () => {
   assert.equal(
@@ -49,7 +49,7 @@ test("credencial: orientação diz que a troca de provedor é automática", () =
 });
 
 test("credencial falha troca para outro provedor, nunca o mesmo (autonomia do orquestrador)", async () => {
-  const { nextModelFor } = await import("../src/failure.ts");
+  const { nextModelFor } = await import("../src/policy/failure.ts");
   const prio = ["claude-bridge/claude-haiku-5-5", "claude-bridge/claude-sonnet-5", "openai-codex/gpt-6-luna"];
   assert.equal(nextModelFor("claude-bridge/claude-haiku-5-5", "auth", prio), "openai-codex/gpt-6-luna");
   assert.equal(nextModelFor("openai-codex/gpt-6-luna", "auth", prio), "claude-bridge/claude-haiku-5-5");
@@ -57,13 +57,13 @@ test("credencial falha troca para outro provedor, nunca o mesmo (autonomia do or
 });
 
 test("cota troca para qualquer outro modelo da prioridade", async () => {
-  const { nextModelFor } = await import("../src/failure.ts");
+  const { nextModelFor } = await import("../src/policy/failure.ts");
   const prio = ["claude-bridge/claude-haiku-5-5", "claude-bridge/claude-sonnet-5"];
   assert.equal(nextModelFor("claude-bridge/claude-haiku-5-5", "quota", prio), "claude-bridge/claude-sonnet-5");
 });
 
 test("cadeia de relançamentos conta os saltos e tem limite contra ciclo", async () => {
-  const { chainDepth } = await import("../src/failure.ts");
+  const { chainDepth } = await import("../src/policy/failure.ts");
   const tasks: Record<string, { relaunched_from?: string | null }> = {
     "t-a": {},
     "t-b": { relaunched_from: "t-a" },

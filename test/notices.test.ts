@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { NoticeBatcher } from "../src/notices.ts";
+import { NoticeBatcher } from "../src/orchestrator/notices.ts";
 
 function fakeClock() {
   let now = 0;

@@ -4,8 +4,8 @@ import { mkdtempSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { DEFERRABLE_TOOLS, deferredToolsNote, toolExposureFor } from "../src/tool-exposure.ts";
-import orchestratorExtension from "../src/index.ts";
+import { DEFERRABLE_TOOLS, deferredToolsNote, toolExposureFor } from "../src/policy/tool-exposure.ts";
+import orchestratorExtension from "../src/orchestrator/extension.ts";
 
 const DESTRUCTIVE_OR_ACTING = [
   "orch_delegate",

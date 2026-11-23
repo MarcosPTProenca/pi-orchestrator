@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { validateReport } from "../src/contract.ts";
-import { fallbackReportFor } from "../src/fallback.ts";
-import workerExtension from "../src/worker-ext.ts";
+import { validateReport } from "../src/shared/contract.ts";
+import { fallbackReportFor } from "../src/worker/fallback.ts";
+import workerExtension from "../src/worker/worker-ext.ts";
 import { makeHarness, writeReport } from "./fakes.ts";
 
 async function started(h: ReturnType<typeof makeHarness>) {

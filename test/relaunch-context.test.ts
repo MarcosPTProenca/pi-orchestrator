@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { HANDOFF_EXCERPT_CHARS, RELAUNCH_MARK, relaunchContext, relaunchNotice } from "../src/relaunch-context.ts";
+import {
+  HANDOFF_EXCERPT_CHARS,
+  RELAUNCH_MARK,
+  relaunchContext,
+  relaunchNotice,
+} from "../src/orchestrator/relaunch-context.ts";
 
 const base = {
   taskId: "t-1",

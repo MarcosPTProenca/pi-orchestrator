@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { DelegateInput } from "./orchestrator.ts";
+import type { DelegateInput } from "./task.ts";
 
 export interface RedPr {
   number: number;

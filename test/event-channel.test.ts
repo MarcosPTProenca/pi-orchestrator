@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { EVENT_POLICY, UI_ENTRY, emitEvent } from "../src/event-policy.ts";
+import { EVENT_POLICY, UI_ENTRY, emitEvent } from "../src/policy/event-policy.ts";
 
 function fakeSink() {
   const calls: { method: string; args: unknown[] }[] = [];

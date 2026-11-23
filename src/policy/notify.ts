@@ -1,4 +1,4 @@
-import type { WatchEvent } from "./orchestrator.ts";
+import type { WatchEvent } from "../shared/task.ts";
 
 export interface Notification {
   title: string;

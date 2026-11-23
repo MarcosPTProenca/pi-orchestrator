@@ -1,5 +1,5 @@
-import { FAILING, type PrState } from "./prs.ts";
-import type { TaskRecord } from "./contract.ts";
+import { FAILING, type PrState } from "../shared/prs.ts";
+import type { TaskRecord } from "../shared/contract.ts";
 
 export type PrVerdict = "merged" | "conflict" | "open" | "pending";
 

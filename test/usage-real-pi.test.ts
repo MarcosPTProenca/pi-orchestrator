@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { addNewUsage, newUsage, cacheHitRatio, type Usage } from "../src/usage.ts";
+import { addNewUsage, newUsage, cacheHitRatio, type Usage } from "../src/shared/usage.ts";
 
 const load = (name: string) => {
   const url = new URL(`./fixtures/usage-real-pi/${name}`, import.meta.url);

@@ -1,4 +1,4 @@
-import type { FailureKind } from "./failure.ts";
+import type { FailureKind } from "../policy/failure.ts";
 
 export const RELAUNCH_MARK = "Tentativa anterior (";
 export const HANDOFF_EXCERPT_CHARS = 2000;

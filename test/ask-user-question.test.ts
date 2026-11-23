@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import workerExtension, { ASK_BLOCK_REASON } from "../src/worker-ext.ts";
+import workerExtension, { ASK_BLOCK_REASON } from "../src/worker/worker-ext.ts";
 
 function loadWorker(): Record<string, Function> {
   const handlers: Record<string, Function> = {};

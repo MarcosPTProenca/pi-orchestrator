@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import workerExtension, { REPORT_REMINDER } from "../src/worker-ext.ts";
+import workerExtension, { REPORT_REMINDER } from "../src/worker/worker-ext.ts";
 
 type Handler = (event: unknown, ctx?: unknown) => unknown;
 const FAKE_CTX = { sessionManager: { getEntries: () => [] } };

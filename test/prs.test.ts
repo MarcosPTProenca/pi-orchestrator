@@ -11,8 +11,8 @@ import {
   prStateLine,
   verifyPr,
   verificationLine,
-} from "../src/prs.ts";
-import { FixQueue } from "../src/queue.ts";
+} from "../src/shared/prs.ts";
+import { FixQueue } from "../src/orchestrator/queue.ts";
 
 const sample = [
   {

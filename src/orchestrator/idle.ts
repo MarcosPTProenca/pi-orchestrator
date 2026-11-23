@@ -1,5 +1,5 @@
-import { isActive, type TaskRecord } from "./contract.ts";
-import type { PaneInfo } from "./herdr.ts";
+import { isActive, type TaskRecord } from "../shared/contract.ts";
+import type { PaneInfo } from "../shared/herdr.ts";
 import { prUrlOf } from "./pr-watch.ts";
 
 export interface IdleSurface {

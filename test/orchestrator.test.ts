@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { validateReport, reportKey } from "../src/contract.ts";
-import { parsePanes, parseTabCreate, parseWorkspaceCreate, parseWorkspaceIds } from "../src/herdr.ts";
-import { Orchestrator } from "../src/orchestrator.ts";
-import { Store } from "../src/store.ts";
+import { validateReport, reportKey } from "../src/shared/contract.ts";
+import { parsePanes, parseTabCreate, parseWorkspaceCreate, parseWorkspaceIds } from "../src/shared/herdr.ts";
+import { Orchestrator } from "../src/orchestrator/orchestrator.ts";
+import { Store } from "../src/shared/store.ts";
 import { makeHarness, writeReport } from "./fakes.ts";
 
 test("validateReport: blocked exige question e id de tarefa correto", () => {
@@ -594,8 +594,8 @@ test("brief de PR: primeiro consultar o estado de merge e resolver conflito ante
 
 test("enrichSource lê o estado da PR no lançamento (não na listagem)", async () => {
   const h = makeHarness();
-  const { Orchestrator } = await import("../src/orchestrator.ts");
-  const { Store } = await import("../src/store.ts");
+  const { Orchestrator } = await import("../src/orchestrator/orchestrator.ts");
+  const { Store } = await import("../src/shared/store.ts");
   const orch = new Orchestrator({
     herdr: h.herdr,
     store: new Store(join(h.stateDir, "e.json")),
@@ -671,7 +671,7 @@ test("sweep acha sozinho conclusões sem webhook, inclusive de tarefa que estava
 });
 
 test("brief não proíbe subagents e skills internos do Pi, em nenhum modo", async () => {
-  const { buildIntake, renderBrief, MODES } = await import("../src/intake.ts");
+  const { buildIntake, renderBrief, MODES } = await import("../src/shared/intake.ts");
   const h = makeHarness();
   for (const mode of MODES) {
     const brief = renderBrief(
@@ -686,7 +686,7 @@ test("brief não proíbe subagents e skills internos do Pi, em nenhum modo", asy
 });
 
 test("brief de modo design: a instrução de oracle e o que o worker pode usar não se contradizem", async () => {
-  const { buildIntake, renderBrief } = await import("../src/intake.ts");
+  const { buildIntake, renderBrief } = await import("../src/shared/intake.ts");
   const h = makeHarness();
   const brief = renderBrief(
     "t-x",

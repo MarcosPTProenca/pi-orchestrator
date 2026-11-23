@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { StallWatch } from "../src/stall.ts";
+import { StallWatch } from "../src/orchestrator/stall.ts";
 
 const MIN = 60_000;
 

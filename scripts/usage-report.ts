@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { usageReport } from "../src/usage.ts";
+import { usageReport } from "../src/shared/usage.ts";
 
 const paths = process.argv.slice(2);
 if (paths.length === 0) {

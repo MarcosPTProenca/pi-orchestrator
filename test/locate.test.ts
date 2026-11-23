@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { locateProject, queryTerms } from "../src/locate.ts";
+import { locateProject, queryTerms } from "../src/orchestrator/locate.ts";
 
 function repo(root: string, name: string, readme: string): void {
   const dir = join(root, name);

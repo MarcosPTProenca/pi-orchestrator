@@ -1,4 +1,4 @@
-import { cacheHitRatio, newUsage, type Usage } from "./usage.ts";
+import { cacheHitRatio, newUsage, type Usage } from "../shared/usage.ts";
 
 export interface UsageRow {
   model: string | null;

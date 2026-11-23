@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { notificationFor, notifyEnabled, notifyArgs } from "../src/notify.ts";
+import { notificationFor, notifyEnabled, notifyArgs } from "../src/policy/notify.ts";
 
 const base = { task_id: "t-1a2b3c", project_id: "alpha", result: null, question: null, artifacts: [], error: null };
 

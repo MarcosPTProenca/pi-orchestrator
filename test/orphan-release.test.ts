@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { orphanReleaseNoticeFor } from "../src/index.ts";
+import { orphanReleaseNoticeFor } from "../src/orchestrator/extension.ts";
 
 test("worktrees de tarefas terminais devolvidas viram aviso informativo, sem pedir ação", () => {
   const msg = orphanReleaseNoticeFor({

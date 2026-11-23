@@ -9,9 +9,9 @@ import {
   idleSurfaces,
   whyNotIdle,
   type LiveSurfaces,
-} from "../src/idle.ts";
-import { parseTabIds } from "../src/herdr.ts";
-import type { TaskRecord } from "../src/contract.ts";
+} from "../src/orchestrator/idle.ts";
+import { parseTabIds } from "../src/shared/herdr.ts";
+import type { TaskRecord } from "../src/shared/contract.ts";
 
 function task(over: Partial<TaskRecord>): TaskRecord {
   return {
@@ -210,7 +210,7 @@ test("idleReport lista candidatas e o motivo de cada não candidata, em ordem es
 });
 
 test("aviso de ociosas lista só as candidatas, sem o registro morto (ruído removido)", async () => {
-  const { idleNoticeFor } = await import("../src/index.ts");
+  const { idleNoticeFor } = await import("../src/orchestrator/extension.ts");
   const msg = idleNoticeFor([{ task_id: "t-a", project_id: "p" }]);
   assert.match(msg, /com aba aberta \(1\): t-a \(/);
   assert.match(msg, /feche com orch_close/);
@@ -234,7 +234,7 @@ test("orch_close com pane ausente não fecha nada e não diz que fechou (#62)", 
 });
 
 test("env de prazo inválida cai no padrão, nunca vira NaN (revisão da #85)", async () => {
-  const { envPositive } = await import("../src/index.ts");
+  const { envPositive } = await import("../src/orchestrator/extension.ts");
   assert.equal(envPositive(undefined, 60_000), 60_000);
   assert.equal(envPositive("abc", 60_000), 60_000);
   assert.equal(envPositive("0", 60_000), 60_000);

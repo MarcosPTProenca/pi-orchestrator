@@ -86,8 +86,22 @@ uma vez no fim, com `done`, `failed` ou `blocked`.
 ## Quem abre issues e PRs
 
 - **Orquestrador:** abre issue de processo ou relato (por exemplo, uma regra que o worker não seguiu) diretamente, com `gh`, sem lançar worker para isso. Pesquisa e levantamento para criar issue ou card não são feitos por ele: aciona os subagents `researcher` (fatos externos) e `log-researcher` (logs) e monta a issue a partir do relatório deles. Pedido claro dentro desse papel é executado sem pausa; se falhar, relata a tentativa e o erro exato. Mesmo critério da #43 (issue de processo aberta diretamente) e da #52 (discovery por subagents, pedido claro executado).
-- **Worker:** só comenta ou publica em issue/PR quando o pedido do usuário disser isso para aquela tarefa (regra 6 do brief, `src/intake.ts`).
+- **Worker:** só comenta ou publica em issue/PR quando o pedido do usuário disser isso para aquela tarefa (regra 6 do brief, `src/shared/intake.ts`).
 - **Exceção:** o orquestrador delega a abertura de issue a um worker só quando o usuário pede explicitamente _e_ a issue exige investigação de código que o orquestrador não tem contexto para fazer (por exemplo, localizar o `arquivo:linha` da causa raiz).
+
+## Organização do código
+
+```
+src/
+  index.ts        entrypoint do orquestrador (reexporta orchestrator/extension.ts)
+  worker-ext.ts   entrypoint do worker (reexporta worker/worker-ext.ts)
+  orchestrator/   coordenação: ferramentas orch_*, watchers, planos, avisos, ciclo de vida
+  worker/         extensão do worker: orch_report, bloqueio de AskUserQuestion, usage, fallback
+  shared/         contratos de tarefa e de relatório, estado e locks, adapters (Herdr, Treehouse, GitHub, quota, usage, brief)
+  policy/         regras puras: eventos, falhas, capacidade, notificação, exposição de ferramentas
+```
+
+Dependências permitidas: `orchestrator` → `orchestrator`, `shared`, `policy`; `worker` → `worker`, `shared`, `policy`; `policy` → `shared` (só tipos de evento); `shared` → `shared`. `orchestrator` e `worker` não se importam em nenhum sentido; `shared` e `policy` não dependem das duas camadas de aplicação. `test/module-boundaries.test.ts` verifica essas regras.
 
 ## Estado e arquivos
 

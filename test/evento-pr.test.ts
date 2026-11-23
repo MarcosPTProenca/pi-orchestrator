@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { taskHeadline } from "../src/index.ts";
+import { taskHeadline } from "../src/orchestrator/extension.ts";
 
 test("evento de PR traz projeto, tarefa, objetivo e link, não só o número", () => {
   const msg = taskHeadline(

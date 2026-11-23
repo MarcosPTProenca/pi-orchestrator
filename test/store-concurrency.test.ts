@@ -5,9 +5,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Store } from "../src/store.ts";
+import { Store } from "../src/shared/store.ts";
 
-const STORE = fileURLToPath(new URL("../src/store.ts", import.meta.url));
+const STORE = fileURLToPath(new URL("../src/shared/store.ts", import.meta.url));
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 function writer(file: string, n: number): Promise<void> {

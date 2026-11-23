@@ -1,16 +1,16 @@
-import { workerSessionFile } from "./session-file.ts";
-import { resolveModel } from "./models.ts";
-import { workerAgentName, workerTabName } from "./label.ts";
+import { workerSessionFile } from "../shared/session-file.ts";
+import { resolveModel } from "../shared/models.ts";
+import { workerAgentName, workerTabName } from "../shared/label.ts";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { clampLines, maskSecrets } from "./logs.ts";
-import { summarizeTurns, type TurnRecord } from "./usage.ts";
-import { classifyFailure } from "./failure.ts";
+import { clampLines, maskSecrets } from "../shared/logs.ts";
+import { summarizeTurns, type TurnRecord } from "../shared/usage.ts";
+import { classifyFailure } from "../policy/failure.ts";
 import { RELAUNCH_MARK, relaunchContext, relaunchNotice } from "./relaunch-context.ts";
-import { isActive, reportKey, validateReport, type TaskRecord, type TaskStatus } from "./contract.ts";
-import type { Report } from "./contract.ts";
-import { belowFloor, PRESENTATION_FLOOR, type HerdrPort, type TabResult } from "./herdr.ts";
-import type { Store } from "./store.ts";
+import { isActive, reportKey, validateReport, type TaskRecord, type TaskStatus } from "../shared/contract.ts";
+import type { Report } from "../shared/contract.ts";
+import { belowFloor, PRESENTATION_FLOOR, type HerdrPort, type TabResult } from "../shared/herdr.ts";
+import type { Store } from "../shared/store.ts";
 
 export interface OrchDeps {
   releaseWorktree?: (task: TaskRecord) => string;
@@ -30,26 +30,13 @@ export interface OrchDeps {
   onTerminal?: (taskId: string) => void;
 }
 
-export { MODES } from "./intake.ts";
-import { buildIntake, renderBrief, type Mode } from "./intake.ts";
+export { MODES } from "../shared/intake.ts";
+import { buildIntake, renderBrief } from "../shared/intake.ts";
+import type { DelegateInput, WatchEvent } from "../shared/task.ts";
+export type { DelegateInput, WatchEvent } from "../shared/task.ts";
 
 const OP_LOCK_WAIT_MS = 5_000;
 const OP_LOCK_STALE_MS = 30_000;
-
-export interface DelegateInput {
-  project_path: string;
-  role: string;
-  request: string;
-  objective: string;
-  mode: Mode;
-  constraints?: string[];
-  source?: string;
-  branch?: string;
-  spec?: string;
-  model?: string;
-  tracker?: "github" | "plane" | "none";
-  timeout_minutes?: number;
-}
 
 function sameWork(a: DelegateInput, b: DelegateInput): string | null {
   if (a.project_path !== b.project_path) return null;
@@ -58,17 +45,6 @@ function sameWork(a: DelegateInput, b: DelegateInput): string | null {
   const ba = a.branch?.trim();
   if (ba && ba === b.branch?.trim()) return `branch ${ba}`;
   return null;
-}
-
-export interface WatchEvent {
-  task_id: string;
-  project_id: string;
-  status: TaskStatus;
-  result: string | null;
-  question: string | null;
-  artifacts: string[];
-  error: string | null;
-  correction?: string | null;
 }
 
 function shellQuote(arg: string): string {

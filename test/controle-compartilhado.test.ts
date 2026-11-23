@@ -4,9 +4,9 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ownsByRepo, scopeKey } from "../src/lock.ts";
+import { ownsByRepo, scopeKey } from "../src/shared/lock.ts";
 import { makeHarness, type Harness } from "./fakes.ts";
-import { Store } from "../src/store.ts";
+import { Store } from "../src/shared/store.ts";
 
 function layout(): { parent: string; repoA: string; repoB: string } {
   const parent = realpathSync(mkdtempSync(join(tmpdir(), "orch-cc-")));
