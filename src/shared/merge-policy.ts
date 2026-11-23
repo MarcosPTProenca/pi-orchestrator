@@ -286,7 +286,6 @@ export function classifyRisk(
     reasons.push(`mudança ampla: ${files.length} arquivos, ${lines} linhas`);
     risk = maxRisk(risk, "L2");
   }
-  if (fileRisks.some((f) => f.risk === "L1")) risk = maxRisk(risk, "L1");
   risk = maxRisk(risk, policy.minimum_risk);
   for (const f of fileRisks) if (f.risk !== "L0") reasons.push(`${f.path}: ${f.reason}`);
   return { risk, files: fileRisks, reasons };
