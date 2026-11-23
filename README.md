@@ -89,6 +89,17 @@ uma vez no fim, com `done`, `failed` ou `blocked`.
 - **Worker:** só comenta ou publica em issue/PR quando o pedido do usuário disser isso para aquela tarefa (regra 6 do brief, `src/shared/intake.ts`).
 - **Exceção:** o orquestrador delega a abertura de issue a um worker só quando o usuário pede explicitamente _e_ a issue exige investigação de código que o orquestrador não tem contexto para fazer (por exemplo, localizar o `arquivo:linha` da causa raiz).
 
+## Política de merge (MergePolicy)
+
+`src/shared/merge-policy.ts` classifica o risco de uma PR a partir do diff real (caminhos e tipo de mudança), nunca pela LLM, pelo título da issue ou pelo texto da PR. As classes L0–L3 são **política deste projeto**, não classificação oficial do GitHub:
+
+- **L0:** docs e testes sem mudança funcional.
+- **L1:** mudança localizada, sem arquivo protegido. Exige review fresh do head_sha atual.
+- **L2:** contrato público, arquitetura, dependência, remoção, renomeação ou mudança ampla. Aprovação humana.
+- **L3:** `.github/`, segredos, auth, pagamento, migrações, infraestrutura ou caminho protegido pela política. Aprovação humana obrigatória.
+
+`auto_merge` é `false` por padrão e só vale com `authorization.granted_by = "user"` para o mesmo ticket. A política por repo e por ticket herda sempre o controle mais restritivo. O gate devolve `eligible`, `manual_approval` ou `blocked`, com razões e evidências, e não executa merge.
+
 ## Organização do código
 
 ```
