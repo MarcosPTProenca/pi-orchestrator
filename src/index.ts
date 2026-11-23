@@ -907,7 +907,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     name: "orch_inbox",
     label: "orch inbox",
     description:
-      "Mostra decisões abertas (bloqueadas) e tarefas concluídas, falhas ou expiradas ainda não avisadas: até 40 itens, decisões primeiro. `omitted` conta os que ficaram para a próxima leitura (só os exibidos são marcados como entregues). Por padrão cada aviso terminal aparece uma vez (consume=true). consume=false não marca o aviso como entregue (a leitura ainda coleta relatórios prontos, como o ciclo de atualização). Resultado truncado a 300 caracteres; links traz as URLs do texto completo; texto completo em orch_status com task_id.",
+      "Mostra decisões abertas (bloqueadas) e tarefas concluídas, falhas ou expiradas ainda não avisadas: até 40 itens, decisões primeiro. `omitted` conta os que ficaram para a próxima leitura (só os exibidos são marcados como entregues). Por padrão cada aviso terminal aparece uma vez (consume=true). consume=false é leitura pura: não coleta relatórios prontos nem marca avisos como entregues; mostra só o estado já gravado. Resultado truncado a 300 caracteres; links traz as URLs do texto completo; texto completo em orch_status com task_id.",
     parameters: {
       type: "object",
       properties: { consume: { type: "boolean", description: "Marcar avisos terminais como entregues. Padrão true." } },

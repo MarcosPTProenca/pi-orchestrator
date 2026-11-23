@@ -675,8 +675,8 @@ export class Orchestrator {
   }
 
   async inboxPage(opts: { consume?: boolean; limit?: number } = {}): Promise<{ items: WatchEvent[]; omitted: number }> {
-    await this.refreshAll();
     const consume = opts.consume !== false;
+    if (consume) await this.refreshAll();
     const pending = this.owned().filter(
       (t) => t.status === "blocked" || (!t.notified && !isActive(t.status) && t.status !== "cancelled"),
     );
