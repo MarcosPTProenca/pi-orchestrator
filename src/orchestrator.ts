@@ -4,6 +4,7 @@ import { workerAgentName, workerTabName } from "./label.ts";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { clampLines, maskSecrets } from "./logs.ts";
+import { summarizeTurns, type TurnRecord } from "./usage.ts";
 import { classifyFailure } from "./failure.ts";
 import { RELAUNCH_MARK, relaunchContext, relaunchNotice } from "./relaunch-context.ts";
 import { isActive, reportKey, validateReport, type TaskRecord, type TaskStatus } from "./contract.ts";
@@ -586,6 +587,7 @@ export class Orchestrator {
           costFromProvider?: boolean;
         };
         warm?: { cost?: number };
+        turns?: TurnRecord[];
       };
       const u = parsed.total;
       if (!u || typeof u.totalTokens !== "number") return;
@@ -597,6 +599,7 @@ export class Orchestrator {
         cost: u.cost ?? 0,
         costFromProvider: u.costFromProvider === true,
         cacheWarmCost: parsed.warm?.cost ?? 0,
+        turns: Array.isArray(parsed.turns) ? summarizeTurns(parsed.turns) : null,
         totalTokens: u.totalTokens,
       };
       const cur = this.get(taskId).usage;

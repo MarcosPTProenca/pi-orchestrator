@@ -1,6 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { newUsage, addNewUsage, addCacheWarmUsage, cacheHitRatio } from "../src/usage.ts";
+import {
+  newUsage,
+  addNewUsage,
+  addCacheWarmUsage,
+  cacheHitRatio,
+  summarizeTurns,
+  mergeTurnSummaries,
+  turnsFromState,
+} from "../src/usage.ts";
 
 const asst = (ts: number, input: number, output: number, cacheRead = 0, cacheWrite = 0) => ({
   role: "assistant",
@@ -153,4 +161,122 @@ test("cache 0 e campos ausentes viram zero, sem NaN nem custo inventado", () => 
   assert.equal(r.warm.cacheRead, 0);
   assert.equal(r.warm.cost, 0);
   assert.equal(Number.isNaN(r.warm.totalTokens), false);
+});
+
+const turnMsg = (ts: number, extra: Record<string, unknown> = {}) => ({
+  ...asst(ts, 10, 5),
+  provider: "anthropic",
+  model: "claude-haiku-5-5",
+  responseId: `r${ts}`,
+  ...extra,
+});
+
+test("registra um turno por resposta nova com duração, sucesso, modelo, tokens e custo", () => {
+  const usage = {
+    input: 10,
+    output: 5,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 15,
+    cost: { total: 0.002, totalFromProvider: true },
+  };
+  const s = addNewUsage(newUsage(), [turnMsg(1, { durationMs: 1200, stopReason: "stop", usage })], []);
+  assert.deepEqual(s.turns, [
+    { provider: "anthropic", model: "claude-haiku-5-5", durationMs: 1200, ok: true, totalTokens: 15, cost: 0.002 },
+  ]);
+});
+
+test("turno com stopReason error ou aborted é falha; sem stopReason o status fica desconhecido", () => {
+  const s = addNewUsage(
+    newUsage(),
+    [turnMsg(1, { stopReason: "error" }), turnMsg(2, { stopReason: "aborted" }), turnMsg(3)],
+    [],
+  );
+  assert.deepEqual(
+    s.turns!.map((t) => t.ok),
+    [false, false, null],
+  );
+});
+
+test("turno sem durationMs registra duração nula, não zero", () => {
+  const s = addNewUsage(newUsage(), [turnMsg(1, { stopReason: "stop" })], []);
+  assert.equal(s.turns![0].durationMs, null);
+});
+
+test("mesma resposta reentregue com outro timestamp não gera turno duplicado", () => {
+  const first = addNewUsage(newUsage(), [turnMsg(1, { durationMs: 5 })], []);
+  const again = addNewUsage(
+    first.total,
+    [{ ...turnMsg(1, { durationMs: 5 }), timestamp: 99 }],
+    first.counted,
+    first.turns,
+  );
+  assert.equal(again.turns!.length, 1);
+});
+
+test("estado legado sem lista de turnos mantém os totais e passa a listar só os turnos novos", () => {
+  const legacy = {
+    total: { ...newUsage(), input: 10, output: 5, totalTokens: 15 },
+    counted: [1] as (number | string)[],
+  };
+  const s = addNewUsage(
+    legacy.total,
+    [
+      asst(1, 10, 5),
+      turnMsg(2, { stopReason: "stop", usage: { input: 3, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 4 } }),
+    ],
+    legacy.counted,
+    undefined,
+  );
+  assert.equal(s.total.totalTokens, 19);
+  assert.equal(s.turns!.length, 1);
+  assert.equal(s.turns![0].totalTokens, 4);
+});
+
+test("custo por turno soma o custo informado; resumo sem custo fica zero", () => {
+  const s = summarizeTurns([
+    { provider: "p", model: "a", durationMs: 1, ok: true, totalTokens: 1, cost: 0.25 },
+    { provider: "p", model: "a", durationMs: 1, ok: true, totalTokens: 1, cost: 0.5 },
+  ]);
+  assert.equal(s.cost, 0.75);
+});
+
+test("resume turnos: falhas, desconhecidos, duração média sobre turnos com duração e contagem por modelo", () => {
+  const turns = [
+    { provider: "p", model: "a", durationMs: 100, ok: true, totalTokens: 1, cost: 0 },
+    { provider: "p", model: "a", durationMs: null, ok: false, totalTokens: 1, cost: 0 },
+    { provider: "p", model: "b", durationMs: 300, ok: null, totalTokens: 1, cost: 0 },
+  ];
+  assert.deepEqual(summarizeTurns(turns), {
+    turns: 3,
+    failed: 1,
+    unknown_status: 1,
+    duration_ms_total: 400,
+    duration_samples: 2,
+    cost: 0,
+    by_model: { a: 2, b: 1 },
+  });
+});
+
+test("mescla resumos de tarefas somando contagens; tarefas sem resumo não entram", () => {
+  const a = summarizeTurns([{ provider: "p", model: "a", durationMs: 10, ok: false, totalTokens: 1, cost: 0 }]);
+  const b = summarizeTurns([{ provider: "p", model: "a", durationMs: 30, ok: true, totalTokens: 1, cost: 0 }]);
+  const m = mergeTurnSummaries([a, null, b, undefined]);
+  assert.equal(m!.turns, 2);
+  assert.equal(m!.failed, 1);
+  assert.equal(m!.duration_ms_total, 40);
+  assert.equal(m!.duration_samples, 2);
+  assert.equal(m!.cost, 0);
+  assert.deepEqual(m!.by_model, { a: 2 });
+  assert.equal(mergeTurnSummaries([null, undefined]), null);
+});
+
+test("usage.json legado com mensagens já contadas não ganha resumo parcial de turnos", () => {
+  assert.equal(turnsFromState({ total: newUsage(), counted: [1, "r:x"] }), null);
+});
+
+test("tarefa nova começa com lista vazia e estado com lista mantém a lista", () => {
+  assert.deepEqual(turnsFromState({ total: newUsage(), counted: [] }), []);
+  const t = [{ provider: null, model: null, durationMs: 1, ok: true, totalTokens: 1, cost: 0 }];
+  assert.equal(turnsFromState({ total: newUsage(), counted: ["r:x"], turns: t }), t);
 });
