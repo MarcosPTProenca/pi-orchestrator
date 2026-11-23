@@ -251,6 +251,7 @@ export class PlanStore {
           reason: ev.reason ?? null,
         };
         const promote = ev.name === "pr_open" && item.status === "in_progress";
+        if (ev.name === "pr_open" && !promote && item.delivery !== null) continue;
         if (!promote && JSON.stringify(item.delivery) === JSON.stringify(next)) continue;
         if (promote) item.status = "pr_open";
         if (ev.name === "pr_open" && ev.pr !== undefined) item.pr = ev.pr;

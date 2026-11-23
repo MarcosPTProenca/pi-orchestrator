@@ -113,3 +113,14 @@ test("pausa e cancelamento bloqueiam fix da tarefa; plano aprovado não", () => 
   store.act("entrega", "cancel");
   assert.equal(store.pausedFor(T_A), true, "cancelado: fix para");
 });
+
+test("pr_open repetido no ciclo seguinte não apaga a fase já registrada pelo fix loop", () => {
+  const store = new PlanStore(dir(), () => "2026-11-23T00:00:00.000Z");
+  planAB(store);
+  store.reserve("entrega", "1");
+  store.launched("entrega", "1", T_A);
+  store.recordDelivery({ name: "pr_open", task_id: T_A, pr: PR_A, head_sha: "h1" });
+  store.recordDelivery({ name: "changes_required", task_id: T_A, head_sha: "h1" });
+  store.recordDelivery({ name: "pr_open", task_id: T_A, pr: PR_A, head_sha: "h1" });
+  assert.equal(store.show("entrega").items[0].delivery?.phase, "changes_required");
+});
