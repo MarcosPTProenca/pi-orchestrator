@@ -40,6 +40,10 @@ export function orphanReleaseNoticeFor(r: {
   return `Limpeza automática de worktrees. ${parts.join(" ")}`;
 }
 
+export function orphanReleaseKind(kept: unknown[]): "decision" | "routine" {
+  return kept.length > 0 ? "decision" : "routine";
+}
+
 export function modelMessageFor(e: WatchEvent): string {
   const clip = (text: string, max: number) =>
     text.length > max ? `${text.slice(0, max)} [truncado; relatório completo no arquivo do worker]` : text;

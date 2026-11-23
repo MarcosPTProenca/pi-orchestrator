@@ -50,6 +50,7 @@ import {
   idleNoticeFor,
   modelMessageFor,
   type OrphanLease,
+  orphanReleaseKind,
   orphanReleaseNoticeFor,
   projectLabel,
   taskHeadline,
@@ -61,6 +62,7 @@ export {
   formatEvent,
   idleNoticeFor,
   modelMessageFor,
+  orphanReleaseKind,
   orphanReleaseNoticeFor,
   projectLabel,
   taskHeadline,
@@ -555,7 +557,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         const kept = orphans
           .filter((o) => stillLeased.has(o.path))
           .map((o) => ({ ...o, note: orch.get(o.holder).worktree_note ?? "motivo não registrado" }));
-        emitEvent(eventSink, EVENT_POLICY["orphan-worktrees"], {
+        emitEvent(eventSink, orphanReleaseKind(kept) === "decision" ? EVENT_POLICY["orphan-worktrees"] : "routine", {
           customType: "orch-event",
           content: orphanReleaseNoticeFor({ released, kept }),
           display: true,

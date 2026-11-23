@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { orphanReleaseNoticeFor } from "../src/orchestrator/extension.ts";
+import { orphanReleaseKind, orphanReleaseNoticeFor } from "../src/orchestrator/extension.ts";
 
 test("worktrees de tarefas terminais devolvidas viram aviso informativo, sem pedir ação", () => {
   const msg = orphanReleaseNoticeFor({
@@ -17,4 +17,12 @@ test("worktree mantida traz o motivo e continua sem nova ação automática", ()
     kept: [{ path: "/wt/b/2", holder: "t-b2", project: "beta", note: "tem alterações não commitadas" }],
   });
   assert.match(msg, /mantidas \(1\): beta: \/wt\/b\/2 \(t-b2\): tem alterações não commitadas/);
+});
+
+test("sem worktree mantida não há ação pendente: evento fica rotineiro", () => {
+  assert.equal(orphanReleaseKind([]), "routine");
+});
+
+test("worktree mantida precisa de decisão: evento acorda o LLM", () => {
+  assert.equal(orphanReleaseKind([{ path: "/wt/b/2", holder: "t-b2", project: "beta", note: "x" }]), "decision");
 });
