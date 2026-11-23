@@ -1,16 +1,3 @@
-/**
- * Adaptador de review fresh por repo/PR/head_sha (issue #143).
- *
- * Hook local investigado: ~/.pi/agent/extensions/pr-review-hook/index.ts. Ele dispara em
- * `tool_result` de `bash` após `gh pr create` ou POST REST de PR, deduplica só por sessão e
- * lança o subagent `pr-reviewer` via `subagents:rpc:v1:request` com `context: "fresh"`.
- * A saída dele é um relatório Markdown, sem verdict nem reviewed_sha, e o agente tem
- * `edit`/`write`/`bash`: por isso este módulo não usa o `pr-reviewer` como revisor. A porta
- * `ReviewRunner` recebe a ferramenta de leitura explícita; a ponte real fica para a integração.
- *
- * Este módulo não importa orchestrator nem publica check de merge.
- */
-
 export const REVIEW_SCHEMA_VERSION = 1;
 export const MAX_DIFF_CHARS = 120_000;
 export const READ_ONLY_TOOLS = ["read", "grep", "find", "ls"] as const;
@@ -81,7 +68,6 @@ function assertSha(name: "base_sha" | "head_sha", value: string): void {
   if (!SHA_RE.test(value)) throw new Error(`${name} precisa ser um SHA completo de 40 hex minúsculos`);
 }
 
-/** Cerca mais longa que qualquer sequência de crases do conteúdo, para o conteúdo não escapar do bloco. */
 function fenceFor(content: string): string {
   const longest = Math.max(0, ...[...content.matchAll(/`+/g)].map((m) => m[0].length));
   return "`".repeat(Math.max(3, longest + 1));
@@ -190,10 +176,6 @@ function parseFindings(v: unknown): ReviewFinding[] {
   });
 }
 
-/**
- * Valida a saída do revisor. Qualquer desvio (JSON inválido, schema, SHA diferente, approve
- * inconsistente) vira `unverified`. Nunca produz approve sem evidência completa.
- */
 export function parseReviewOutput(
   raw: string,
   ctx: { head_sha: string; truncated: boolean },
@@ -243,10 +225,6 @@ export function parseReviewOutput(
   };
 }
 
-/**
- * Dispara um review por chave repo|PR|head_sha. Chamadas repetidas ou simultâneas do mesmo SHA
- * compartilham uma execução. Um push novo tem outro head_sha, portanto outra chave e outro review.
- */
 export class ReviewCoordinator {
   private readonly runs = new Map<string, Promise<ReviewResult>>();
   private readonly newRunId: () => string;

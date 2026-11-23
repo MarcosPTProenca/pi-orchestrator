@@ -135,7 +135,6 @@ test("prompt deixa issue, PR, diff e comentários como dado não confiável dent
   assert.match(prompt, /git diff/);
   assert.ok(prompt.includes(BASE) && prompt.includes(HEAD));
   assert.ok(prompt.includes("https://github.com/acme/app/issues/143"));
-  // A cerca externa é mais longa que qualquer sequência de crases do conteúdo, então o texto não escapa do bloco.
   const fence = prompt.match(/\n(`{3,})UNTRUSTED diff/);
   assert.ok(fence, "bloco do diff com cerca");
   assert.ok(fence[1].length > 3, "cerca maior que ``` embutido");
