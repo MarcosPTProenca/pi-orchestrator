@@ -77,6 +77,7 @@ test("instrução de CI nomeia os checks e proíbe force-push", () => {
   const text = ciInstruction("https://github.com/o/r/pull/171", ["test", "build"]);
   assert.match(text, /test, build/);
   assert.match(text, /gh run view/);
+  assert.match(text, /não edite por palpite/);
   assert.match(text, /Não reescreva histórico/);
 });
 

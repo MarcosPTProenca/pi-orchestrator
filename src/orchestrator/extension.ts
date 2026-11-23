@@ -20,6 +20,7 @@ import {
   prVerdict,
   type PrAction,
 } from "./pr-watch.ts";
+import { FixLoopStore, type FixAction, type FixRecord } from "./fix-loop.ts";
 import { judgeDone, type VerifyEnv } from "./verify.ts";
 import { FixQueue } from "./queue.ts";
 import { orchestratorAgentName } from "../shared/label.ts";
@@ -291,6 +292,9 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   let idleChecking = false;
   const stallWatch = new StallWatch();
   const prWatch = new PrActionWatch();
+  const fixLoop = new FixLoopStore(join(defaultStateDir(), "fix-loop.json"), {
+    maxAttempts: envPositive(process.env.PI_ORCH_FIX_ATTEMPTS, 2),
+  });
   const prChecked = new Map<string, number>();
   const planStore = new PlanStore(join(defaultStateDir(), "plans"));
   const launchReady = async (planId: string): Promise<void> => {
@@ -390,6 +394,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     const verdict = prVerdict(s);
     if (verdict === "merged") {
       prWatch.forget(t.task_id);
+      fixLoop.apply(t.task_id, { type: "revoke", reason: "PR mergeada" });
       const outcome = await orch.closeOutcome(t.task_id);
       const plan = planStore.markMerged(t.task_id).map((m) => `plano ${m.plan}, item ${m.item}`);
       await advancePlans();
@@ -410,12 +415,26 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       return;
     }
     if (verdict === "pending") return;
+    fixLoop.apply(t.task_id, { type: "head", head_sha: s.headRefOid });
     const conflict = verdict === "conflict";
     const red = conflict ? [] : failingChecks(s);
     const kind: PrAction | null = conflict ? "conflict" : red.length > 0 ? "ci" : null;
     prWatch.shouldAct(t.task_id, s.headRefOid, conflict, "conflict");
     prWatch.shouldAct(t.task_id, s.headRefOid, red.length > 0, "ci");
     if (kind === null || !prWatch.shouldAct(t.task_id, s.headRefOid, true, kind)) return;
+    let fix: { action: FixAction; previous: FixRecord | null } | null = null;
+    if (kind === "ci") {
+      fix = fixLoop.apply(t.task_id, { type: "ci_red", head_sha: s.headRefOid, checks: red });
+      if (fix.action.kind === "blocked") {
+        emitEvent(eventSink, EVENT_POLICY["fix-blocked"], {
+          customType: "orch-event",
+          content: `${taskHeadline(t, source, `PR #${pr.number} com CI vermelho`)} ${fix.action.reason}. Decida: corrigir manualmente ou orch_send.`,
+          display: true,
+        });
+        return;
+      }
+      if (fix.action.kind !== "send_ci_fix") return;
+    }
     const text = kind === "conflict" ? conflictInstruction(source) : ciInstruction(source, red);
     const what = kind === "conflict" ? "está com conflito de merge" : `tem checks falhando: ${red.join(", ")}`;
     try {
@@ -427,6 +446,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         display: true,
       });
     } catch (err) {
+      if (fix) fixLoop.restore(t.task_id, fix.previous);
       emitEvent(eventSink, EVENT_POLICY["send-failed"], {
         customType: "orch-event",
         content: `PR #${pr.number} de ${t.task_id} (${label}) ${what}, e não consegui acionar o worker: ${err instanceof Error ? err.message : String(err)}. Decida: orch_send manual ou orch_relaunch.`,

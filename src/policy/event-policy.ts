@@ -6,6 +6,7 @@ export const EVENT_POLICY = {
   "worker-lost": "decision",
   "launch-failed": "decision",
   "send-failed": "decision",
+  "fix-blocked": "decision",
   "queue-failed": "decision",
   "worker-done": "conclusion",
   "pr-merged-no-plan": "conclusion",
