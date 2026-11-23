@@ -279,3 +279,31 @@ test("orch_status expõe turnos por tarefa e soma por projeto; tarefa legada fic
   assert.equal(grupos[0].turns!.failed, 1);
   assert.equal(grupos[0].turns!.duration_ms_total, 150);
 });
+
+test("visão compacta do orch_status mantém turnos da tarefa em execução (sem o resultado completo)", () => {
+  const ativa = t({
+    task_id: "t-ativa",
+    status: "running",
+    updated_at: "2026-11-17T11:50:00Z",
+    usage: {
+      input: 1,
+      output: 2,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 3,
+      turns: summarizeTurns([
+        { provider: "p", model: "m", durationMs: 100, ok: true, totalTokens: 1, cost: 0.1 },
+        { provider: "p", model: "m", durationMs: 50, ok: false, totalTokens: 1, cost: 0 },
+      ]),
+    },
+  });
+  const compacto = compactStatus(buildStatus([ativa], NOW, {}));
+  const linha = compacto[0].tasks[0];
+  assert.equal(linha.turns!.turns, 2);
+  assert.equal(linha.turns!.failed, 1);
+  assert.equal(linha.turns!.duration_ms_total, 150);
+  assert.equal(
+    compactStatus(buildStatus([t({ task_id: "t-sem", status: "running" })], NOW, {}))[0].tasks[0].turns,
+    null,
+  );
+});

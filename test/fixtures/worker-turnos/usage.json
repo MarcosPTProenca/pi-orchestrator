@@ -1,0 +1,75 @@
+{
+  "total": {
+    "input": 8,
+    "output": 1200,
+    "cacheRead": 23984,
+    "cacheWrite": 12210,
+    "totalTokens": 37402,
+    "cost": 0,
+    "costFromProvider": false
+  },
+  "counted": [
+    "t:1795441883495:claude-bridge:claude-haiku-5-5",
+    "t:1795441894181:claude-bridge:claude-haiku-5-5",
+    "t:1795442006779:claude-bridge:claude-haiku-5-5",
+    "t:1795442129086:claude-bridge:claude-haiku-5-5",
+    "t:1795442182550:claude-bridge:claude-haiku-5-5"
+  ],
+  "turns": [
+    {
+      "trigger": "mensagem-de-usuario",
+      "provider": "claude-bridge",
+      "model": "claude-haiku-5-5",
+      "durationMs": 10647,
+      "ok": true,
+      "totalTokens": 5892,
+      "cost": 0
+    },
+    {
+      "trigger": "ferramenta",
+      "provider": "claude-bridge",
+      "model": "claude-haiku-5-5",
+      "durationMs": 1739,
+      "ok": true,
+      "totalTokens": 7464,
+      "cost": 0
+    },
+    {
+      "trigger": "ferramenta",
+      "provider": "claude-bridge",
+      "model": "claude-haiku-5-5",
+      "durationMs": 2295,
+      "ok": true,
+      "totalTokens": 11459,
+      "cost": 0
+    },
+    {
+      "trigger": "ferramenta",
+      "provider": "claude-bridge",
+      "model": "claude-haiku-5-5",
+      "durationMs": 2721,
+      "ok": true,
+      "totalTokens": 12587,
+      "cost": 0
+    },
+    {
+      "trigger": "ferramenta",
+      "provider": "claude-bridge",
+      "model": "claude-haiku-5-5",
+      "durationMs": 0,
+      "ok": false,
+      "totalTokens": 0,
+      "cost": 0
+    }
+  ],
+  "warm": {
+    "input": 0,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "totalTokens": 0,
+    "cost": 0,
+    "costFromProvider": false
+  },
+  "warmIds": []
+}
