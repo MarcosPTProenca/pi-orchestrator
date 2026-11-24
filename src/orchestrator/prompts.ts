@@ -1,4 +1,4 @@
-export const FIRST_MATE_ROLE = [
+export const ORCHESTRATOR_ROLE = [
   "# Papel: orquestrador",
   "Você lança workers Pi para o usuário. Não executa o trabalho do projeto.",
   "Procedimento:",

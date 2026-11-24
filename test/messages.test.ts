@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { formatEvent, modelMessageFor, FIRST_MATE_ROLE } from "../src/orchestrator/extension.ts";
+import { formatEvent, modelMessageFor, ORCHESTRATOR_ROLE } from "../src/orchestrator/extension.ts";
 import { makeHarness, writeReport } from "./fakes.ts";
 
 const base = { task_id: "t-abcdef123456", project_id: "rko", result: null, question: null, artifacts: [], error: null };
@@ -24,10 +24,10 @@ test("prazo vencido pergunta o que fazer, não diz que vai cancelar sozinho", ()
 });
 
 test("papel do orquestrador: não executa trabalho de projeto e lança pelas tools", () => {
-  assert.match(FIRST_MATE_ROLE, /Não executa o trabalho do projeto/);
-  assert.match(FIRST_MATE_ROLE, /orch_delegate/);
-  assert.match(FIRST_MATE_ROLE, /orch_fix_red_prs/);
-  assert.match(FIRST_MATE_ROLE, /orch_locate_project antes de perguntar/);
+  assert.match(ORCHESTRATOR_ROLE, /Não executa o trabalho do projeto/);
+  assert.match(ORCHESTRATOR_ROLE, /orch_delegate/);
+  assert.match(ORCHESTRATOR_ROLE, /orch_fix_red_prs/);
+  assert.match(ORCHESTRATOR_ROLE, /orch_locate_project antes de perguntar/);
 });
 
 test("launcher não exclui ferramentas: subagents de pesquisa ficam disponíveis", () => {
@@ -111,38 +111,38 @@ test("prazo explícito: refresh marca timeout quando o usuário pediu", async ()
 });
 
 test("papel proíbe recomendar ação pública que o usuário não pediu", () => {
-  assert.match(FIRST_MATE_ROLE, /Nunca recomende nem proponha como opção uma ação pública/);
-  assert.match(FIRST_MATE_ROLE, /quando um worker reportar uma decisão nova/);
+  assert.match(ORCHESTRATOR_ROLE, /Nunca recomende nem proponha como opção uma ação pública/);
+  assert.match(ORCHESTRATOR_ROLE, /quando um worker reportar uma decisão nova/);
 });
 
 test("papel aciona subagents para pesquisa e levantamento, sem pesquisar sozinho", () => {
-  assert.match(FIRST_MATE_ROLE, /Pesquisa e levantamento não são seus/);
-  assert.match(FIRST_MATE_ROLE, /`researcher`/);
-  assert.match(FIRST_MATE_ROLE, /`log-researcher`/);
-  assert.match(FIRST_MATE_ROLE, /Nunca pesquise ou levante sozinho/);
+  assert.match(ORCHESTRATOR_ROLE, /Pesquisa e levantamento não são seus/);
+  assert.match(ORCHESTRATOR_ROLE, /`researcher`/);
+  assert.match(ORCHESTRATOR_ROLE, /`log-researcher`/);
+  assert.match(ORCHESTRATOR_ROLE, /Nunca pesquise ou levante sozinho/);
 });
 
 test("papel executa pedido claro e relata o erro quando falha", () => {
-  assert.match(FIRST_MATE_ROLE, /Pedido claro dentro do seu papel/);
-  assert.match(FIRST_MATE_ROLE, /diga a tentativa e o erro exato/);
+  assert.match(ORCHESTRATOR_ROLE, /Pedido claro dentro do seu papel/);
+  assert.match(ORCHESTRATOR_ROLE, /diga a tentativa e o erro exato/);
 });
 
 test("papel não trata discovery para criar issue ou card como trabalho de worker (#52)", () => {
-  assert.match(FIRST_MATE_ROLE, /Discovery para criar issue ou card não é trabalho novo de worker/);
+  assert.match(ORCHESTRATOR_ROLE, /Discovery para criar issue ou card não é trabalho novo de worker/);
 });
 
 test("papel conduz discovery e entrevista diretamente, sem delegar a worker (regressão #61)", () => {
-  assert.match(FIRST_MATE_ROLE, /Discovery e entrevista com o usuário são seus/);
-  assert.match(FIRST_MATE_ROLE, /`grill-with-docs`, `to-spec` e `to-tickets`/);
-  assert.match(FIRST_MATE_ROLE, /Não lance worker para conduzir essas etapas/);
-  assert.match(FIRST_MATE_ROLE, /Subagents só levantam fatos/);
+  assert.match(ORCHESTRATOR_ROLE, /Discovery e entrevista com o usuário são seus/);
+  assert.match(ORCHESTRATOR_ROLE, /`grill-with-docs`, `to-spec` e `to-tickets`/);
+  assert.match(ORCHESTRATOR_ROLE, /Não lance worker para conduzir essas etapas/);
+  assert.match(ORCHESTRATOR_ROLE, /Subagents só levantam fatos/);
 });
 
 test("pergunta de acompanhamento: responde com o que já existe, data e lacuna, sem relançar (#57)", () => {
-  assert.match(FIRST_MATE_ROLE, /Pergunta de acompanhamento sobre tarefa anterior/);
-  assert.match(FIRST_MATE_ROLE, /com a data absoluta do relatório \(AAAA-MM-DD, não só a idade\)/);
-  assert.match(FIRST_MATE_ROLE, /Investigue só a lacuna, nunca refaça trabalho/);
-  assert.match(FIRST_MATE_ROLE, /pode estar desatualizado/);
+  assert.match(ORCHESTRATOR_ROLE, /Pergunta de acompanhamento sobre tarefa anterior/);
+  assert.match(ORCHESTRATOR_ROLE, /com a data absoluta do relatório \(AAAA-MM-DD, não só a idade\)/);
+  assert.match(ORCHESTRATOR_ROLE, /Investigue só a lacuna, nunca refaça trabalho/);
+  assert.match(ORCHESTRATOR_ROLE, /pode estar desatualizado/);
 });
 
 test("aviso de falha com recuperação: o rodapé manda repetir a linha de recuperação ao usuário (#64)", () => {
