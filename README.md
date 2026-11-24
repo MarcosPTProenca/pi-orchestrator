@@ -1,10 +1,13 @@
-# pi-orchestrator
+# Pi Factory
 
-Orquestração mínima de sessões Pi independentes pelo Herdr (MVP). Um orquestrador
-conversacional delega tarefas a workers Pi em panes do Herdr, acompanha sem usar LLM
-e avisa só quando há decisão, bloqueio ou conclusão.
+Pi Factory coordena sessões Pi independentes em panes do Herdr. Tem dois módulos:
 
-Não altera `~/.pi/agent`. A extensão é carregada só pelo launcher `bin/pi-orch`.
+- **Orchestrator**: conversa com você, lança tarefas e planos, acompanha os workers sem usar LLM e avisa só quando há decisão, bloqueio ou conclusão.
+- **Worker Factory**: executa cada tarefa numa sessão Pi isolada (worktree do treehouse) até a PR, com revisão e correção antes da integração.
+
+O produto antes se chamava `pi-orchestrator`. O repositório no GitHub continua com esse nome; renomeá-lo é decisão separada, registrada no PR da #149 e não executada.
+
+Não altera `~/.pi/agent`. A extensão é carregada só pelos launchers `bin/pi-factory` (ou o alias `bin/pi-orch`); nada é instalado globalmente.
 
 ## Requisitos
 
@@ -12,7 +15,9 @@ Não altera `~/.pi/agent`. A extensão é carregada só pelo launcher `bin/pi-or
 - Pi (`pi`) instalado; testado com 1.5.2.
 - Node.js 22 e npm (para os testes).
 
-## Instalar
+## Quickstart
+
+### 1. Checagens (fora do Herdr)
 
 ```bash
 cd ~/github/pi-orchestrator
@@ -21,15 +26,95 @@ npm test           # testes com Herdr simulado (sem efeitos reais)
 node_modules/.bin/tsc -p tsconfig.json   # checagem de tipos
 ```
 
-## Iniciar
+### 2. Iniciar a sessão do orquestrador
 
 Dentro de um pane do Herdr:
 
 ```bash
-~/github/pi-orchestrator/bin/pi-orch
+~/github/pi-orchestrator/bin/pi-factory
 ```
 
 O launcher recusa rodar fora do Herdr (`HERDR_ENV=1` e `HERDR_PANE_ID` obrigatórios).
+
+### 3. Pedir a primeira tarefa
+
+Peça em linguagem natural. O orquestrador lança a tarefa com `orch_delegate` (ou registra um plano com `orch_plan_create`). Acompanhe com `orch_status` e `orch_inbox`.
+
+## Launchers
+
+- `bin/pi-factory`: launcher oficial.
+- `bin/pi-orch`: alias de compatibilidade. É um `exec` para `bin/pi-factory`, com os mesmos argumentos e o mesmo ambiente. A paridade é testada em `test/launcher-alias.test.ts`.
+
+Os dois mantêm as variáveis `PI_ORCH_*`, o estado em `~/.pi/orchestrator/` e os nomes de tools `orch_*`. Nada disso foi migrado.
+
+## Módulos
+
+```mermaid
+flowchart LR
+  U[Usuário] --> O["Orchestrator<br/>src/orchestrator, src/policy"]
+  O -->|orch_delegate, orch_send, orch_answer| W["Worker Factory<br/>src/worker: sessão Pi por tarefa"]
+  W -->|orch_report e report.json| O
+  W -->|branch, commit, PR| GH[(GitHub)]
+  O -->|verifica PR e checks| GH
+  O -.->|gate de merge: não ligado ao runtime| GH
+```
+
+- **Orchestrator** (`src/orchestrator/`, regras puras em `src/policy/`): tools `orch_*` usadas por você, watchers, planos, fix loop de PRs com CI vermelho, avisos de conclusão e ciclo de vida das tarefas. Não executa trabalho do projeto.
+- **Worker Factory** (`src/worker/`): extensão carregada em cada worker, com `orch_report`, `orch_submit_plan`, `orch_mark_tdd`, bloqueio de `AskUserQuestion` e o adaptador de review fresh (`review.ts`). Contratos e gates compartilhados (ticket de execução, evidência de TDD, política e gate de merge) ficam em `src/shared/`.
+
+## Workflow
+
+O fluxo é `PLAN → IMPLEMENT/TDD → PR → FRESH REVIEW → FIX → MERGE`. Cada etapa tem a situação real de hoje:
+
+1. **PLAN.** O worker registra o plano com `orch_submit_plan` antes de editar; plano sem critério ou diagnóstico verificável é recusado. Você também pode entregar um plano pronto (`orch_plan_create`, em rascunho) e aprová-lo com `orch_plan_approve`. _Implementado e testado._
+2. **IMPLEMENT/TDD.** Para cada test seam, o worker roda o teste antes e depois da correção e registra `orch_mark_tdd` como `red` e `green`; o exit code é medido pela ferramenta. _Implementado; o harness do pipeline confere a evidência._
+3. **PR.** No modo `direct-pr`, o worker cria a branch, commita, faz push e abre a PR. O `orch_report` `done` precisa trazer a PR em `artifacts`, e o orquestrador confere no GitHub se ela é mergeável e está com checks verdes. _Implementado e testado._
+4. **FRESH REVIEW.** Revisão somente leitura do head_sha atual por um reviewer separado (`src/worker/review.ts`). _Adaptador testado; ainda não é chamado pelo runtime._
+5. **FIX.** CI vermelho reabre a correção no mesmo branch (`orch_fix_red_prs` e o fix loop). _Implementado e testado._
+6. **MERGE.** Só com a política de auto-merge descrita abaixo. _Gate implementado e testado com fakes; nenhuma tool do runtime o chama, então nenhum merge automático acontece hoje._
+
+O fluxo inteiro é validado pelo harness com GitHub e Herdr simulados (`npm test`, em `test/pipeline.test.ts`; `npm run eval:pipeline` imprime o relatório). O próprio harness lista o que não cobre: GitHub real (latência, falhas de API, regras de proteção), e a ligação do review e do gate ao orquestrador em produção. O smoke com conta real é **NOT RUN**.
+
+## Permissões
+
+Cada tarefa recebe um ticket de execução (`src/shared/execution-ticket.ts`) com permissões por modo:
+
+- `report` e `design`: leem e relatam. Não executam plano nem integram.
+- `direct-pr`: executam o plano e integram, nas ações `create_branch`, `commit`, `push` e `open_pr`.
+- Merge nunca é ação do worker. O texto que o worker recebe diz que nenhuma autoridade de merge é concedida por ele. O review fresh é somente leitura: não edita, não commita, não faz push nem merge.
+- A decisão do gate (`decideIntegration`) não executa nada. `requestIntegration` pede `gh pr merge --auto` só quando a decisão é `merge_requested`, e hoje só o harness o chama.
+
+## Política de auto-merge
+
+O auto-merge é pedido ao GitHub (`gh pr merge <n> --auto --squash --match-head-commit <sha>`, nunca com `--admin`) só quando **todas** as condições valem para o head_sha atual:
+
+1. Política do repositório e do ticket com `auto_merge: true`, `authorization.granted_by: "user"` e `ticket_id` igual ao do ticket. Quando as duas políticas divergem, vale a mais restritiva.
+2. Risco do diff em L0 ou L1. L2 (contrato público, arquitetura, dependência, remoção, renomeação, mudança ampla) e L3 (`.github/`, segredos, auth, pagamento, migração, infraestrutura, caminho protegido) exigem aprovação humana.
+3. L1 exige review fresh aprovado para o head_sha atual.
+4. Check obrigatório `test` verde no head_sha atual; PR não é draft; base é a branch padrão; PR mergeável com `CLEAN`; nenhum review rejeitado.
+5. O repositório tem "Allow auto-merge" ligado e a branch protegida exige o check `test`. Se faltar algo, o gate devolve `setup_required` com o passo exato e não altera nada.
+
+Outros resultados do gate: `manual_approval` (sem autorização, L2/L3, ou L1 sem review), `blocked` (escopo fora do ticket, checks ausentes ou de outro head, PR de outro repositório, PR sem issue vinculada) e `already_requested`.
+
+**Hoje**, a política e o gate estão implementados e testados, mas o orquestrador ainda não os chama em produção. O auto-merge não ocorre por este caminho até a integração ser concluída (#146 e #147).
+
+### Como desativar ou recusar
+
+- **Pela política:** `auto_merge: false` no repositório ou no ticket volta o caso para `manual_approval`.
+- **Pelo ticket:** não conceder `granted_by: "user"`, ou pausar ou cancelar o ticket (`ticket_inactive` bloqueia).
+- **Pela PR:** rejeitar o review (`review_rejected` bloqueia). Para desligar o auto-merge já pedido, use no GitHub `gh pr merge <n> --disable-auto`; isso é ação manual, o código não a executa.
+- **Por novo commit:** qualquer push muda o head_sha. Checks e review do head anterior deixam de valer (`head_divergente`, `checks_unverified`).
+
+## Rollback para o pi-orch legado
+
+Esta mudança não migrou estado, variáveis de ambiente nem nomes de tools. Para reverter, só o código muda:
+
+- **Sem reverter:** `bin/pi-orch` continua funcionando, pois só delega ao launcher novo.
+- **Voltar ao launcher antigo:** `git checkout <sha-do-master-antes-da-PR> -- bin/pi-orch`, `git rm bin/pi-factory` e commit. Alternativa: `git revert -m 1 <sha-do-merge>`. Depois, rode `npm test`.
+- **Symlinks e aliases:** nada foi instalado. Um `~/.local/bin/pi-orch` apontando para `bin/pi-orch` continua válido nos dois casos.
+- **Estado:** `~/.pi/orchestrator/`, `PI_ORCH_*` e os nomes `orch_*` não mudaram; nada precisa ser restaurado.
+
+## Tools do orquestrador
 
 ## Tools do orquestrador
 
@@ -46,7 +131,16 @@ O launcher recusa rodar fora do Herdr (`HERDR_ENV=1` e `HERDR_PANE_ID` obrigató
 | `orch_cancel(task_id)`                                       | Fecha a tab da tarefa, se ela ainda for do orquestrador.                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Não         |
 
 O worker recebe a tool `orch_report(status, result, question?, artifacts?)`. Ele a chama
-uma vez no fim, com `done`, `failed` ou `blocked`.
+uma vez no fim, com `done`, `failed` ou `blocked`. Ver também `orch_submit_plan` e `orch_mark_tdd` em Workflow.
+
+Demais tools do orquestrador:
+
+- `orch_locate_project`: localiza o projeto antes de perguntar ao usuário.
+- `orch_plan_create`, `orch_plan_show`, `orch_plan_update`, `orch_plan_approve`, `orch_plan_pause`, `orch_plan_cancel`: registram um plano entregue por você (em rascunho), mostram ou atualizam itens e lançam, pausam ou cancelam a execução. Nada é lançado antes de `orch_plan_approve`. Cancelar não toca nas tarefas em andamento.
+- `orch_idle`: lista tarefas concluídas com a aba ainda aberta, para decidir o que fechar.
+- `orch_close(task_id)`: fecha a aba de tarefa já concluída, falha ou expirada, depois que você validou o resultado. Não apaga relatórios.
+- `orch_release(task_id)`: devolve ao pool a worktree de tarefa terminal, só sem alterações não commitadas e com HEAD já em remoto. Nunca força.
+- `orch_usage`: uso de tokens e custo das tarefas da sessão (somente leitura).
 
 ## Como funciona
 
@@ -171,7 +265,6 @@ node --import tsx scripts/smoke-herdr.ts
 Apague o diretório do repositório e `~/.pi/orchestrator/`. Nada foi instalado em
 `~/.pi/agent`. Para fechar workspaces criados, use `herdr workspace close <id>`.
 
-## Fora do escopo do MVP
+## Fora do escopo
 
-Software Factory, DAG de desenvolvimento, worktrees (fica com o treehouse), agendamento,
-dashboard, memória própria, múltiplos orquestradores e notificações externas.
+DAG de desenvolvimento, worktrees (ficam com o treehouse), agendamento, dashboard, memória própria, múltiplos orquestradores e notificações externas. A integração da Worker Factory ao orquestrador em produção segue em #146 e #147.
