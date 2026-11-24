@@ -1,3 +1,4 @@
+import { recordReviewVerdict } from "../shared/review-verdict.ts";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -452,6 +453,44 @@ export default function workerExtension(pi: ExtensionAPI): void {
         ],
         details: {},
       });
+    },
+  });
+
+  pi.registerTool({
+    name: "orch_review_verdict",
+    label: "orch review verdict",
+    description:
+      "Envia o JSON do subagent de review fresh (contexto limpo, somente leitura) para o head atual da PR. O veredito é validado pela ferramenta; JSON inválido ou de outro head vira unverified.",
+    parameters: {
+      type: "object",
+      properties: {
+        head_sha: { type: "string", description: "SHA completo (40 hex) do head revisado" },
+        raw: { type: "string", description: "saída JSON do subagent, sem alterações" },
+        diff_truncated: { type: "boolean", description: "true se o diff passou de 120000 caracteres" },
+      },
+      required: ["head_sha", "raw", "diff_truncated"],
+      additionalProperties: false,
+    },
+    execute(_toolCallId: string, params: Record<string, unknown>) {
+      try {
+        const r = recordReviewVerdict(
+          taskDir,
+          String(params.raw),
+          String(params.head_sha),
+          params.diff_truncated === true,
+        );
+        return Promise.resolve({
+          content: [{ type: "text" as const, text: `Review registrado: ${r.verdict} no head ${r.reviewed_sha}.` }],
+          details: {},
+        });
+      } catch (err) {
+        return Promise.resolve({
+          content: [
+            { type: "text" as const, text: `Review recusado: ${err instanceof Error ? err.message : String(err)}` },
+          ],
+          details: {},
+        });
+      }
     },
   });
 

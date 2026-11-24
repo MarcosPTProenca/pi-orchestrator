@@ -1,4 +1,11 @@
 import type { FixAction } from "./fix-loop.ts";
+import {
+  defaultMergePolicy,
+  resolveMergePolicy,
+  type MergePolicy,
+  type MergePolicyStore,
+  type TicketFacts,
+} from "../shared/merge-policy.ts";
 
 export type DeliveryName =
   | "plan_ready"
@@ -32,4 +39,13 @@ export function deliveryFromFix(action: FixAction, taskId: string): DeliveryEven
     case "none":
       return null;
   }
+}
+
+export function repoPolicyFor(store: MergePolicyStore, repo: string, taskId: string): MergePolicy | null {
+  const base = store.load(repo, null) ?? store.save(defaultMergePolicy(repo));
+  return resolveMergePolicy(base, taskId, null);
+}
+
+export function ticketFor(taskId: string): TicketFacts {
+  return { id: taskId, state: "running", branch: null, allowed_paths: [] };
 }

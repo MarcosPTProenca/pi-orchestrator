@@ -84,7 +84,7 @@ function truncateDiff(diff: string): { text: string; truncated: boolean } {
   return { text: `${cut}\n[diff truncado em ${MAX_DIFF_CHARS} caracteres]`, truncated: true };
 }
 
-const OUTPUT_CONTRACT = [
+export const OUTPUT_CONTRACT = [
   "Responda somente com um objeto JSON, sem texto fora dele, neste formato:",
   '{"schema_version":1,"verdict":"approve|request_changes|reject|unverified","reviewed_sha":"<head_sha>",',
   ' "criteria":[{"id":"AC-1","status":"pass|fail|unverified","evidence":"arquivo:linha ou comando executado"}],',
