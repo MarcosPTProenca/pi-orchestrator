@@ -59,3 +59,22 @@ test("todo aviso começa com a marca que o relançamento usa para descartar avis
     assert.ok(notice.startsWith(`${RELAUNCH_MARK}${base.taskId}) falhou.`), notice);
   }
 });
+
+test("todo aviso (fork ou fresh) manda conferir o que já existe e não repetir efeitos externos", () => {
+  for (const context of ["fork-with-history", "fresh-with-handoff"] as const) {
+    const notice = relaunchNotice({ ...base, context, report: "x" });
+    assert.match(notice, /Confira o que já existe \(worktree, commits, PR\)/);
+    assert.match(notice, /não repita comandos com efeito externo já executados/);
+  }
+});
+
+test("fresh com PR e commits já existentes: o aviso lista a URL da PR como artefato", () => {
+  const notice = relaunchNotice({
+    ...base,
+    context: "fresh-with-handoff",
+    report: "commit abc123 enviado; PR aberta",
+    artifacts: ["https://github.com/o/r/pull/9"],
+  });
+  assert.match(notice, /Artefatos: https:\/\/github\.com\/o\/r\/pull\/9/);
+  assert.match(notice, /commit abc123 enviado/);
+});

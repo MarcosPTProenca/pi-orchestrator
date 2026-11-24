@@ -246,7 +246,10 @@ export class Orchestrator {
       );
   }
 
-  async delegate(rawInput: DelegateInput, opts: { forkSession?: string } = {}): Promise<TaskRecord> {
+  async delegate(
+    rawInput: DelegateInput,
+    opts: { forkSession?: string; briefRevised?: boolean } = {},
+  ): Promise<TaskRecord> {
     const input = this.d.enrichSource ? await this.d.enrichSource(rawInput) : rawInput;
     this.assertNotActive(input);
     const model = this.d.chooseModel
@@ -344,7 +347,14 @@ export class Orchestrator {
       const piArgs = ["-e", this.d.workerExtPath];
       if (opts.forkSession) piArgs.push("--fork", opts.forkSession);
       if (model) piArgs.push("--model", model);
-      piArgs.push(launchMessage(join(taskDir, "brief.md"), opts.forkSession !== undefined, intake.mode));
+      piArgs.push(
+        launchMessage(
+          join(taskDir, "brief.md"),
+          opts.forkSession !== undefined,
+          intake.mode,
+          opts.briefRevised === true,
+        ),
+      );
       const launch = ["pi", ...piArgs];
       if (projected)
         // keep: o token do webhook fica fora do pane; qualquer leitura do pane o exporia.
@@ -620,7 +630,7 @@ export class Orchestrator {
       model: model ?? old.model ?? undefined,
       constraints: [...original.filter((c) => !c.startsWith(RELAUNCH_MARK)), notice],
     };
-    const task = await this.delegate(input, { forkSession: previous ?? undefined });
+    const task = await this.delegate(input, { forkSession: previous ?? undefined, briefRevised: true });
     this.update(task.task_id, (x) => {
       x.relaunched_from = taskId;
     });
