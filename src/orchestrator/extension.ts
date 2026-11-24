@@ -53,7 +53,7 @@ import {
   scopeOwnerDir,
 } from "../shared/lock.ts";
 import { registerOrchestratorTools } from "./tools.ts";
-import { FIRST_MATE_ROLE } from "./prompts.ts";
+import { ORCHESTRATOR_ROLE } from "./prompts.ts";
 import {
   idleNoticeFor,
   modelMessageFor,
@@ -63,7 +63,7 @@ import {
   taskHeadline,
 } from "./messages.ts";
 
-export { FIRST_MATE_ROLE } from "./prompts.ts";
+export { ORCHESTRATOR_ROLE } from "./prompts.ts";
 export {
   formatBrasilia,
   formatEvent,
@@ -713,8 +713,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   pi.on("cache_warming_decision", () => cacheWarmingOverride());
 
   pi.on("before_agent_start", (event) => {
-    if (event.systemPrompt.includes(FIRST_MATE_ROLE)) return;
-    return { systemPrompt: `${event.systemPrompt}\n\n${FIRST_MATE_ROLE}` };
+    if (event.systemPrompt.includes(ORCHESTRATOR_ROLE)) return;
+    return { systemPrompt: `${event.systemPrompt}\n\n${ORCHESTRATOR_ROLE}` };
   });
 
   pi.on("session_shutdown", () => {

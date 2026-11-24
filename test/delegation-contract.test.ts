@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { buildIntake, renderBrief } from "../src/shared/intake.ts";
-import { FIRST_MATE_ROLE } from "../src/orchestrator/extension.ts";
+import { ORCHESTRATOR_ROLE } from "../src/orchestrator/extension.ts";
 
 function project(): string {
   const dir = join(mkdtempSync(join(tmpdir(), "delegation-contract-")), "proj");
@@ -26,6 +26,6 @@ test("brief não tem seção de pedido literal; o trabalho vem formulado pelo or
 });
 
 test("o prompt do orquestrador não manda copiar o pedido completo para a retomada", () => {
-  assert.doesNotMatch(FIRST_MATE_ROLE, /preserve o pedido completo/);
-  assert.match(FIRST_MATE_ROLE, /instrução concreta/);
+  assert.doesNotMatch(ORCHESTRATOR_ROLE, /preserve o pedido completo/);
+  assert.match(ORCHESTRATOR_ROLE, /instrução concreta/);
 });
