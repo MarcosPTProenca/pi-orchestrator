@@ -8,6 +8,7 @@ import { startHook as startHook0, type HookHandle } from "../shared/hook.ts";
 import { DEFAULT_PRIORITY, pickModel, checkRequestedQuota, readQuota, type ProviderQuota } from "../shared/quota.ts";
 import { HerdrCli } from "../shared/herdr.ts";
 import { availableModels, resolveModel } from "../shared/models.ts";
+import { cacheWarmingOverride } from "./cache-warming.ts";
 import { Orchestrator, type DelegateInput, type WatchEvent } from "./orchestrator.ts";
 import { prFromUrl, fetchPrState, verificationLine, verifyPr, prStateLine } from "../shared/prs.ts";
 import {
@@ -708,6 +709,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       for (const e of pending) orch.markDelivered(e.task_id, e.status);
     }
   });
+
+  pi.on("cache_warming_decision", () => cacheWarmingOverride());
 
   pi.on("before_agent_start", (event) => {
     if (event.systemPrompt.includes(FIRST_MATE_ROLE)) return;

@@ -13,6 +13,7 @@
     "eval:pipeline": "node --import tsx evals/pipeline-run.ts",
     "usage:real-pi": "node --import tsx scripts/usage-real-pi.ts",
     "usage:report": "node --import tsx scripts/usage-report.ts",
+    "cache:check": "node --import tsx scripts/cache-warming-check.ts",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
