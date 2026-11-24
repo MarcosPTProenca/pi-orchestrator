@@ -538,6 +538,12 @@ export class Orchestrator {
     return (await this.closeOutcome(taskId)).task;
   }
 
+  async closeMerged(taskId: string): Promise<{ task: TaskRecord; closed: boolean; reason: string | null }> {
+    const outcome = await this.closeOutcome(taskId);
+    this.forgetDeadTab(taskId);
+    return { ...outcome, task: this.get(taskId) };
+  }
+
   async closeOutcome(taskId: string): Promise<{ task: TaskRecord; closed: boolean; reason: string | null }> {
     return this.withTaskLock(taskId, () => this.closeOutcomeLocked(taskId));
   }
