@@ -2,8 +2,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { makeHarness, writeReport } from "./fakes.ts";
 
-// Issue #132: a recusa precisa dizer a ferramenta certa a usar em seguida, não só o que não pode ser feito.
-
 test("relançar tarefa done recusa e aponta orch_send ou orch_delegate (passos 1-3 da issue)", async () => {
   const h = makeHarness();
   const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
