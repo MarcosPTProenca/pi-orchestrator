@@ -25,6 +25,7 @@ function setup() {
   mkdirSync(join(seed, "bin"));
   mkdirSync(join(seed, "src"));
   cpSync(join(repoRoot, "bin", "pi-orch"), join(seed, "bin", "pi-orch"));
+  cpSync(join(repoRoot, "bin", "pi-factory"), join(seed, "bin", "pi-factory"));
   writeFileSync(join(seed, "src", "index.ts"), "x\n");
   writeFileSync(join(seed, "f.txt"), "a\n");
   git(seed, "add", "-A");
