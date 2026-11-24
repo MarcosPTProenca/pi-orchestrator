@@ -307,3 +307,51 @@ test("visão compacta do orch_status mantém turnos da tarefa em execução (sem
     null,
   );
 });
+
+test("regressão: URL de PR além do corte de 200 caracteres continua em links da visão compacta", () => {
+  const result = `${"x".repeat(250)} PR https://github.com/o/r/pull/77 pronta.`;
+  const [grupo] = compactStatus(buildStatus([t({ task_id: "t-l", status: "done", result })], NOW, {}));
+  assert.deepEqual(grupo.tasks[0].links, ["https://github.com/o/r/pull/77"]);
+});
+
+test("regressão: motivo de falha, prazo e perda aparecem na visão compacta; error limitado a 300", () => {
+  const [grupo] = compactStatus(
+    buildStatus(
+      [
+        t({ task_id: "t-f", status: "failed", error: "cota esgotada" }),
+        t({ task_id: "t-bq", status: "blocked", question: "?", error: "o prazo venceu" }),
+        t({ task_id: "t-lo", status: "lost", error: "x".repeat(400) }),
+      ],
+      NOW,
+      {},
+    ),
+  );
+  const byId = Object.fromEntries(grupo.tasks.map((r) => [r.task_id, r]));
+  assert.equal(byId["t-f"].error, "cota esgotada");
+  assert.equal(byId["t-bq"].error, "o prazo venceu");
+  assert.ok(byId["t-lo"].error !== null && byId["t-lo"].error.length <= 300);
+});
+
+test("regressão: falhas e verificações não aprovadas não somem atrás de conclusões comuns", () => {
+  const comuns = Array.from({ length: COMPACT_TERMINAL_LIMIT + 5 }, (_, i) =>
+    t({ task_id: `t-c${i}`, status: "done", updated_at: `2026-11-17T11:${String(i).padStart(2, "0")}:00Z` }),
+  );
+  const falhas = Array.from({ length: 12 }, (_, i) =>
+    t({ task_id: `t-x${i}`, status: "failed", error: `erro ${i}`, updated_at: "2026-11-16T00:00:00Z" }),
+  );
+  const naoVerificada = t({
+    task_id: "t-nv",
+    status: "done",
+    verification: { verdict: "unverified", reason: "sem teste" },
+    updated_at: "2026-11-16T00:00:00Z",
+  });
+  const [grupo] = compactStatus(buildStatus([...comuns, ...falhas, naoVerificada], NOW, { all: true }));
+  const ids = grupo.tasks.map((r) => r.task_id);
+  for (const f of falhas) assert.ok(ids.includes(f.task_id), `falha ${f.task_id} escondida`);
+  assert.ok(ids.includes("t-nv"), "verificação não aprovada aparece");
+  assert.equal(
+    grupo.tasks.filter((r) => r.verification === null && r.status === "done").length,
+    COMPACT_TERMINAL_LIMIT,
+  );
+  assert.equal(grupo.omitted_terminal, 5);
+});
