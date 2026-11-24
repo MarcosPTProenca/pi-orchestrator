@@ -53,6 +53,7 @@ export function addNewUsage(
   prevTurns: TurnRecord[] = [],
 ): UsageState {
   const seen = new Set(counted);
+  const legacy = new Set(counted.filter((x): x is number => typeof x === "number"));
   const out: Usage = { ...newUsage(), ...total };
   const ids = [...counted];
   const turns = [...prevTurns];
@@ -72,9 +73,18 @@ export function addNewUsage(
         : typeof m.timestamp === "number"
           ? `t:${m.timestamp}:${m.provider ?? ""}:${m.model ?? ""}`
           : null;
-    const legacy = typeof m.timestamp === "number" && seen.has(m.timestamp);
+    const ts = typeof m.timestamp === "number" ? m.timestamp : null;
+    if (key !== null && seen.has(key)) continue;
+    if (ts !== null && legacy.has(ts)) {
+      legacy.delete(ts);
+      ids.splice(ids.indexOf(ts), 1);
+      if (key !== null) {
+        seen.add(key);
+        ids.push(key);
+      }
+      continue;
+    }
     if (key !== null) {
-      if (seen.has(key) || legacy) continue;
       seen.add(key);
       ids.push(key);
     }

@@ -11,6 +11,7 @@ import {
   orchestratorUsage,
   turnClass,
   usageReport,
+  type UsageState,
 } from "../src/shared/usage.ts";
 
 const asst = (ts: number, input: number, output: number, cacheRead = 0, cacheWrite = 0) => ({
@@ -53,6 +54,21 @@ test("usage.json legado (timestamp numérico) não recebe a mesma resposta de no
   const legado = { total: { ...newUsage(), input: 10, totalTokens: 15 }, counted: [1] };
   const r = addNewUsage(legado.total, [{ ...asst(1, 10, 5), responseId: "resp-a" }], legado.counted);
   assert.equal(r.total.input, 10);
+});
+
+test("legado: timestamp igual de outra resposta não apaga a resposta nova (cada entrada legada cobre uma só mensagem)", () => {
+  const legado = { total: { ...newUsage(), input: 10, totalTokens: 15 }, counted: [1] };
+  const r = addNewUsage(
+    legado.total,
+    [
+      { ...asst(1, 10, 5), responseId: "resp-a" },
+      { ...asst(1, 5, 1), responseId: "resp-b" },
+    ],
+    legado.counted,
+  );
+  assert.equal(r.total.input, 15);
+  const again = addNewUsage(r.total, [{ ...asst(70, 10, 5), responseId: "resp-a" }], r.counted);
+  assert.equal(again.total.input, 15);
 });
 
 test("mensagem sem usage (ferramenta, erro) não quebra a soma", () => {
@@ -156,6 +172,26 @@ test("fork: a mesma entrada vista em dois ramos conta uma vez", () => {
   const r = addCacheWarmUsage(addCacheWarmUsage({}, ramoA), ramoB);
   assert.equal(r.warm.input, 107);
   assert.equal(r.warm.cost, 0.02);
+});
+
+test("reload e fork juntos: estado salvo em JSON e ramo com respostas repetidas contam cada resposta uma vez", () => {
+  const origem = [
+    { ...asst(1, 10, 5), responseId: "a" },
+    { ...asst(2, 3, 1), responseId: "b" },
+  ];
+  const antes = addNewUsage(newUsage(), origem, []);
+  const salvo = JSON.parse(
+    JSON.stringify({ total: antes.total, counted: antes.counted, turns: antes.turns }),
+  ) as UsageState;
+  const ramo = [
+    { ...asst(50, 3, 1), responseId: "b" },
+    { ...asst(51, 7, 2), responseId: "c" },
+    { ...asst(90, 10, 5), responseId: "a" },
+  ];
+  const depois = addNewUsage(salvo.total, ramo, salvo.counted, salvo.turns ?? []);
+  assert.equal(depois.total.input, 20);
+  assert.equal(depois.total.output, 8);
+  assert.equal(depois.turns?.length, 3);
 });
 
 test("cache 0 e campos ausentes viram zero, sem NaN nem custo inventado", () => {

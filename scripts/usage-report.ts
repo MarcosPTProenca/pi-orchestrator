@@ -14,6 +14,8 @@ const sessions = paths.map((p) =>
     .map((l) => JSON.parse(l) as unknown),
 );
 const limites = [
+  "cache.hit_ratio = cacheRead / cache.denominator, com denominator = input + cacheRead + cacheWrite; null sem denominador",
+  "input, cacheRead e cacheWrite são disjuntos; output já inclui reasoning; ver README (semantica por provedor)",
   "origem do turno indisponível no Pi; by_origin classifica só pelo gatilho observado",
   "usuario = mensagem de usuário do Pi, inclui prompts enviados por automação pelo terminal",
   "automatico = mensagem de extensão (custom_message) ou continuidade após ferramenta",
