@@ -4,6 +4,7 @@ import { cacheHitRatio, mergeTurnSummaries, type TurnSummary } from "../shared/u
 export const DEFAULT_OLD_HOURS = 24;
 const RESULT_MAX = 200;
 const COMPACT_RESULT_MAX = 120;
+const COMPACT_ERROR_MAX = 300;
 const LINKS_MAX = 5;
 
 export function linksIn(text: string | null): string[] {
@@ -14,6 +15,8 @@ export function linksIn(text: string | null): string[] {
 export const COMPACT_TERMINAL_LIMIT = 10;
 // shortcut: teto fixo por projeto; acima disso a saída perde tarefas abertas (omitted_open), upgrade é paginar
 export const COMPACT_OPEN_LIMIT = 50;
+const COMPACT_ATTENTION_LIMIT = 20;
+const ATTENTION_STATUSES = new Set<TaskStatus>(["failed", "timeout", "lost"]);
 
 export function oldHoursFrom(env: string | undefined): number | undefined {
   if (env === undefined || env.trim() === "") return undefined;
@@ -47,6 +50,8 @@ interface StatusRow {
   updated_at: string;
   question: string | null;
   result: string | null;
+  error: string | null;
+  links: string[];
   artifacts: string[];
   verification: TaskRecord["verification"];
   model: string | null;
@@ -88,6 +93,8 @@ export function buildStatus(tasks: TaskRecord[], now: number, opts: StatusOption
         t.result && !opts.fullResult && t.result.length > RESULT_MAX
           ? `${t.result.slice(0, RESULT_MAX - 1)}…`
           : (t.result ?? null),
+      error: t.error ?? null,
+      links: linksIn(t.result),
       artifacts: t.artifacts,
       verification: t.verification ?? null,
       model: t.model,
@@ -119,6 +126,7 @@ interface CompactTask {
   age: string;
   question: string | null;
   result: string | null;
+  error: string | null;
   artifacts: string[];
   links: string[];
   verification: TaskRecord["verification"];
@@ -136,6 +144,11 @@ export interface CompactGroup {
   omitted_terminal: number;
 }
 
+const isAttention = (r: StatusRow): boolean =>
+  ATTENTION_STATUSES.has(r.status) ||
+  r.verification?.verdict === "rejected" ||
+  r.verification?.verdict === "unverified";
+
 export function compactStatus(groups: StatusGroup[]): CompactGroup[] {
   return groups.map((g) => {
     const counts: Record<string, number> = {};
@@ -147,10 +160,12 @@ export function compactStatus(groups: StatusGroup[]): CompactGroup[] {
           Number(b.status === "blocked") - Number(a.status === "blocked") ||
           Date.parse(b.updated_at) - Date.parse(a.updated_at),
       );
-    const terminal = g.tasks
-      .filter((r) => !isActive(r.status) && r.status !== "blocked")
-      .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
-    const shown = [...open.slice(0, COMPACT_OPEN_LIMIT), ...terminal.slice(0, COMPACT_TERMINAL_LIMIT)];
+    const byRecency = (a: StatusRow, b: StatusRow) => Date.parse(b.updated_at) - Date.parse(a.updated_at);
+    const terminal = g.tasks.filter((r) => !isActive(r.status) && r.status !== "blocked");
+    const alert = terminal.filter(isAttention).sort(byRecency);
+    const recent = terminal.filter((r) => !isAttention(r)).sort(byRecency);
+    const shownTerminal = [...alert.slice(0, COMPACT_ATTENTION_LIMIT), ...recent.slice(0, COMPACT_TERMINAL_LIMIT)];
+    const shown = [...open.slice(0, COMPACT_OPEN_LIMIT), ...shownTerminal];
     return {
       project_id: g.project_id,
       counts,
@@ -162,8 +177,9 @@ export function compactStatus(groups: StatusGroup[]): CompactGroup[] {
         question: r.question,
         result:
           r.result && r.result.length > COMPACT_RESULT_MAX ? `${r.result.slice(0, COMPACT_RESULT_MAX - 1)}…` : r.result,
+        error: r.error && r.error.length > COMPACT_ERROR_MAX ? `${r.error.slice(0, COMPACT_ERROR_MAX - 1)}…` : r.error,
         artifacts: r.artifacts,
-        links: linksIn(r.result),
+        links: r.links,
         verification: r.verification,
         tokens: r.tokens,
         cost_usd: r.cost_usd,
@@ -171,7 +187,7 @@ export function compactStatus(groups: StatusGroup[]): CompactGroup[] {
         deadline_at: r.deadline_at,
       })),
       omitted_open: Math.max(0, open.length - COMPACT_OPEN_LIMIT),
-      omitted_terminal: Math.max(0, terminal.length - COMPACT_TERMINAL_LIMIT),
+      omitted_terminal: Math.max(0, terminal.length - shownTerminal.length),
     };
   });
 }
