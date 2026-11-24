@@ -178,6 +178,7 @@ export function renderBrief(taskId: string, pack: IntakePack, reportPath: string
     "5. Não reporte progresso. Chame orch_report uma vez, no fim.",
     "6. Não comente nem publique em PR ou issue, a menos que o pedido diga isso.",
     "7. Ao terminar: se não houver alterações nem commits sem push, devolva sua worktree com `treehouse return <caminho>`. Se houver trabalho não enviado, não devolva e informe o caminho no relatório.",
+    "8. O campo result é texto para o ORQUESTRADOR ler e decidir como comunicar ao usuário. Nunca se dirija ao usuário em segunda pessoa dentro de result (ex.: 'você precisa decidir', 'cabe a você'). Pendência que depende de decisão humana vai no campo question com status blocked, não escrita dentro de result de status done.",
     "",
     "## Relatório final",
     "Chame orch_report com status (done, failed ou blocked), result e artifacts (URLs, caminhos).",
