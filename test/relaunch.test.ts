@@ -118,3 +118,60 @@ test("sem sessão gravada (ou arquivo sumido): relança em sessão nova, sem --f
   const cmd = (h.herdr.opsOf("runInPane").at(-1)!.args as { command: string }).command;
   assert.doesNotMatch(cmd, /--fork/);
 });
+
+async function withPreviousSession(old: { task_dir: string }, body: () => Promise<void>): Promise<void> {
+  const dir = mkdtempSync(join(tmpdir(), "orch-sess-"));
+  try {
+    writeFileSync(join(dir, "prev.jsonl"), "{}\n");
+    writeFileSync(join(old.task_dir, "session.txt"), join(dir, "prev.jsonl"));
+    await body();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function lastCommand(h: ReturnType<typeof makeHarness>): string {
+  return (h.herdr.opsOf("runInPane").at(-1)!.args as { command: string }).command;
+}
+
+test("fork: o brief foi revisado com o aviso de retomada, então o worker o relê (não está no histórico copiado)", async () => {
+  const h = makeHarness();
+  const old = await failed(h, "Encerrou com erro do modelo. Erro: 500", HAIKU);
+  await withPreviousSession(old, async () => {
+    const neu = await h.orch.relaunch(old.task_id);
+    const cmd = lastCommand(h);
+    assert.match(cmd, /--fork/);
+    assert.match(cmd, /Leia o brief em .*brief\.md com a ferramenta read/);
+    assert.doesNotMatch(cmd, /não o releia/);
+    assert.match(readFileSync(neu.brief_path, "utf8"), new RegExp(`Tentativa anterior \\(${old.task_id}\\)`));
+  });
+});
+
+test("fork após cota: relança com outro modelo, com fork, leitura do brief revisado e o aviso", async () => {
+  const h = makeHarness();
+  const old = await failed(h, "Cota esgotada. Erro: 429 rate limit", HAIKU);
+  await withPreviousSession(old, async () => {
+    const neu = await h.orch.relaunch(old.task_id, LUNA);
+    assert.match(lastCommand(h), /--fork[\s\S]*Leia o brief em/);
+    assert.equal(neu.model, LUNA);
+    assert.match(readFileSync(neu.brief_path, "utf8"), /copiada para esta sessão/);
+  });
+});
+
+test("histórico pequeno com fork: aviso curto, aponta o relatório e não copia o texto", async () => {
+  const h = makeHarness();
+  const old = await failed(h, "Erro: 500", HAIKU);
+  await withPreviousSession(old, async () => {
+    const neu = await h.orch.relaunch(old.task_id);
+    const brief = readFileSync(neu.brief_path, "utf8");
+    assert.ok(brief.includes(join(old.task_dir, "report.json")));
+    assert.match(brief, /copiada para esta sessão/);
+  });
+});
+
+test("retomada: o aviso manda não repetir efeitos externos (push, PR) já executados", async () => {
+  const h = makeHarness();
+  const old = await failed(h, "Encerrou com erro do modelo. Erro: 500", HAIKU);
+  const neu = await h.orch.relaunch(old.task_id);
+  assert.match(readFileSync(neu.brief_path, "utf8"), /não repita comandos com efeito externo/);
+});

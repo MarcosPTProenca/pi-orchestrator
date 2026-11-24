@@ -20,3 +20,9 @@ test("report e design não acionam implement", () => {
   assert.doesNotMatch(launchMessage(BRIEF, false, "report"), /\/skill:/);
   assert.doesNotMatch(launchMessage(BRIEF, false, "design"), /\/skill:/);
 });
+
+test("retomada por fork com brief revisado manda ler o brief de novo", () => {
+  const msg = launchMessage(BRIEF, true, "report", true);
+  assert.match(msg, /Leia o brief em \/tmp\/t-1\/brief\.md com a ferramenta read/);
+  assert.doesNotMatch(msg, /não o releia/);
+});
