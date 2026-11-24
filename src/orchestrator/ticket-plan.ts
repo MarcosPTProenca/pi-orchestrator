@@ -3,10 +3,6 @@ import type { ItemInput, Plan, PlanStore } from "./plans.ts";
 
 type Delegate = NonNullable<ItemInput["delegate"]>;
 
-/**
- * Converte tickets aprovados em itens do PlanStore existente. Os blockers viram depends_on,
- * sem novo scheduler. Recusa a conversão se o gate não estiver limpo.
- */
 export function planItemsFromTickets(
   spec: string,
   tickets: TicketDraft[],

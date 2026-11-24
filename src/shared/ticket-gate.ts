@@ -79,7 +79,6 @@ function findCycle(tickets: TicketDraft[]): string[] | null {
   return null;
 }
 
-/** Ordem de publicação: cada ticket só depois dos seus blockers. Lança se houver ciclo ou blocker ausente. */
 export function publicationOrder(tickets: TicketDraft[]): TicketDraft[] {
   const done = new Set<string>();
   const out: TicketDraft[] = [];
@@ -94,7 +93,6 @@ export function publicationOrder(tickets: TicketDraft[]): TicketDraft[] {
   return out;
 }
 
-/** Gate determinístico: nada aqui chama LLM nem GitHub. */
 export function checkTickets(spec: string, tickets: TicketDraft[]): Finding[] {
   const findings: Finding[] = [];
   const parent = verifySpec(spec);
@@ -160,7 +158,6 @@ export function checkTickets(spec: string, tickets: TicketDraft[]): Finding[] {
   return findings;
 }
 
-/** Tickets cujo parent não bate mais com a spec: não atualizar automaticamente, só listar. */
 export function staleTickets(tickets: TicketDraft[], spec: string): string[] {
   const fp = verifySpec(spec).fingerprint;
   return tickets.filter((t) => t.parent_fingerprint !== fp).map((t) => t.id);
@@ -203,7 +200,6 @@ function renderIssue(t: TicketDraft, refs: ReadonlyMap<string, string> = new Map
   ].join("\n");
 }
 
-/** Proposta sem efeito colateral: nada é publicado aqui. */
 export function proposeTickets(spec: string, tickets: TicketDraft[]): Proposal {
   const findings = checkTickets(spec, tickets);
   const issues =
@@ -213,10 +209,6 @@ export function proposeTickets(spec: string, tickets: TicketDraft[]): Proposal {
   return { status: findings.length === 0 ? "ready" : "blocked", findings, issues };
 }
 
-/**
- * Publica na ordem dos blockers. Exige aprovação explícita do usuário e gate limpo.
- * Em falha, para e devolve o que já foi criado, para não repetir issues.
- */
 export async function publishTickets(
   spec: string,
   tickets: TicketDraft[],
