@@ -31,6 +31,30 @@ Dentro de um pane do Herdr:
 
 O launcher recusa rodar fora do Herdr (`HERDR_ENV=1` e `HERDR_PANE_ID` obrigatórios).
 
+### Recuperação após reinicialização do Herdr/WSL
+
+O Herdr não preserva o processo do orquestrador num restart completo do servidor
+(`wsl --shutdown`, crash, etc. — diferente de `herdr update --handoff`, que tenta manter
+processos vivos). Ele reconstrói o pane com o comando nativo de resume do Pi
+(`pi --session <path>`), sem a flag `-e` que carrega `src/index.ts`: a sessão volta
+como Pi comum, sem nenhuma tool `orch_*`. Não há hoje um jeito sancionado de uma
+extensão `-e` reportar seu próprio comando de resume (`resume_argv`) num pane já
+detido pela integração oficial `herdr:pi` (o Herdr responde `resume_not_accepted`).
+
+Mitigação: `.pi/extensions/pi-orch.ts` reexporta a mesma extensão em local
+auto-discovered. Qualquer sessão Pi aberta com cwd dentro deste repositório carrega
+a extensão automaticamente, sem precisar de `-e` nem de `/reload` manual (que só
+recarrega extensões auto-discovered, nunca uma passada por `-e`). A lógica de posse
+(`acquireOwnership`) continua decidindo se a sessão assume o papel ou fica em modo
+somente leitura; nada muda além de onde o arquivo é descoberto. Isso cobre sessões
+que restauram com cwd neste repositório; uma sessão de pasta-pai (`~/github`, fora
+de qualquer git) ainda precisa reabrir com `bin/pi-orch` manualmente.
+
+Extensões de `.pi/extensions/` só carregam em projeto confiável (`trust.json` ou
+`defaultProjectTrust`). Se `~/github/pi-orchestrator` (ou uma pasta-pai, como
+`~/github`) já estiver confiável, a recuperação é automática; caso contrário, o Pi
+pede confirmação de trust antes de carregar `pi-orch.ts`.
+
 ## Tools do orquestrador
 
 | Tool                                                         | Função                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Usa LLM?    |
