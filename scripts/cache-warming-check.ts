@@ -1,6 +1,3 @@
-// Diagnóstico reproduzível do cache warming do Pi (sem chamadas a provedores).
-// Uso: npm run cache:check
-// Não imprime valores de models.json (pode conter credenciais); só contagens.
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
