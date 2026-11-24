@@ -23,6 +23,7 @@ test("CLI imprime relatório JSON das sessões passadas, sem conteúdo de prompt
   assert.equal(r.sessions, 2);
   assert.ok(r.turns.turns > 0);
   assert.ok(r.cache.denominator > 0);
+  assert.match(stdout, /cache\.hit_ratio = cacheRead \/ cache\.denominator/);
   assert.equal(stdout.includes("status?"), false);
   assert.equal(stdout.includes("continua"), false);
 });

@@ -278,6 +278,8 @@ Os números vêm do `usage` que o próprio Pi grava em cada mensagem de assistan
 
 Regra de soma: `input`, `cacheRead` e `cacheWrite` são disjuntos em todos os provedores acima; `reasoning` e `cacheWrite1h` nunca são somados de novo. Taxa de acerto do cache = `cacheRead / (input + cacheRead + cacheWrite)`, nula sem denominador.
 
+De-duplicação: a chave de cada resposta é `responseId`; sem ele, `timestamp + provider + model`. Timestamp sozinho nunca é chave. Entrada legada do `usage.json` (só timestamp) cobre uma única mensagem, consumida na primeira vez que casa; reload e fork reenviam a mesma resposta e não a contam de novo.
+
 ### Relatório de linha de comando
 
 `npm run usage:report -- <sessao.jsonl> [mais sessões...]` imprime JSON com turnos (por origem `automatico`/`usuario`/`indisponivel`, falhas, duração, custo), tokens, taxa de acerto do cache com o denominador, custo informado e aquecimento. Duplicatas entre arquivos (fork, reload) são contadas uma vez. Não imprime conteúdo de prompt.
