@@ -615,6 +615,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         display: false,
         details: { pending: pending.map((e) => e.task_id) },
       });
+      for (const e of pending) orch.markDelivered(e.task_id, e.status);
     }
   });
 
