@@ -187,11 +187,13 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         },
         { triggerTurn: batch.some((b) => wakesLlm(statusKind(b.event.status))) },
       );
+      // keep: confirma só após o envio; se sendMessage lançar, o batcher tenta de novo e o pendente persiste.
+      for (const b of batch) orch.markDelivered(b.event.task_id, b.event.status);
     },
     undefined,
     3,
     (item) => {
-      console.error(`pi-orch: aviso ${item.key} não entregue após 3 tentativas`);
+      console.error(`pi-orch: aviso ${item.key} não entregue após 3 tentativas; fica pendente para o próximo início`);
     },
   );
 
@@ -613,6 +615,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         display: false,
         details: { pending: pending.map((e) => e.task_id) },
       });
+      for (const e of pending) orch.markDelivered(e.task_id, e.status);
     }
   });
 

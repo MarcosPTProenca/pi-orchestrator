@@ -668,7 +668,18 @@ export class Orchestrator {
       (t.status === "blocked" || (!isActive(t.status) && t.status !== "cancelled" && t.status !== "planned"));
     if (!pending) return null;
     this.takeNotice(taskId);
+    this.update(taskId, (x) => {
+      x.delivery_pending = t.status;
+    });
     return this.toEvent(t);
+  }
+
+  // keep: só a entrega confirmada tira o pendente; se o processo cair antes, pendingNotices() reenvia.
+  markDelivered(taskId: string, status: string): void {
+    if (this.get(taskId).delivery_pending !== status) return;
+    this.update(taskId, (x) => {
+      x.delivery_pending = null;
+    });
   }
 
   async noticeFor(taskId: string): Promise<WatchEvent | null> {
@@ -688,7 +699,14 @@ export class Orchestrator {
   }
 
   async pendingNotices(): Promise<WatchEvent[]> {
-    return this.sweep();
+    const out = await this.sweep();
+    const seen = new Set(out.map((e) => e.task_id));
+    // keep: pendente só volta se ainda é o estado atual; pergunta já respondida não é reenviada.
+    for (const t of this.owned()) {
+      if (t.delivery_pending !== t.status || seen.has(t.task_id)) continue;
+      out.push(this.toEvent(t));
+    }
+    return out;
   }
 
   async logs(taskId: string, lines?: number): Promise<string> {
