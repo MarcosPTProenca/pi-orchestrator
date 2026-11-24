@@ -489,7 +489,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     if (verdict === "merged") {
       prWatch.forget(t.task_id);
       fixLoop.apply(t.task_id, { type: "revoke", reason: "PR mergeada" });
-      const outcome = await orch.closeOutcome(t.task_id);
+      const outcome = await orch.closeMerged(t.task_id);
       const plan = planStore.markMerged(t.task_id).map((m) => `plano ${m.plan}, item ${m.item}`);
       planStore.recordDelivery({ name: "merged", task_id: t.task_id, pr: source });
       await advancePlans();
