@@ -87,7 +87,7 @@ test("launcher só acrescenta --tools +codemode no modo híbrido", () => {
   const stub = join(dir, "pi");
   writeFileSync(stub, '#!/usr/bin/env bash\nprintf "%s\\n" "$@"\n');
   chmodSync(stub, 0o755);
-  const launcher = join(import.meta.dirname, "..", "bin", "pi-orch");
+  const launcher = join(import.meta.dirname, "..", "bin", "pi-factory");
   const run = (extra: Record<string, string>) =>
     spawnSync("bash", [launcher, "--foo"], {
       encoding: "utf8",

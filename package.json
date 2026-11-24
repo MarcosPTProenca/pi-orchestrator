@@ -1,9 +1,9 @@
 {
-  "name": "pi-orchestrator",
+  "name": "pi-factory",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Orquestração mínima de sessões Pi independentes via Herdr (MVP).",
+  "description": "Pi Factory: Orchestrator e Worker Factory para sessões Pi independentes via Herdr.",
   "scripts": {
     "test": "node --import tsx --test test/*.test.ts scripts/quality-lib.test.mjs",
     "quality": "node scripts/quality.mjs",

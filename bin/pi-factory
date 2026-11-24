@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Launcher da Pi Factory (Orchestrator + Worker Factory): carrega a extensão só nesta sessão (não altera o Pi global). `bin/pi-orch` é alias deste arquivo.
+set -euo pipefail
+# Resolve symlinks (ex.: ~/.local/bin/pi-factory) antes de localizar o repositório.
+HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+if [ "${HERDR_ENV:-}" != "1" ] || [ -z "${HERDR_PANE_ID:-}" ]; then
+  echo "pi-factory: rode dentro de um pane do Herdr (HERDR_ENV=1 e HERDR_PANE_ID definidos)" >&2
+  exit 1
+fi
+# Sincroniza com a master antes de subir, só avança (ff-only). Se não der (rede, branch
+# diferente, mudanças locais, histórico divergente), segue com a cópia atual sem bloquear.
+# PI_ORCH_NO_SYNC=1 desliga.
+if [ "${PI_ORCH_NO_SYNC:-}" != "1" ] && [ "$(git -C "$HERE" symbolic-ref --short -q HEAD 2>/dev/null)" = "master" ]; then
+  if git -C "$HERE" diff --quiet && git -C "$HERE" diff --cached --quiet; then
+    before="$(git -C "$HERE" rev-parse HEAD)"
+    if GIT_TERMINAL_PROMPT=0 timeout 15 git -C "$HERE" pull --ff-only --quiet origin master >/dev/null 2>&1; then
+      after="$(git -C "$HERE" rev-parse HEAD)"
+      [ "$before" = "$after" ] || echo "pi-factory: atualizado com master (${before:0:7} -> ${after:0:7})" >&2
+    else
+      echo "pi-factory: sync com master não aplicado (rede ou histórico divergente); seguindo com a cópia atual" >&2
+    fi
+  else
+    echo "pi-factory: mudanças locais em arquivos rastreados; sync com master pulado" >&2
+  fi
+fi
+export PI_ORCH_WORKER_EXT="$HERE/src/worker-ext.ts"
+# Papel da sessão: as extensões globais (ex.: pr-review-hook) leem isto para não rodar no orquestrador. Workers definem o próprio papel no comando.
+export PI_ORCH_ROLE=orchestrator
+# Orquestrador = agente Pi normal, com todas as ferramentas (inclusive subagents de pesquisa). O agente worker do pi-subagents está desabilitado em settings.json.
+# Exposição híbrida (#103, opt-in): habilita codemode sem trocar o conjunto padrão de tools (+ só acrescenta).
+HYBRID_ARGS=()
+if [ "${PI_ORCH_TOOL_EXPOSURE:-}" = "hybrid" ]; then HYBRID_ARGS=(--tools +codemode); fi
+exec pi -e "$HERE/src/index.ts" ${HYBRID_ARGS[@]+"${HYBRID_ARGS[@]}"} "$@"

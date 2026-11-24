@@ -31,7 +31,7 @@ test("papel do orquestrador: não executa trabalho de projeto e lança pelas too
 });
 
 test("launcher não exclui ferramentas: subagents de pesquisa ficam disponíveis", () => {
-  const bin = readFileSync(join(process.cwd(), "bin", "pi-orch"), "utf8");
+  const bin = readFileSync(join(process.cwd(), "bin", "pi-factory"), "utf8");
   assert.doesNotMatch(bin, /--exclude-tools/);
 });
 
