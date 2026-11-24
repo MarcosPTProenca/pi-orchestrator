@@ -4,7 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FixLoopStore } from "../src/orchestrator/fix-loop.ts";
-import { findingsText, reviewEvent, reviewRequestText } from "../src/orchestrator/review-verdict.ts";
+import { findingsText, reviewEvent } from "../src/orchestrator/review-verdict.ts";
 import { prVerdict } from "../src/orchestrator/pr-watch.ts";
 import type { PrState } from "../src/shared/prs.ts";
 import { readReview, recordReviewVerdict } from "../src/shared/review-verdict.ts";
@@ -271,14 +271,12 @@ test("encadeamento do checkPr: PR aberta -> review -> merge_eligible -> merged -
       return "ok";
     },
   };
-  const sent: string[] = [];
   const integ = new IntegrationStore(dir());
 
   assert.equal(prVerdict(prState), "open");
   plans.recordDelivery({ name: "pr_open", task_id: T_A, pr: PR_URL, head_sha: HEAD });
   const head = fix.apply(T_A, { type: "head", head_sha: HEAD });
   assert.equal(head.action.kind, "request_review");
-  sent.push(reviewRequestText(PR_URL, HEAD));
   assert.equal(
     fix.apply(T_A, { type: "head", head_sha: HEAD }).action.kind,
     "none",
@@ -321,5 +319,4 @@ test("encadeamento do checkPr: PR aberta -> review -> merge_eligible -> merged -
   assert.deepEqual(launchable(plans.show("entrega")), []);
   assert.equal(plans.show("entrega").items[1]?.task_id, "t-bbbbbbbb");
   assert.equal(merges.length, 1);
-  assert.equal(sent.length, 1, "review pedido uma vez");
 });
