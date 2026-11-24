@@ -10,7 +10,6 @@ import workerExtension from "../src/worker/worker-ext.ts";
 
 type Handler = (event: Record<string, unknown>, ctx?: unknown) => unknown;
 
-// Projeto real: repositório com commit e scripts oficiais, como o orchestrator espera.
 function realProject(h: ReturnType<typeof makeHarness>): string {
   rmSync(join(h.project, ".git"), { recursive: true, force: true });
   writeFileSync(
