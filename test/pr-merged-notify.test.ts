@@ -12,13 +12,11 @@ test("PR mergeada notifica uma vez mesmo com vários ciclos de polling (#180)", 
   const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
   writeReport(t.task_dir, t.task_id, { status: "done", result: "ok" }, "1");
   await h.orch.refresh(t.task_id);
-  // Entrega do relatório já feita ao usuário (notified) e PR como fonte da tarefa.
   new Store(join(h.stateDir, "state.json")).mutate((s) => {
     s.tasks[t.task_id].source = PR_URL;
     s.tasks[t.task_id].notified = true;
   });
 
-  // Cada ciclo replica o filtro de checkIdle; o ramo "merged" de checkPr é closeMerged.
   const notifications: string[] = [];
   for (let cycle = 0; cycle < 3; cycle++) {
     for (const x of h.orch.owned()) {
