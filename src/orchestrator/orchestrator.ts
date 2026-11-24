@@ -39,6 +39,21 @@ export type { DelegateInput, WatchEvent } from "../shared/task.ts";
 const OP_LOCK_WAIT_MS = 5_000;
 const OP_LOCK_STALE_MS = 30_000;
 
+function proximoPasso(status: TaskStatus): string {
+  switch (status) {
+    case "starting":
+      return "aguarde o worker iniciar (orch_status) e use orch_send depois";
+    case "running":
+      return "use orch_send para mandar instrução ao worker";
+    case "done":
+      return "use orch_send para continuar a mesma tarefa, ou orch_delegate para uma tarefa nova";
+    case "failed":
+      return "use orch_relaunch para tentar de novo, ou orch_delegate para uma tarefa nova";
+    default:
+      return "use orch_delegate para uma tarefa nova";
+  }
+}
+
 function sameWork(a: DelegateInput, b: DelegateInput): string | null {
   if (a.project_path !== b.project_path) return null;
   const sa = a.source?.trim();
@@ -599,8 +614,9 @@ export class Orchestrator {
   private async relaunchLocked(taskId: string, model?: string): Promise<TaskRecord> {
     this.assertMine(taskId);
     const old = this.get(taskId);
-    if (isActive(old.status)) throw new Error(`tarefa ${taskId} ainda está ativa; cancele antes de relançar`);
-    if (old.status !== "failed") throw new Error(`só relança tarefa falha (status: ${old.status})`);
+    if (isActive(old.status)) throw new Error(`tarefa ${taskId} ainda está ativa; use orch_cancel antes de relançar`);
+    if (old.status !== "failed")
+      throw new Error(`só relança tarefa falha (status: ${old.status}); ${proximoPasso(old.status)}`);
     if (!old.delegate_input)
       throw new Error(`tarefa ${taskId} não tem o pedido guardado; lance de novo com orch_delegate`);
     const reason = old.result ?? old.error ?? "";
@@ -735,7 +751,7 @@ export class Orchestrator {
     this.assertMine(taskId);
     const t = this.get(taskId);
     if (t.status !== "running" && t.status !== "blocked" && t.status !== "done")
-      throw new Error(`tarefa ${taskId} não aceita mensagem (status: ${t.status})`);
+      throw new Error(`tarefa ${taskId} não aceita mensagem (status: ${t.status}); ${proximoPasso(t.status)}`);
     if (text.trim() === "") throw new Error("mensagem vazia");
     const owner = await this.ownership(t);
     if (owner === "missing") throw new Error("o painel da tarefa não existe mais; nada foi enviado");
@@ -779,7 +795,8 @@ export class Orchestrator {
   private async answerLocked(taskId: string, text: string): Promise<TaskRecord> {
     this.assertMine(taskId);
     const t = this.get(taskId);
-    if (t.status !== "blocked") throw new Error(`tarefa ${taskId} não está bloqueada (status: ${t.status})`);
+    if (t.status !== "blocked")
+      throw new Error(`tarefa ${taskId} não está bloqueada (status: ${t.status}); ${proximoPasso(t.status)}`);
     if (text.trim() === "") throw new Error("resposta vazia");
     await this.d.herdr.prompt(t.pane_id, text);
     return this.update(taskId, (x) => {
