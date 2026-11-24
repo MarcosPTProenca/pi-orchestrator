@@ -121,15 +121,14 @@ export interface Harness {
   clock: { ms: number };
 }
 
-export function makeHarness(opts: { presentationSpaces?: boolean; herdrVersion?: string } = {}): Harness {
-  const stateDir = mkdtempSync(join(tmpdir(), "orch-state-"));
-  const project = mkdtempSync(join(tmpdir(), "orch-proj-"));
-  mkdirSync(join(project, ".git"));
-  const herdr = new FakeHerdr();
-  herdr.version = opts.herdrVersion ?? "0.9.1";
-  const clock = { ms: Date.parse("2026-11-16T12:00:00Z") };
+function orchestratorFor(
+  stateDir: string,
+  herdr: FakeHerdr,
+  clock: { ms: number },
+  presentationSpaces?: boolean,
+): Orchestrator {
   let counter = 0;
-  const orch = new Orchestrator({
+  return new Orchestrator({
     herdr,
     store: new Store(join(stateDir, "state.json")),
     tasksDir: join(stateDir, "tasks"),
@@ -138,8 +137,23 @@ export function makeHarness(opts: { presentationSpaces?: boolean; herdrVersion?:
     newHex: () => (++counter).toString(16).padStart(8, "a"),
     availableModels: () => ["claude-bridge/claude-haiku-5-5", "openai-codex/gpt-6.1-sol"],
     dryRun: false,
-    presentationSpaces: opts.presentationSpaces,
+    presentationSpaces,
   });
+}
+
+// keep: novo processo sobre o mesmo state.json, como um reinício real faria; testa o que foi persistido.
+export function reopenHarness(h: Harness, presentationSpaces?: boolean): Orchestrator {
+  return orchestratorFor(h.stateDir, h.herdr, h.clock, presentationSpaces);
+}
+
+export function makeHarness(opts: { presentationSpaces?: boolean; herdrVersion?: string } = {}): Harness {
+  const stateDir = mkdtempSync(join(tmpdir(), "orch-state-"));
+  const project = mkdtempSync(join(tmpdir(), "orch-proj-"));
+  mkdirSync(join(project, ".git"));
+  const herdr = new FakeHerdr();
+  herdr.version = opts.herdrVersion ?? "0.9.1";
+  const clock = { ms: Date.parse("2026-11-16T12:00:00Z") };
+  const orch = orchestratorFor(stateDir, herdr, clock, opts.presentationSpaces);
   return { herdr, orch, stateDir, project, clock };
 }
 

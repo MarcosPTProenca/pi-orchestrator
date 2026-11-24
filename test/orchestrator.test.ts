@@ -572,6 +572,7 @@ test("ao abrir a sessão só avisa o que é novo: bloqueio já anunciado não vo
   writeReport(t.task_dir, t.task_id, { status: "blocked", question: "Qual caminho?" }, "1");
   await h.orch.refresh(t.task_id);
   assert.equal((await h.orch.pendingNotices()).length, 1, "bloqueio novo é avisado");
+  h.orch.markDelivered(t.task_id, "blocked");
   assert.equal((await h.orch.pendingNotices()).length, 0, "não reanuncia na próxima abertura");
   assert.equal(h.orch.get(t.task_id).status, "blocked", "continua bloqueado até resposta");
 });

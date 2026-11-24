@@ -49,6 +49,8 @@ export interface TaskRecord {
   worktree_note?: string | null;
   reopened_from?: string | null;
   deadline_notified?: boolean;
+  // keep: status pego para aviso e ainda não entregue ao LLM/tela; sobrevive a queda do processo e é reenviado no início.
+  delivery_pending?: string | null;
   source?: string | null;
   branch?: string | null;
   verification?: { verdict: "approved" | "rejected" | "not_applicable" | "unverified"; reason: string } | null;

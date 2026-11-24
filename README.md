@@ -177,6 +177,39 @@ Demais tools do orquestrador:
   registro. Se não baterem, não fecha nada.
 - **Reinício:** `reconcile` confere as tarefas ativas com o Herdr e os relatórios em disco.
 
+## Política de avisos (EVENT_POLICY)
+
+Cada aviso tem um canal. `emitEvent` (`src/policy/event-policy.ts`) decide:
+
+- **tela** (`appendEntry`, `orch-ui`): fica visível ao usuário, **fora do contexto da LLM e sem turno**;
+- **contexto + turno** (`sendMessage` com `triggerTurn: true`): entra no contexto e acorda a LLM para decidir ou apresentar.
+
+Avisos de decisão e conclusão são confirmados como entregues só depois do envio. Se o processo cair antes, o aviso pendente é reenviado no próximo início da sessão (`delivery_pending`, em `src/orchestrator/orchestrator.ts`).
+
+| Evento (`EVENT_POLICY`) | Classe    | Canal            | Origem no código                        | Por quê                                               |
+| ----------------------- | --------- | ---------------- | --------------------------------------- | ----------------------------------------------------- |
+| `worker-question`       | decisão   | contexto + turno | webhook/sweep → `announce` → lote       | pergunta `blocked` precisa de resposta; avisa uma vez |
+| `worker-failed`         | decisão   | contexto + turno | webhook/sweep → lote                    | falha exige decisão ou relançamento                   |
+| `worker-lost`           | decisão   | contexto + turno | `reconcile`                             | pane sumiu sem relatório                              |
+| `worker-done`           | conclusão | contexto + turno | webhook/sweep → lote                    | resultado a apresentar e verificar                    |
+| `pr-merged-no-plan`     | conclusão | contexto + turno | merge de PR sem plano                   | próximo passo a decidir                               |
+| `plan-completed`        | conclusão | contexto + turno | `reconcile` de plano                    | fim do plano                                          |
+| `plan-launched`         | decisão   | contexto + turno | lançamento de plano                     | `orch_*` real para avançar (PR #157)                  |
+| `plan-transition`       | decisão   | contexto + turno | transição de plano                      | `orch_*` real para avançar (PR #157)                  |
+| `launch-failed`         | decisão   | contexto + turno | falha ao lançar                         | nova tentativa ou decisão                             |
+| `send-failed`           | decisão   | contexto + turno | falha ao enviar ao worker               | reenvio ou decisão                                    |
+| `fix-blocked`           | decisão   | contexto + turno | loop de correção de PR                  | esgotou tentativas                                    |
+| `queue-failed`          | decisão   | contexto + turno | `orch_queue` (fila)                     | item da fila falhou                                   |
+| `idle-candidates`       | decisão   | contexto + turno | varredura de ociosas (`checkIdle`)      | `orch_close` real (PR #157)                           |
+| `worker-stalled`        | decisão   | contexto + turno | varredura de travados (`StallWatch`)    | `orch_send`/`orch_cancel` reais (PR #157)             |
+| `orphan-worktrees`      | decisão   | contexto + turno | `session_start`                         | `orch_release` real (PR #157)                         |
+| `pending-replay`        | conclusão | contexto + turno | `session_start`                         | avisos não entregues antes de queda                   |
+| `ci-action-sent`        | rotina    | tela             | PR (`checkPr`)                          | ação mecânica já tomada no worker                     |
+| `herdr-check-failed`    | rotina    | tela             | varredura de ociosas falha              | erro transitório; sem ação possível                   |
+| `readonly-session`      | rotina    | tela             | `session_start` em modo somente leitura | sem ação possível nesta sessão                        |
+
+Rajadas: o `NoticeBatcher` (`src/orchestrator/notices.ts`) junta avisos por 5 s (`PI_ORCH_NOTICE_WINDOW_MS`) e deduplica por `tarefa:status`. Um lote com pelo menos um aviso de decisão ou conclusão acorda a LLM uma vez.
+
 ## Quem abre issues e PRs
 
 - **Orquestrador:** abre issue de processo ou relato (por exemplo, uma regra que o worker não seguiu) diretamente, com `gh`, sem lançar worker para isso. Pesquisa e levantamento para criar issue ou card não são feitos por ele: aciona os subagents `researcher` (fatos externos) e `log-researcher` (logs) e monta a issue a partir do relatório deles. Pedido claro dentro desse papel é executado sem pausa; se falhar, relata a tentativa e o erro exato. Mesmo critério da #43 (issue de processo aberta diretamente) e da #52 (discovery por subagents, pedido claro executado).
