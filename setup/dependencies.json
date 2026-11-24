@@ -1,0 +1,118 @@
+{
+  "schema": 1,
+  "profiles": {
+    "minimal": "report sem Oracle, sem Matt Pocock e sem reviewer; basta para tarefas report",
+    "complete": "Oracle (pi-subagents), skills Matt Pocock, reviewer de PR e gh; necessário para direct-pr e design"
+  },
+  "dependencies": [
+    {
+      "id": "node",
+      "label": "Node.js",
+      "check": { "type": "node", "minVersion": "22.18.0" },
+      "requiredIn": ["minimal", "complete"],
+      "origin": "https://nodejs.org (engines do package.json: >=22.18; verificado localmente em 22.22.1)",
+      "fix": "instale Node.js 22.18 ou mais (nvm, fnm ou pacote oficial) e confirme com `node -v`"
+    },
+    {
+      "id": "git",
+      "label": "git",
+      "check": { "type": "binary", "command": "git", "args": ["--version"] },
+      "requiredIn": ["minimal", "complete"],
+      "origin": "pacote do sistema (apt install git)",
+      "fix": "instale git pelo gerenciador de pacotes do sistema"
+    },
+    {
+      "id": "pi",
+      "label": "Pi (CLI)",
+      "check": { "type": "binary", "command": "pi", "args": ["--version"], "exactVersion": "1.5.2" },
+      "requiredIn": ["minimal", "complete"],
+      "origin": "npm:@earendil-works/pi-coding-agent@1.5.2 (fixado em devDependencies)",
+      "license": "verificar no pacote antes de redistribuir; o repo não redistribui o Pi",
+      "fix": "npm install -g @earendil-works/pi-coding-agent@1.5.2"
+    },
+    {
+      "id": "herdr",
+      "label": "Herdr",
+      "check": { "type": "binary", "command": "herdr", "args": ["--version"], "minVersion": "0.9.0" },
+      "requiredIn": ["minimal", "complete"],
+      "origin": "instalação oficial do Herdr (NOT VERIFIED: URL e licença não conferidas nesta auditoria)",
+      "fix": "instale o Herdr 0.9.x pela documentação oficial e confirme com `herdr --version`"
+    },
+    {
+      "id": "treehouse",
+      "label": "Treehouse (worktrees)",
+      "check": { "type": "binary", "command": "treehouse", "args": ["--version"] },
+      "requiredIn": ["minimal", "complete"],
+      "origin": "instalação oficial do Treehouse (NOT VERIFIED: URL e licença não conferidas nesta auditoria; versão local observada 3.1.8)",
+      "fix": "instale o treehouse pela documentação oficial e confirme com `treehouse --version`"
+    },
+    {
+      "id": "gh",
+      "label": "GitHub CLI (gh)",
+      "check": { "type": "binary", "command": "gh", "args": ["--version"] },
+      "requiredIn": ["complete"],
+      "origin": "https://cli.github.com (versão local observada 2.98.0; NOT VERIFIED quanto a licença)",
+      "fix": "instale gh e autentique manualmente com `gh auth login` na conta certa; o doctor não testa autenticação"
+    },
+    {
+      "id": "pi-subagents",
+      "label": "pi-subagents (Oracle e pesquisa)",
+      "check": {
+        "type": "pinned-package",
+        "spec": "npm:pi-subagents@0.88.0",
+        "installedVersion": "0.88.0",
+        "integrity": "sha512-Hc7GT36HTU1IsT/MPQbxnqmA90G1tfWJMFrxZ6ISURadGaIx7uad/qzkwL4epgBYRUMB7KOB9r+8k8YhXKP1lw==",
+        "packageDir": ".pi/agent/npm/node_modules/pi-subagents"
+      },
+      "requiredIn": ["complete"],
+      "origin": "https://registry.npmjs.org/pi-subagents/-/pi-subagents-0.88.0.tgz (integridade do package-lock local); licença MIT",
+      "fix": "em ~/.pi/agent/settings.json, troque \"npm:pi-subagents\" por \"npm:pi-subagents@0.88.0\" e rode o Pi para reinstalar; o doctor não edita settings"
+    },
+    {
+      "id": "skill-implement",
+      "label": "skill implement",
+      "check": { "type": "file", "path": ".pi/agent/skills/implement/SKILL.md" },
+      "requiredIn": ["complete"],
+      "origin": "skill pessoal em ~/.pi/agent/skills (origem sem pin; NOT VERIFIED)",
+      "fix": "instale a skill implement no seu ~/.pi/agent/skills (fora do repo) e confirme o arquivo SKILL.md"
+    },
+    {
+      "id": "skills-matt-pocock",
+      "label": "skills Matt Pocock (tdd)",
+      "check": { "type": "file", "path": ".pi/agent/skills/tdd/SKILL.md" },
+      "requiredIn": ["complete"],
+      "origin": "NOT VERIFIED: sem repositório git nem licença conferidos; não copiar nem redistribuir",
+      "fix": "instale as skills a partir de uma origem pinada e com licença verificada; até lá, o perfil completo fica incompleto"
+    },
+    {
+      "id": "reviewer-pr",
+      "label": "extensão de review de PR (pr-review-hook)",
+      "check": { "type": "file", "path": ".pi/agent/extensions/pr-review-hook/index.ts" },
+      "requiredIn": ["complete"],
+      "origin": "extensão pessoal global (fora do repo); ownership com a Factory ainda em #173",
+      "fix": "mantenha a extensão pr-review-hook no seu ~/.pi/agent/extensions (fora do repo); o repo não a instala"
+    },
+    {
+      "id": "local-install",
+      "label": "dependências locais (node_modules = package-lock.json)",
+      "check": { "type": "local-install" },
+      "requiredIn": ["minimal", "complete"],
+      "origin": "npm ci a partir do package-lock.json versionado",
+      "fix": "npm run bootstrap"
+    },
+    {
+      "id": "launchers",
+      "label": "launchers bin/pi-factory e bin/pi-orch",
+      "check": { "type": "files", "paths": ["bin/pi-factory", "bin/pi-orch", "src/index.ts", "src/worker-ext.ts"] },
+      "requiredIn": ["minimal", "complete"],
+      "origin": "este repo",
+      "fix": "restaure os arquivos com git checkout origin/master -- bin src"
+    }
+  ],
+  "optionalEnv": [
+    { "name": "HERDR_ENV", "why": "definido pelo Herdr dentro do pane; o launcher exige 1" },
+    { "name": "HERDR_PANE_ID", "why": "definido pelo Herdr dentro do pane; o launcher exige a variável" },
+    { "name": "PI_ORCH_NOTIFY", "why": "0 desliga notificações do Herdr" },
+    { "name": "PI_ORCH_NO_SYNC", "why": "1 desliga o sync com master no launcher" }
+  ]
+}
