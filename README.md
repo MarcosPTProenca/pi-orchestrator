@@ -69,7 +69,7 @@ O fluxo é `PLAN → IMPLEMENT/TDD → PR → FRESH REVIEW → FIX → MERGE`. C
 1. **PLAN.** O worker registra o plano com `orch_submit_plan` antes de editar; plano sem critério ou diagnóstico verificável é recusado. Você também pode entregar um plano pronto (`orch_plan_create`, em rascunho) e aprová-lo com `orch_plan_approve`. _Implementado e testado._
 2. **IMPLEMENT/TDD.** Para cada test seam, o worker roda o teste antes e depois da correção e registra `orch_mark_tdd` como `red` e `green`; o exit code é medido pela ferramenta. _Implementado; o harness do pipeline confere a evidência._
 3. **PR.** No modo `direct-pr`, o worker cria a branch, commita, faz push e abre a PR. O `orch_report` `done` precisa trazer a PR em `artifacts`, e o orquestrador confere no GitHub se ela é mergeável e está com checks verdes. _Implementado e testado._
-4. **FRESH REVIEW.** Revisão somente leitura do head_sha atual por um reviewer separado (`src/worker/review.ts`). _Adaptador testado; ainda não é chamado pelo runtime._
+4. **FRESH REVIEW.** Revisão somente leitura do head_sha atual por um subagent de contexto limpo, na mesma credencial do repo (`src/shared/review.ts`). O worker envia o veredito com `orch_review_verdict`, e `checkPr` o aplica ao fix loop e ao merge gate. _Implementado e testado por partes; o loop `checkPr` não foi exercitado com GitHub e worker reais._
 5. **FIX.** CI vermelho reabre a correção no mesmo branch (`orch_fix_red_prs` e o fix loop). _Implementado e testado._
 6. **MERGE.** Só com a política de auto-merge descrita abaixo. _Gate implementado e testado com fakes; nenhuma tool do runtime o chama, então nenhum merge automático acontece hoje._
 

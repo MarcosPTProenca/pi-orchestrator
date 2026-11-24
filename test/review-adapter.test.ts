@@ -9,7 +9,7 @@ import {
   parseReviewOutput,
   type ReviewRequest,
   type ReviewRunInput,
-} from "../src/worker/review.ts";
+} from "../src/shared/review.ts";
 
 const BASE = "a".repeat(40);
 const HEAD = "b".repeat(40);

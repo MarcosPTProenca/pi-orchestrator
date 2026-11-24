@@ -53,6 +53,11 @@ export type Protection =
   | { status: "unprotected" }
   | { status: "unknown"; error: string };
 
+interface ReviewVerdictInput {
+  head_sha: string;
+  approved: boolean;
+}
+
 export interface IntegrationInput {
   policy: MergePolicy | null;
   ticket: TicketFacts | null;
@@ -60,6 +65,7 @@ export interface IntegrationInput {
   repo: RepoFacts | null;
   protection: Protection;
   reviewer: TrustedReviewer | null;
+  review?: ReviewVerdictInput | null;
   expected_head_sha: string;
 }
 
@@ -106,6 +112,14 @@ function checkReasons(pr: PrSnapshot): IntegrationReason[] {
 }
 
 type ReviewState = { kind: "approved" | "rejected" | "pending" | "missing" | "unverified"; message: string };
+
+function verdictState(v: ReviewVerdictInput | null, pr: PrSnapshot): ReviewState {
+  if (!v || v.head_sha !== pr.head_sha)
+    return { kind: "missing", message: "sem review do head atual (aprovação obsoleta ou ausente)" };
+  return v.approved
+    ? { kind: "approved", message: "review aprovado no head atual" }
+    : { kind: "rejected", message: "revisor reprovou o head atual" };
+}
 
 function reviewState(pr: PrSnapshot, reviewer: TrustedReviewer | null): ReviewState {
   if (!reviewer) return { kind: "unverified", message: "nenhum revisor confiável configurado" };
@@ -166,7 +180,7 @@ export function decideIntegration(input: IntegrationInput): IntegrationResult {
     hard.push(reason("not_mergeable", `mergeable ${pr.mergeable}, mergeStateStatus ${pr.merge_state_status}`));
   }
   hard.push(...checkReasons(pr));
-  const review = reviewState(pr, reviewer);
+  const review = input.review !== undefined ? verdictState(input.review, pr) : reviewState(pr, reviewer);
   if (review.kind === "rejected") hard.push(reason("review_rejected", review.message));
   if (hard.length > 0) return fail("blocked", hard);
 
@@ -297,6 +311,7 @@ export interface RequestParams {
   policy: MergePolicy | null;
   ticket: TicketFacts | null;
   reviewer: TrustedReviewer | null;
+  review?: ReviewVerdictInput | null;
 }
 
 export async function requestIntegration(
@@ -324,6 +339,7 @@ export async function requestIntegration(
     repo: snap.repo,
     protection: snap.protection,
     reviewer: params.reviewer,
+    review: params.review,
     expected_head_sha: params.expected_head_sha,
   });
   if (result.decision !== "merge_requested") return result;

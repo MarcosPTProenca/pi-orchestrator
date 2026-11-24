@@ -47,6 +47,7 @@ const CHANNEL: Record<string, "tela" | "acorda"> = {
   "launch-failed": "acorda",
   "send-failed": "acorda",
   "fix-blocked": "acorda",
+  "review-approved": "acorda",
   "queue-failed": "acorda",
   "worker-done": "acorda",
   "pr-merged-no-plan": "acorda",

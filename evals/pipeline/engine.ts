@@ -11,7 +11,7 @@ import {
   type TicketFacts,
 } from "../../src/shared/merge-policy.ts";
 import { summarizeTurns, type TurnRecord } from "../../src/shared/usage.ts";
-import { ReviewCoordinator, type ReviewRequest, type ReviewResult } from "../../src/worker/review.ts";
+import { ReviewCoordinator, type ReviewRequest, type ReviewResult } from "../../src/shared/review.ts";
 import { BRANCH, FakeGithub, PR_NUMBER, PR_URL, REPO, REVIEWER, sha } from "./fakes.ts";
 
 export const TASK = "t-0148a001";

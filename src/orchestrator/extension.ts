@@ -25,7 +25,13 @@ import { judgeDone, type VerifyEnv } from "./verify.ts";
 import { FixQueue } from "./queue.ts";
 import { orchestratorAgentName } from "../shared/label.ts";
 import { Store, defaultStateDir } from "../shared/store.ts";
-import { deliveryFromFix } from "./delivery.ts";
+import { deliveryFromFix, repoPolicyFor, ticketFor } from "./delivery.ts";
+import { findingsText, reviewEvent, reviewRequestText } from "./review-verdict.ts";
+import { readReview } from "../shared/review-verdict.ts";
+import type { ReviewResult } from "../shared/review.ts";
+import { ghMergeGithub } from "../shared/merge-gate-github.ts";
+import { IntegrationStore, requestIntegration } from "../shared/merge-gate.ts";
+import { MergePolicyStore } from "../shared/merge-policy.ts";
 import { PlanStore, launchable, trackedItems } from "./plans.ts";
 import { EVENT_POLICY, UI_ENTRY, emitEvent, statusKind, wakesLlm, type EventSink } from "../policy/event-policy.ts";
 import { orchestratorUsage } from "../shared/usage.ts";
@@ -299,6 +305,9 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   });
   const prChecked = new Map<string, number>();
   const planStore = new PlanStore(join(defaultStateDir(), "plans"));
+  const mergePolicies = new MergePolicyStore(join(defaultStateDir(), "merge-policy"));
+  const integrations = new IntegrationStore(join(defaultStateDir(), "integration"));
+  const reviewNoticed = new Set<string>();
   const launchReady = async (planId: string): Promise<void> => {
     for (const item of launchable(planStore.show(planId))) {
       const spec = item.delegate;
@@ -386,6 +395,85 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       }
     }
   };
+  const requestReview = async (
+    t: TaskRecord,
+    source: string,
+    head: string,
+    previous: FixRecord | null,
+  ): Promise<void> => {
+    try {
+      await orch.send(t.task_id, reviewRequestText(source, head));
+    } catch (err) {
+      fixLoop.restore(t.task_id, previous);
+      emitEvent(eventSink, EVENT_POLICY["send-failed"], {
+        customType: "orch-event",
+        content: `${taskHeadline(t, source, "PR pede review fresh")} Não consegui acionar o worker: ${err instanceof Error ? err.message : String(err)}. Decida: orch_send manual.`,
+        display: true,
+      });
+    }
+  };
+  const mergeApproved = async (
+    t: TaskRecord,
+    source: string,
+    pr: { owner: string; name: string; number: number },
+    remote: string,
+    head: string,
+  ): Promise<void> => {
+    const result = await requestIntegration(
+      {
+        repo: `${pr.owner}/${pr.name}`,
+        number: pr.number,
+        expected_head_sha: head,
+        policy: repoPolicyFor(mergePolicies, `${pr.owner}/${pr.name}`, t.task_id),
+        ticket: ticketFor(t.task_id),
+        reviewer: null,
+        review: { head_sha: head, approved: true },
+      },
+      { github: ghMergeGithub(remote, t.project_path), store: integrations },
+    );
+    if (result.decision === "merge_requested" || result.decision === "already_requested") {
+      planStore.recordDelivery({ name: "merge_eligible", task_id: t.task_id, head_sha: head });
+      return;
+    }
+    const key = `${t.task_id}@${head}`;
+    if (reviewNoticed.has(key)) return;
+    reviewNoticed.add(key);
+    emitEvent(eventSink, EVENT_POLICY["review-approved"], {
+      customType: "orch-event",
+      content: `${taskHeadline(t, source, `PR #${pr.number} aprovada pelo review`)} Merge automático não pedido: ${result.reasons.map((r) => r.message).join("; ")}. O plano avança quando a PR for mergeada.`,
+      display: true,
+    });
+  };
+  const applyReview = async (
+    t: TaskRecord,
+    source: string,
+    pr: { owner: string; name: string; number: number },
+    remote: string,
+    head: string,
+    review: ReviewResult,
+  ): Promise<void> => {
+    const out = fixLoop.apply(t.task_id, reviewEvent(review));
+    if (out.action.kind === "approved") return mergeApproved(t, source, pr, remote, head);
+    recordFix(t.task_id, out.action);
+    if (out.action.kind === "send_findings") {
+      try {
+        await orch.send(t.task_id, findingsText(source, head, review));
+      } catch (err) {
+        fixLoop.restore(t.task_id, out.previous);
+        emitEvent(eventSink, EVENT_POLICY["send-failed"], {
+          customType: "orch-event",
+          content: `${taskHeadline(t, source, `PR #${pr.number} reprovada pelo review`)} Não consegui enviar os achados ao worker: ${err instanceof Error ? err.message : String(err)}. Decida: orch_send manual.`,
+          display: true,
+        });
+      }
+    } else if (out.action.kind === "blocked") {
+      emitEvent(eventSink, EVENT_POLICY["fix-blocked"], {
+        customType: "orch-event",
+        content: `${taskHeadline(t, source, `PR #${pr.number} reprovada pelo review`)} ${out.action.reason}. Decida: corrigir manualmente ou orch_send.`,
+        display: true,
+      });
+    }
+  };
   const checkPr = async (
     t: TaskRecord,
     source: string,
@@ -422,12 +510,15 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       return;
     }
     planStore.recordDelivery({ name: "pr_open", task_id: t.task_id, pr: source, head_sha: s.headRefOid });
-    if (verdict === "pending") return;
-    recordFix(t.task_id, fixLoop.apply(t.task_id, { type: "head", head_sha: s.headRefOid }).action);
+    if (verdict === "pending" || planStore.pausedFor(t.task_id)) return;
+    const head = fixLoop.apply(t.task_id, { type: "head", head_sha: s.headRefOid });
+    recordFix(t.task_id, head.action);
+    if (head.action.kind === "request_review") await requestReview(t, source, s.headRefOid, head.previous);
+    const review = readReview(t.task_dir, s.headRefOid);
+    if (review) await applyReview(t, source, pr, remote, s.headRefOid, review);
     const conflict = verdict === "conflict";
     const red = conflict ? [] : failingChecks(s);
     const kind: PrAction | null = conflict ? "conflict" : red.length > 0 ? "ci" : null;
-    if (kind !== null && planStore.pausedFor(t.task_id)) return;
     prWatch.shouldAct(t.task_id, s.headRefOid, conflict, "conflict");
     prWatch.shouldAct(t.task_id, s.headRefOid, red.length > 0, "ci");
     if (kind === null || !prWatch.shouldAct(t.task_id, s.headRefOid, true, kind)) return;
