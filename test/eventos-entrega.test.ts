@@ -41,7 +41,7 @@ test("pendente obsoleto (pergunta já respondida e nova conclusão) não é reen
   const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
   writeReport(t.task_dir, t.task_id, { status: "blocked", question: "Usar A ou B?" }, "1");
   await h.orch.refresh(t.task_id);
-  await h.orch.noticeFor(t.task_id); // blocked pego, queda antes da entrega
+  await h.orch.noticeFor(t.task_id);
   writeReport(t.task_dir, t.task_id, { status: "done", result: "usei A" }, "2");
   await h.orch.refresh(t.task_id);
   assert.deepEqual(ids(await reabrir(h).pendingNotices()), [`${t.task_id}:done`], "bloqueio antigo não volta");
