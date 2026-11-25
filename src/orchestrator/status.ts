@@ -164,7 +164,9 @@ export function compactStatus(groups: StatusGroup[]): CompactGroup[] {
     const alert = terminal.filter(isAttention).sort(byRecency);
     const recent = terminal.filter((r) => !isAttention(r)).sort(byRecency);
     const shownTerminal = [...alert, ...recent.slice(0, COMPACT_TERMINAL_LIMIT)];
-    const shown = [...open.slice(0, COMPACT_OPEN_LIMIT), ...shownTerminal];
+    const blocked = open.filter((r) => r.status === "blocked");
+    const active = open.filter((r) => r.status !== "blocked");
+    const shown = [...blocked, ...active.slice(0, COMPACT_OPEN_LIMIT), ...shownTerminal];
     return {
       project_id: g.project_id,
       counts,
@@ -185,7 +187,7 @@ export function compactStatus(groups: StatusGroup[]): CompactGroup[] {
         turns: r.turns,
         deadline_at: r.deadline_at,
       })),
-      omitted_open: Math.max(0, open.length - COMPACT_OPEN_LIMIT),
+      omitted_open: Math.max(0, active.length - COMPACT_OPEN_LIMIT),
       omitted_terminal: Math.max(0, terminal.length - shownTerminal.length),
     };
   });
