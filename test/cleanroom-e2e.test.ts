@@ -13,9 +13,6 @@ import { aggregate, runDelivery, type RunResult, type Scenario } from "../evals/
 import { summarizeTurns } from "../src/shared/usage.ts";
 import * as S from "../evals/pipeline/scenarios.ts";
 
-// Cleanroom E2E: spec → Oracle → tickets → plano → worker → PR → review → fix → merge gate → próxima etapa.
-// Tudo com fakes (sem token, sem GitHub real, sem ~/.pi/agent). Reutiliza evals/pipeline e métricas nativas.
-
 const ROOT = join(import.meta.dirname, "..");
 const CLOCK = "2026-11-25T12:00:00.000Z";
 const PROJECT = "/fake/projeto";
@@ -81,8 +78,6 @@ const oracleReject = (): Promise<string> =>
     }),
   );
 
-// ---------- 1. Ambiente limpo: setup e doctor sem tocar settings globais ----------
-
 test("clone limpo: bootstrap só toca escopo do repo e não cria ~/.pi/agent", () => {
   const root = tmp("repo");
   const home = tmp("home");
@@ -138,8 +133,6 @@ test("doctor em clone sem dependências diagnostica o que falta pelo perfil mini
   );
 });
 
-// ---------- 2. Spec: Oracle, reprovação e alteração ----------
-
 test("spec: gate determinístico passa e Oracle ok libera revisão", async () => {
   assert.deepEqual(checkSpec(DRAFT, "feature"), []);
   const res = await reviewSpec(DRAFT, { risk: "feature", oracle: oracleOk });
@@ -168,8 +161,6 @@ test("aprovação de spec só existe para o usuário", () => {
   const reviewed = renderSpec(SPEC_BODY, "reviewed");
   assert.throws(() => approveSpec(reviewed, "agent" as "user"), /só do usuário/);
 });
-
-// ---------- 3. Tickets, plano e worker PLAN+TDD ----------
 
 const APPROVED = approveSpec(renderSpec(SPEC_BODY, "reviewed"), "user");
 const FP = verifySpec(APPROVED).fingerprint;
@@ -227,8 +218,6 @@ test("plano aprovado libera só o primeiro item; worker fica bloqueado sem PLAN_
   assert.equal(editBlockReason(null) !== null, true, "sem fase, edição é bloqueada");
   assert.equal(editBlockReason("PLAN_READY"), null, "PLAN_READY libera edição");
 });
-
-// ---------- 4. Delivery: PR, review único por SHA, fix loop, merge gate ----------
 
 const byId = (id: string): Scenario => S.ALL_SCENARIOS.find((s) => s.id === id) as Scenario;
 const run = (sc: Scenario): Promise<RunResult> => runDelivery(sc, tmp("delivery"));
@@ -291,8 +280,6 @@ test("mudança de escopo fora do ticket bloqueia o merge", async () => {
   assert.ok(r.integrations[0].codes.includes("scope_drift"));
 });
 
-// ---------- 5. Métricas nativas e cobertura do conjunto ----------
-
 test("agregado do conjunto: zero merges indevidos e métricas nativas por cenário", async () => {
   const results: RunResult[] = [];
   for (const sc of S.ALL_SCENARIOS) results.push(await run(sc));
@@ -308,8 +295,6 @@ test("agregado do conjunto: zero merges indevidos e métricas nativas por cenár
   const total = perScenario.reduce((s, p) => s + p.cost, 0);
   assert.ok(Math.abs(total - m.cost_simulated) < 1e-9, "custo por cenário soma no agregado");
 });
-
-// ---------- 6. Guardas: callers reais e nenhum segredo versionado ----------
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
