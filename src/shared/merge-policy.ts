@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 const MERGE_POLICY_SCHEMA_VERSION = 1;
 const RISK_LEVELS = ["L0", "L1", "L2", "L3"] as const;
-type RiskLevel = (typeof RISK_LEVELS)[number];
+export type RiskLevel = (typeof RISK_LEVELS)[number];
 type GateDecision = "eligible" | "manual_approval" | "blocked";
 type ChangeKind = "added" | "modified" | "deleted" | "renamed";
 
@@ -63,13 +63,22 @@ interface PrFacts {
   linked_issue: number | null;
 }
 
+export interface ReviewAssessment {
+  level: RiskLevel;
+  category: string;
+  reason: string;
+  confidence: "high" | "medium" | "low" | "unverified";
+  requires_human_judgment: boolean;
+  scope_drift: boolean;
+}
+
 export interface MergeGateInput {
   policy: MergePolicy | null;
   ticket: TicketFacts | null;
   pr: PrFacts | null;
   diff: ChangedFile[] | null;
   checks: { head_sha: string; all_green: boolean } | null;
-  review: { head_sha: string; fresh_approval: boolean } | null;
+  review: { head_sha: string; fresh_approval: boolean; assessment: ReviewAssessment | null } | null;
 }
 
 export interface MergeGateResult {
@@ -292,6 +301,16 @@ export function classifyRisk(
   return { risk, files: fileRisks, reasons };
 }
 
+export function consolidateRisk(staticRisk: RiskLevel, assessment: ReviewAssessment | null): RiskLevel {
+  return assessment ? maxRisk(staticRisk, assessment.level) : staticRisk;
+}
+
+function usableAssessment(review: MergeGateInput["review"], headSha: string): ReviewAssessment | null {
+  if (!review || review.head_sha !== headSha || !review.fresh_approval) return null;
+  if (!review.assessment || review.assessment.confidence === "unverified") return null;
+  return review.assessment;
+}
+
 function block(code: string, message: string): GateReason {
   return { code, message };
 }
@@ -354,12 +373,22 @@ export function evaluateMergeGate(input: MergeGateInput): MergeGateResult {
   }
 
   const reasons: GateReason[] = classification.reasons.map((r) => block("risk_factor", r));
-  if (risk === "L2" || risk === "L3") {
+  const assessment = usableAssessment(review, pr.head_sha);
+  const finalRisk = consolidateRisk(classification.risk, assessment);
+  if (assessment && finalRisk !== classification.risk) {
+    reasons.push(
+      block(
+        "risk_escalated_by_review",
+        `revisor elevou risco de ${classification.risk} para ${finalRisk}: ${assessment.category} (${assessment.reason})`,
+      ),
+    );
+  }
+  if (finalRisk === "L2" || finalRisk === "L3") {
     return {
       decision: "manual_approval",
-      risk,
+      risk: finalRisk,
       policy_version: policyVer,
-      reasons: [block("risk_requires_human", `risco ${risk} exige aprovação humana`), ...reasons],
+      reasons: [block("risk_requires_human", `risco ${finalRisk} exige aprovação humana`), ...reasons],
       evidence,
     };
   }
@@ -368,21 +397,30 @@ export function evaluateMergeGate(input: MergeGateInput): MergeGateResult {
   if (!authorized) {
     return {
       decision: "manual_approval",
-      risk,
+      risk: finalRisk,
       policy_version: policyVer,
       reasons: [block("no_merge_authorization", "sem autorização explícita de auto-merge")],
       evidence,
     };
   }
-  const reviewed = review !== null && review.head_sha === pr.head_sha && review.fresh_approval;
-  if (risk === "L1" && !reviewed) {
+  if (!assessment) {
     return {
       decision: "manual_approval",
-      risk,
+      risk: finalRisk,
       policy_version: policyVer,
-      reasons: [block("review_required", "L1 exige review fresh do head_sha atual")],
+      reasons: [block("review_required", "exige review fresh do head_sha atual com avaliação de risco válida")],
       evidence,
     };
   }
-  return { decision: "eligible", risk, policy_version: policyVer, reasons, evidence };
+  if (assessment.requires_human_judgment || assessment.scope_drift) {
+    const code = assessment.requires_human_judgment ? "reviewer_requires_human" : "reviewer_scope_drift";
+    return {
+      decision: "manual_approval",
+      risk: finalRisk,
+      policy_version: policyVer,
+      reasons: [block(code, "o revisor pediu julgamento humano"), ...reasons],
+      evidence,
+    };
+  }
+  return { decision: "eligible", risk: finalRisk, policy_version: policyVer, reasons, evidence };
 }

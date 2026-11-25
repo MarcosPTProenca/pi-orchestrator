@@ -1,9 +1,13 @@
-export const REVIEW_SCHEMA_VERSION = 1;
+import type { RiskLevel } from "./merge-policy.ts";
+
+export const REVIEW_SCHEMA_VERSION = 2;
 export const MAX_DIFF_CHARS = 120_000;
 export const READ_ONLY_TOOLS = ["read", "grep", "find", "ls"] as const;
 
 const VERDICTS = ["approve", "request_changes", "reject", "unverified"] as const;
 const CRITERION_STATUSES = ["pass", "fail", "unverified"] as const;
+const RISK_LEVELS: readonly RiskLevel[] = ["L0", "L1", "L2", "L3"];
+const CONFIDENCES = ["high", "medium", "low", "unverified"] as const;
 const SHA_RE = /^[0-9a-f]{40}$/;
 
 type ReviewVerdict = (typeof VERDICTS)[number];
@@ -35,6 +39,14 @@ interface CriterionResult {
   evidence: string;
 }
 
+interface RiskAssessment {
+  level: RiskLevel;
+  category: string;
+  reason: string;
+  evidence: string[];
+  confidence: (typeof CONFIDENCES)[number];
+}
+
 export interface ReviewResult {
   schema_version: number;
   verdict: ReviewVerdict;
@@ -43,6 +55,9 @@ export interface ReviewResult {
   criteria: CriterionResult[];
   findings: ReviewFinding[];
   suggestions: string[];
+  risk_assessment: RiskAssessment | null;
+  requires_human_judgment: boolean;
+  scope_drift: boolean;
   reason: string | null;
 }
 
@@ -86,9 +101,14 @@ function truncateDiff(diff: string): { text: string; truncated: boolean } {
 
 export const OUTPUT_CONTRACT = [
   "Responda somente com um objeto JSON, sem texto fora dele, neste formato:",
-  '{"schema_version":1,"verdict":"approve|request_changes|reject|unverified","reviewed_sha":"<head_sha>",',
+  '{"schema_version":2,"verdict":"approve|request_changes|reject|unverified","reviewed_sha":"<head_sha>",',
+  ' "risk_assessment":{"level":"L0|L1|L2|L3","category":"texto curto","reason":"justificativa",',
+  '   "evidence":["arquivo:linha ou comportamento observável"],"confidence":"high|medium|low|unverified"},',
+  ' "requires_human_judgment":false,"scope_drift":false,',
   ' "criteria":[{"id":"AC-1","status":"pass|fail|unverified","evidence":"arquivo:linha ou comando executado"}],',
   ' "findings":[{"file":"caminho","line":1,"cause":"causa","blocking":true}],"suggestions":["..."]}',
+  "Risco semântico: L0 docs ou testes triviais; L1 mudança localizada; L2 contrato ou comportamento público, dependência, ou cobertura perdida; L3 auth, segredo, pagamento, dados, CI ou deploy, mesmo em poucas linhas.",
+  "Você só eleva o risco: o controlador usa o maior nível entre o estático e o seu. Use confidence unverified se não conseguir verificar. requires_human_judgment=true quando a decisão exige humano. scope_drift=true se o diff vai além do objetivo da issue.",
   "Use approve somente se todos os critérios passarem, não houver achado bloqueante e o diff não estiver truncado.",
   "Não edite arquivos, não faça commit, push ou merge. Você só lê.",
 ].join("\n");
@@ -142,6 +162,9 @@ function invalid(headSha: string, runId: string, reason: string): ReviewResult {
     criteria: [],
     findings: [],
     suggestions: [],
+    risk_assessment: null,
+    requires_human_judgment: true,
+    scope_drift: false,
     reason,
   };
 }
@@ -164,6 +187,27 @@ function parseCriteria(v: unknown): CriterionResult[] {
     if (!(CRITERION_STATUSES as readonly unknown[]).includes(c.status)) throw new Error("status de critério inválido");
     return { id: c.id, status: c.status as CriterionResult["status"], evidence: c.evidence };
   });
+}
+
+function parseRisk(v: unknown): RiskAssessment {
+  if (!isObj(v)) throw new Error("risk_assessment ausente ou malformado");
+  if (!RISK_LEVELS.includes(v.level as RiskLevel)) throw new Error("risk_assessment.level inválido");
+  if (typeof v.category !== "string" || v.category.trim() === "") throw new Error("risk_assessment sem categoria");
+  if (typeof v.reason !== "string" || v.reason.trim() === "") throw new Error("risco sem justificativa");
+  if (
+    !Array.isArray(v.evidence) ||
+    v.evidence.length === 0 ||
+    !v.evidence.every((e) => typeof e === "string" && e.trim() !== "")
+  )
+    throw new Error("risco sem evidência");
+  if (!(CONFIDENCES as readonly unknown[]).includes(v.confidence)) throw new Error("confidence inválida");
+  return {
+    level: v.level as RiskLevel,
+    category: v.category,
+    reason: v.reason,
+    evidence: [...(v.evidence as string[])],
+    confidence: v.confidence as RiskAssessment["confidence"],
+  };
 }
 
 function parseFindings(v: unknown): ReviewFinding[] {
@@ -196,9 +240,14 @@ export function parseReviewOutput(
 
   let criteria: CriterionResult[];
   let findings: ReviewFinding[];
+  let risk: RiskAssessment;
   try {
     criteria = parseCriteria(obj.criteria);
     findings = parseFindings(obj.findings);
+    risk = parseRisk(obj.risk_assessment);
+    if (typeof obj.requires_human_judgment !== "boolean")
+      throw new Error("requires_human_judgment precisa ser booleano");
+    if (typeof obj.scope_drift !== "boolean") throw new Error("scope_drift precisa ser booleano");
   } catch (e) {
     return invalid(ctx.head_sha, runId, (e as Error).message);
   }
@@ -221,6 +270,9 @@ export function parseReviewOutput(
     criteria,
     findings,
     suggestions,
+    risk_assessment: risk,
+    requires_human_judgment: obj.requires_human_judgment,
+    scope_drift: obj.scope_drift,
     reason: null,
   };
 }

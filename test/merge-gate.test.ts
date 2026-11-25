@@ -15,7 +15,12 @@ import {
   type RepoFacts,
   type TrustedReviewer,
 } from "../src/shared/merge-gate.ts";
-import { defaultMergePolicy, type MergePolicy, type TicketFacts } from "../src/shared/merge-policy.ts";
+import {
+  defaultMergePolicy,
+  type MergePolicy,
+  type ReviewAssessment,
+  type TicketFacts,
+} from "../src/shared/merge-policy.ts";
 
 const REPO = "MarcosPTProenca/pi-orchestrator";
 const NUMBER = 200;
@@ -93,8 +98,19 @@ function input(over: Partial<IntegrationInput> = {}): IntegrationInput {
 
 const codes = (r: { reasons: { code: string }[] }) => r.reasons.map((x) => x.code);
 
+const APPROVED_ASSESSMENT: ReviewAssessment = {
+  level: "L0",
+  category: "fixture",
+  reason: "fixture de aprovação",
+  confidence: "high",
+  requires_human_judgment: false,
+  scope_drift: false,
+};
+const approvedInput = (over: Partial<IntegrationInput> = {}): IntegrationInput =>
+  input({ reviewer: null, review: { head_sha: HEAD, approved: true, assessment: APPROVED_ASSESSMENT }, ...over });
+
 test("PR verde no mesmo head, revisor confiável aprovou e auto-merge habilitado: pede merge squash com SHA", () => {
-  const r = decideIntegration(input());
+  const r = decideIntegration(approvedInput());
   assert.equal(r.decision, "merge_requested");
   assert.deepEqual(r.merge_args, [
     "pr",
@@ -139,7 +155,7 @@ test("risco L3 (workflow de CI) exige humano: manual_approval", () => {
 });
 
 test("allow_auto_merge=false no repo: setup_required com passos, sem simular ativação", () => {
-  const r = decideIntegration(input({ repo: { allow_auto_merge: false, default_branch: "master" } }));
+  const r = decideIntegration(approvedInput({ repo: { allow_auto_merge: false, default_branch: "master" } }));
   assert.equal(r.decision, "setup_required");
   assert.equal(r.merge_args, null);
   assert.ok(r.setup_steps.some((s) => s.includes("allow_auto_merge")));
@@ -147,13 +163,13 @@ test("allow_auto_merge=false no repo: setup_required com passos, sem simular ati
 });
 
 test("branch sem proteção: setup_required pedindo branch protection com check 'test'", () => {
-  const r = decideIntegration(input({ protection: { status: "unprotected" } }));
+  const r = decideIntegration(approvedInput({ protection: { status: "unprotected" } }));
   assert.equal(r.decision, "setup_required");
   assert.ok(r.setup_steps.some((s) => s.includes("branch protection") && s.includes("test")));
 });
 
 test("proteção sem o check obrigatório 'test': setup_required", () => {
-  const r = decideIntegration(input({ protection: { status: "protected", required_contexts: ["lint"] } }));
+  const r = decideIntegration(approvedInput({ protection: { status: "protected", required_contexts: ["lint"] } }));
   assert.equal(r.decision, "setup_required");
 });
 
@@ -282,7 +298,7 @@ test("PR fechada sem merge: blocked", () => {
 });
 
 test("auto-merge já habilitado para o mesmo head: already_requested", () => {
-  const r = decideIntegration(input({ pr: pr({ auto_merge_enabled: true }) }));
+  const r = decideIntegration(approvedInput({ pr: pr({ auto_merge_enabled: true }) }));
   assert.equal(r.decision, "already_requested");
   assert.equal(r.merge_args, null);
 });
@@ -320,19 +336,22 @@ const request = (
   store: IntegrationStore,
   github: MergeGithub,
   over: Partial<Parameters<typeof requestIntegration>[0]> = {},
-) =>
-  requestIntegration(
+) => {
+  const head = over.expected_head_sha ?? HEAD;
+  return requestIntegration(
     {
       repo: REPO,
       number: NUMBER,
-      expected_head_sha: HEAD,
+      expected_head_sha: head,
       policy: policy(),
       ticket: ticket(),
-      reviewer: REVIEWER,
+      reviewer: null,
+      review: { head_sha: head, approved: true, assessment: APPROVED_ASSESSMENT },
       ...over,
     },
     { github, store },
   );
+};
 
 test("requestIntegration: pedido único mesmo com eventos duplicados simultâneos", async () => {
   const fake = fakeGithub({ pr: pr(), repo: REPO_OK, protection: PROTECTED_OK });

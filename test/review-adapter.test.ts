@@ -33,17 +33,64 @@ function req(over: Partial<ReviewRequest> = {}): ReviewRequest {
   };
 }
 
+const RISK = {
+  level: "L1",
+  category: "mudança localizada",
+  reason: "ajuste interno sem contrato público",
+  evidence: ["src/x.ts:1"],
+  confidence: "high",
+};
+
 function approveJson(sha = HEAD, extra: Record<string, unknown> = {}): string {
   return JSON.stringify({
     schema_version: REVIEW_SCHEMA_VERSION,
     verdict: "approve",
     reviewed_sha: sha,
+    risk_assessment: RISK,
+    requires_human_judgment: false,
+    scope_drift: false,
     criteria: [{ id: "AC-1", status: "pass", evidence: "src/x.ts:1" }],
     findings: [],
     suggestions: [],
     ...extra,
   });
 }
+
+test("risk_assessment e flags do revisor são preservados no resultado", () => {
+  const r = parseReviewOutput(
+    approveJson(HEAD, { requires_human_judgment: true, scope_drift: true, risk_assessment: { ...RISK, level: "L2" } }),
+    { head_sha: HEAD, truncated: false },
+    "r",
+  );
+  assert.equal(r.verdict, "approve");
+  assert.deepEqual(r.risk_assessment, { ...RISK, level: "L2" });
+  assert.equal(r.requires_human_judgment, true);
+  assert.equal(r.scope_drift, true);
+});
+
+test("risk_assessment ausente, malformado ou sem justificativa/evidência vira unverified", () => {
+  const base = JSON.parse(approveJson()) as Record<string, unknown>;
+  const casos: Record<string, unknown>[] = [
+    { risk_assessment: undefined },
+    { risk_assessment: { ...RISK, level: "L9" } },
+    { risk_assessment: { ...RISK, reason: "" } },
+    { risk_assessment: { ...RISK, evidence: [] } },
+    { risk_assessment: { ...RISK, confidence: 0.9 } },
+    { requires_human_judgment: "sim" },
+    { scope_drift: undefined },
+  ];
+  for (const caso of casos) {
+    const raw = JSON.stringify({ ...base, ...caso });
+    const r = parseReviewOutput(raw, { head_sha: HEAD, truncated: false }, "r");
+    assert.equal(r.verdict, "unverified", JSON.stringify(caso));
+    assert.equal(r.risk_assessment, null);
+  }
+});
+
+test("formato de schema 1 (sem risco) não é aceito como aprovação", () => {
+  const raw = approveJson().replace(`"schema_version":${REVIEW_SCHEMA_VERSION}`, '"schema_version":1');
+  assert.equal(parseReviewOutput(raw, { head_sha: HEAD, truncated: false }, "r").verdict, "unverified");
+});
 
 test("aprovação válida com reviewed_sha igual ao head é aceita", () => {
   const r = parseReviewOutput(approveJson(), { head_sha: HEAD, truncated: false }, "run-1");
@@ -114,6 +161,15 @@ test("request_changes com achado válido é aceito e preserva file:line", () => 
     schema_version: REVIEW_SCHEMA_VERSION,
     verdict: "request_changes",
     reviewed_sha: HEAD,
+    risk_assessment: {
+      level: "L0",
+      category: "fixture",
+      reason: "fixture",
+      evidence: ["src/x.ts:1"],
+      confidence: "high",
+    },
+    requires_human_judgment: false,
+    scope_drift: false,
     criteria: [{ id: "AC-1", status: "fail", evidence: "falta teste" }],
     findings: [{ file: "src/x.ts", line: 3, cause: "sem tratamento de erro", blocking: true }],
     suggestions: ["extrair helper"],

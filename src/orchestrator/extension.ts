@@ -27,12 +27,12 @@ import { FixQueue } from "./queue.ts";
 import { orchestratorAgentName } from "../shared/label.ts";
 import { Store, defaultStateDir } from "../shared/store.ts";
 import { deliveryFromFix, repoPolicyFor, ticketFor } from "./delivery.ts";
-import { findingsText, reviewEvent, reviewRequestText } from "./review-verdict.ts";
+import { findingsText, reviewAssessment, reviewEvent, reviewRequestText } from "./review-verdict.ts";
 import { readReview } from "../shared/review-verdict.ts";
 import type { ReviewResult } from "../shared/review.ts";
 import { ghMergeGithub } from "../shared/merge-gate-github.ts";
 import { IntegrationStore, requestIntegration } from "../shared/merge-gate.ts";
-import { MergePolicyStore } from "../shared/merge-policy.ts";
+import { MergePolicyStore, type ReviewAssessment } from "../shared/merge-policy.ts";
 import { PlanStore, launchable, trackedItems } from "./plans.ts";
 import { EVENT_POLICY, UI_ENTRY, emitEvent, statusKind, wakesLlm, type EventSink } from "../policy/event-policy.ts";
 import { orchestratorUsage } from "../shared/usage.ts";
@@ -419,6 +419,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     pr: { owner: string; name: string; number: number },
     remote: string,
     head: string,
+    assessment: ReviewAssessment | null,
   ): Promise<void> => {
     const result = await requestIntegration(
       {
@@ -428,7 +429,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         policy: repoPolicyFor(mergePolicies, `${pr.owner}/${pr.name}`, t.task_id),
         ticket: ticketFor(t.task_id),
         reviewer: null,
-        review: { head_sha: head, approved: true },
+        review: { head_sha: head, approved: true, assessment },
       },
       { github: ghMergeGithub(remote, t.project_path), store: integrations },
     );
@@ -454,7 +455,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     review: ReviewResult,
   ): Promise<void> => {
     const out = fixLoop.apply(t.task_id, reviewEvent(review));
-    if (out.action.kind === "approved") return mergeApproved(t, source, pr, remote, head);
+    if (out.action.kind === "approved") return mergeApproved(t, source, pr, remote, head, reviewAssessment(review));
     recordFix(t.task_id, out.action);
     if (out.action.kind === "send_findings") {
       try {

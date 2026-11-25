@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { maskSecrets } from "./logs.ts";
 import {
   evaluateMergeGate,
+  type ReviewAssessment,
   policyVersion,
   type ChangedFile,
   type MergePolicy,
@@ -56,6 +57,7 @@ export type Protection =
 interface ReviewVerdictInput {
   head_sha: string;
   approved: boolean;
+  assessment?: ReviewAssessment | null;
 }
 
 export interface IntegrationInput {
@@ -196,7 +198,11 @@ export function decideIntegration(input: IntegrationInput): IntegrationResult {
     },
     diff: pr.changed_files > pr.files.length ? null : pr.files,
     checks: { head_sha: pr.head_sha, all_green: true },
-    review: { head_sha: pr.head_sha, fresh_approval: review.kind === "approved" },
+    review: {
+      head_sha: pr.head_sha,
+      fresh_approval: review.kind === "approved",
+      assessment: input.review?.assessment ?? null,
+    },
   });
   const risk = gate.risk;
   if (gate.decision === "blocked") return fail("blocked", gate.reasons, { risk });

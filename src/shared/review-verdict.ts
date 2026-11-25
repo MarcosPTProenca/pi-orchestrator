@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseReviewOutput, type ReviewResult } from "./review.ts";
+import { REVIEW_SCHEMA_VERSION, parseReviewOutput, type ReviewResult } from "./review.ts";
 
 const REVIEW_FILE = "review.json";
 const SHA_RE = /^[0-9a-f]{40}$/;
@@ -26,6 +26,7 @@ export function readReview(taskDir: string, headSha: string): ReviewResult | nul
   if (!existsSync(file)) return null;
   try {
     const r = JSON.parse(readFileSync(file, "utf8")) as ReviewResult;
+    if (r.schema_version !== REVIEW_SCHEMA_VERSION) return null;
     return r.reviewed_sha === headSha ? r : null;
   } catch {
     return null;
