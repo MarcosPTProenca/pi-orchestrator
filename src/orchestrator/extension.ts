@@ -39,7 +39,7 @@ import type { ReviewResult } from "../shared/review.ts";
 import { ghMergeGithub } from "../shared/merge-gate-github.ts";
 import { IntegrationStore, requestIntegration } from "../shared/merge-gate.ts";
 import { MergePolicyStore, type ReviewAssessment } from "../shared/merge-policy.ts";
-import { PlanStore, launchable, trackedItems } from "./plans.ts";
+import { PlanStore, itemOwnedBy, launchable, planOwnedBy, trackedItems } from "./plans.ts";
 import { EVENT_POLICY, UI_ENTRY, emitEvent, statusKind, wakesLlm, type EventSink } from "../policy/event-policy.ts";
 import { orchestratorUsage } from "../shared/usage.ts";
 import { NoticeBatcher } from "./notices.ts";
@@ -316,7 +316,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   const integrations = new IntegrationStore(join(defaultStateDir(), "integration"));
   const reviewNoticed = new Set<string>();
   const launchReady = async (planId: string): Promise<void> => {
-    for (const item of launchable(planStore.show(planId))) {
+    const plan = planStore.show(planId);
+    for (const item of launchable(plan).filter((i) => itemOwnedBy(i, (p) => orch.ownsProject(p)))) {
       const spec = item.delegate;
       if (!spec) continue;
       try {
@@ -349,6 +350,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   };
   const advancePlans = async (): Promise<void> => {
     for (const planId of planStore.list()) {
+      if (!planOwnedBy(planStore.show(planId), (p) => orch.ownsProject(p))) continue;
       await launchReady(planId).catch(() => undefined);
       const plan = planStore.complete(planId);
       if (plan.state === "completed")
@@ -370,6 +372,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         if (!item.task_id) continue;
         try {
           const task = orch.get(item.task_id);
+          if (!orch.ownsTask(task)) continue;
           const url = prUrlOf(task);
           const pr = url ? prFromUrl(url) : null;
           if (task.status === "done" && !url && planStore.markTaskDone(task.task_id).length > 0) {
@@ -389,7 +392,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
           }).trim();
           const state = await fetchPrState(remote, pr.number, pr.owner, pr.name, task.project_path);
           if (prVerdict(state) !== "merged") continue;
-          planStore.markMerged(task.task_id);
+          if (planStore.markMerged(task.task_id).length === 0) continue;
           emitEvent(eventSink, EVENT_POLICY["plan-transition"], {
             customType: "orch-event",
             content: `Plano ${planId}, item ${item.id}: PR #${pr.number} mergeada (tarefa ${task.task_id}). Lançando o próximo passo.`,
