@@ -71,6 +71,17 @@ export function launchable(plan: Plan): PlanItem[] {
 export function trackedItems(plan: Plan): PlanItem[] {
   return plan.items.filter((i) => i.task_id !== null && (i.status === "in_progress" || i.status === "pr_open"));
 }
+
+export type ProjectOwnership = (projectPath: string) => boolean;
+
+export function itemOwnedBy(item: PlanItem, owns: ProjectOwnership): boolean {
+  return item.delegate !== null && owns(item.delegate.project_path);
+}
+
+export function planOwnedBy(plan: Plan, owns: ProjectOwnership): boolean {
+  return plan.items.some((i) => itemOwnedBy(i, owns));
+}
+
 function isComplete(plan: Plan): boolean {
   return (
     plan.state === "approved" &&

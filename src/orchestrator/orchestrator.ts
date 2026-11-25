@@ -131,6 +131,14 @@ export class Orchestrator {
     return this.sharedWith !== undefined && this.sharedWith(t.project_path);
   }
 
+  ownsTask(t: TaskRecord): boolean {
+    return this.mine(t);
+  }
+
+  ownsProject(projectPath: string): boolean {
+    return this.scope === undefined || (this.sharedWith?.(projectPath) ?? false);
+  }
+
   private async withTaskLock<T>(taskId: string, fn: () => Promise<T>): Promise<T> {
     mkdirSync(this.d.tasksDir, { recursive: true });
     const dir = join(this.d.tasksDir, `${taskId}.oplock`);
