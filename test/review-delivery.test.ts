@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FixLoopStore } from "../src/orchestrator/fix-loop.ts";
 import { findingsText, reviewEvent } from "../src/orchestrator/review-verdict.ts";
+import { prVerdict } from "../src/orchestrator/pr-watch.ts";
+import type { PrState } from "../src/shared/prs.ts";
 import { readReview, recordReviewVerdict } from "../src/shared/review-verdict.ts";
 import { PlanStore, launchable } from "../src/orchestrator/plans.ts";
 import { repoPolicyFor, ticketFor } from "../src/orchestrator/delivery.ts";
@@ -232,4 +234,89 @@ test("PR A aprovada e mergeada inicia B uma vez; mergeada de novo não reabre na
   store.reserve("entrega", "2");
   assert.deepEqual(store.markMerged(T_A), [], "evento duplicado de merge não relança");
   assert.deepEqual(launchable(store.show("entrega")), [], "B reservada: não sai de novo");
+});
+
+test("encadeamento do checkPr: PR aberta -> review -> merge_eligible -> merged -> B lança uma vez", async () => {
+  const d = dir();
+  const fix = fixStore();
+  const plans = new PlanStore(dir(), () => "2026-11-24T00:00:00.000Z");
+  plans.create("entrega", "Entrega", [
+    { title: "A", delegate },
+    { title: "B", depends_on: ["1"], delegate },
+  ]);
+  plans.act("entrega", "approve");
+  plans.reserve("entrega", "1");
+  plans.launched("entrega", "1", T_A);
+
+  const pol = new MergePolicyStore(dir());
+  pol.save({ ...defaultMergePolicy(REPO), auto_merge: true });
+  const base = repoPolicyFor(pol, REPO, T_A)!;
+  const policy = { ...base, auto_merge: true, authorization: { granted_by: "user" as const, ticket_id: T_A } };
+  const ticket = { ...ticketFor(T_A), branch: "feat/x", allowed_paths: ["src/"] };
+
+  const { github, merges } = githubFake();
+  const prState: PrState = {
+    number: 200,
+    state: "OPEN",
+    mergeable: "MERGEABLE",
+    mergeStateStatus: "CLEAN",
+    headRefOid: HEAD,
+    checks: [],
+  };
+  const gh: MergeGithub = {
+    ...github,
+    merge: async (args) => {
+      await github.merge(args);
+      prState.state = "MERGED";
+      return "ok";
+    },
+  };
+  const integ = new IntegrationStore(dir());
+
+  assert.equal(prVerdict(prState), "open");
+  plans.recordDelivery({ name: "pr_open", task_id: T_A, pr: PR_URL, head_sha: HEAD });
+  const head = fix.apply(T_A, { type: "head", head_sha: HEAD });
+  assert.equal(head.action.kind, "request_review");
+  assert.equal(
+    fix.apply(T_A, { type: "head", head_sha: HEAD }).action.kind,
+    "none",
+    "mesmo head não pede review de novo",
+  );
+
+  recordReviewVerdict(d, approveJson(HEAD), HEAD, false);
+  const review = readReview(d, HEAD)!;
+  assert.equal(fix.apply(T_A, reviewEvent(review)).action.kind, "approved");
+  const result = await requestIntegration(
+    {
+      repo: REPO,
+      number: 200,
+      expected_head_sha: HEAD,
+      policy,
+      ticket,
+      reviewer: null,
+      review: { head_sha: HEAD, approved: true },
+    },
+    { github: gh, store: integ },
+  );
+  assert.equal(result.decision, "merge_requested");
+  plans.recordDelivery({ name: "merge_eligible", task_id: T_A, head_sha: HEAD });
+  assert.deepEqual(launchable(plans.show("entrega")), [], "merge pedido mas não confirmado: B não sai");
+
+  assert.equal(merges.length, 1, "merge pedido exatamente uma vez");
+  assert.equal(prVerdict(prState), "merged");
+  fix.apply(T_A, { type: "revoke", reason: "PR mergeada" });
+  assert.deepEqual(plans.markMerged(T_A), [{ plan: "entrega", item: "1" }]);
+  plans.recordDelivery({ name: "merged", task_id: T_A, pr: PR_URL });
+  const next = launchable(plans.show("entrega"));
+  assert.deepEqual(
+    next.map((i) => i.id),
+    ["2"],
+  );
+  plans.reserve("entrega", "2");
+  plans.launched("entrega", "2", "t-bbbbbbbb");
+
+  assert.deepEqual(plans.markMerged(T_A), []);
+  assert.deepEqual(launchable(plans.show("entrega")), []);
+  assert.equal(plans.show("entrega").items[1]?.task_id, "t-bbbbbbbb");
+  assert.equal(merges.length, 1);
 });
