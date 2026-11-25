@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { makeHarness, reopenHarness as reabrir, writeReport } from "./fakes.ts";
+import type { State, Store } from "../src/shared/store.ts";
 
 const ids = (evs: { task_id: string; status: string }[]) => evs.map((e) => `${e.task_id}:${e.status}`);
 
@@ -70,4 +71,25 @@ test("30 ciclos de varredura sem mudança: nenhum aviso novo, nenhum pendente cr
   for (let i = 0; i < 30; i++) avisos += (await h.orch.sweep()).length + (await h.orch.pendingNotices()).length;
   assert.equal(avisos, 0, "zero avisos em 30 ciclos");
   assert.equal(h.orch.get(running.task_id).delivery_pending ?? null, null);
+});
+
+test("dedupe entre sessões: aviso já tomado por outra sessão não sai de novo, mesmo se ela ganhar a trava antes", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  writeReport(t.task_dir, t.task_id, { status: "done", result: "ok" });
+  await h.orch.refresh(t.task_id);
+  const store = (h.orch as unknown as { d: { store: Store } }).d.store;
+  const realMutate = store.mutate.bind(store);
+  let raced = false;
+  store.mutate = <T>(fn: (s: State) => T): T => {
+    if (!raced) {
+      raced = true;
+      realMutate((s) => {
+        const x = s.tasks[t.task_id];
+        if (x) x.notified = true;
+      });
+    }
+    return realMutate(fn);
+  };
+  assert.equal(h.orch.takeNotice(t.task_id), false, "outra sessão pegou primeiro: esta não envia de novo");
 });
