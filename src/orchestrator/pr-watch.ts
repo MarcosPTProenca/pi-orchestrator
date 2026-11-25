@@ -10,6 +10,25 @@ export function prVerdict(s: PrState): PrVerdict {
   return "open";
 }
 
+// keep: uma chave por evento lógico (tarefa+PR+head+tipo); a claim é síncrona, então a primeira checagem vence.
+export class NoticeClaims {
+  private claimed = new Set<string>();
+
+  claim(key: string): boolean {
+    if (this.claimed.has(key)) return false;
+    this.claimed.add(key);
+    return true;
+  }
+
+  release(key: string): void {
+    this.claimed.delete(key);
+  }
+}
+
+export function mergedNoticeKey(taskId: string, prUrl: string, headSha: string): string {
+  return `${taskId}|merged|${prUrl}|${headSha}`;
+}
+
 export function prUrlOf(t: { source?: string | null; artifacts?: string[] }): string | null {
   const isPr = (u: string) => /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/.test(u);
   if (t.source && isPr(t.source)) return t.source;

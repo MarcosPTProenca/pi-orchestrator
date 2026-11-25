@@ -12,7 +12,9 @@ import { cacheWarmingOverride } from "./cache-warming.ts";
 import { Orchestrator, type DelegateInput, type WatchEvent } from "./orchestrator.ts";
 import { prFromUrl, fetchPrState, verificationLine, verifyPr, prStateLine } from "../shared/prs.ts";
 import {
+  NoticeClaims,
   PrActionWatch,
+  mergedNoticeKey,
   ciInstruction,
   conflictInstruction,
   failingChecks,
@@ -91,6 +93,8 @@ const PR_CHECK_MS = envPositive(process.env.PI_ORCH_PR_CHECK_MIN, 5) * 60_000;
 const here = dirname(fileURLToPath(import.meta.url));
 
 const TERMINAL = new Set(["done", "failed", "timeout", "lost"]);
+// keep: no escopo do módulo, não da instância: o mesmo arquivo pode ser carregado 2x no processo (-e + .pi/extensions), e cada instância tem estado próprio.
+const mergeNotices = new NoticeClaims();
 
 export default function orchestratorExtension(pi: ExtensionAPI): void {
   const eventSink: EventSink = {
@@ -514,26 +518,33 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     const label = projectLabel(t.project_id);
     const verdict = prVerdict(s);
     if (verdict === "merged") {
-      prWatch.forget(t.task_id);
-      fixLoop.apply(t.task_id, { type: "revoke", reason: "PR mergeada" });
-      const outcome = await orch.closeMerged(t.task_id);
-      const plan = planStore.markMerged(t.task_id).map((m) => `plano ${m.plan}, item ${m.item}`);
-      planStore.recordDelivery({ name: "merged", task_id: t.task_id, pr: source });
-      await advancePlans();
-      const closed = outcome.closed ? "Fechei a aba do worker" : "A aba já não existia";
-      const planLine = plan.length > 0 ? ` Atualizei ${plan.join("; ")}.` : "";
-      const headline = taskHeadline(t, source, `PR #${pr.number} mergeada`);
-      pi.sendMessage(
-        {
-          customType: "orch-event",
-          content:
-            plan.length > 0
-              ? `${headline} ${closed}.${planLine}`
-              : `${headline} ${closed}. Confira se há próximo passo e diga ao usuário.`,
-          display: true,
-        },
-        { triggerTurn: plan.length === 0 && wakesLlm(EVENT_POLICY["pr-merged-no-plan"]) },
-      );
+      const noticeKey = mergedNoticeKey(t.task_id, source, s.headRefOid);
+      if (!mergeNotices.claim(noticeKey)) return;
+      try {
+        prWatch.forget(t.task_id);
+        fixLoop.apply(t.task_id, { type: "revoke", reason: "PR mergeada" });
+        const outcome = await orch.closeMerged(t.task_id);
+        const plan = planStore.markMerged(t.task_id).map((m) => `plano ${m.plan}, item ${m.item}`);
+        planStore.recordDelivery({ name: "merged", task_id: t.task_id, pr: source });
+        await advancePlans();
+        const closed = outcome.closed ? "Fechei a aba do worker" : "A aba já não existia";
+        const planLine = plan.length > 0 ? ` Atualizei ${plan.join("; ")}.` : "";
+        const headline = taskHeadline(t, source, `PR #${pr.number} mergeada`);
+        pi.sendMessage(
+          {
+            customType: "orch-event",
+            content:
+              plan.length > 0
+                ? `${headline} ${closed}.${planLine}`
+                : `${headline} ${closed}. Confira se há próximo passo e diga ao usuário.`,
+            display: true,
+          },
+          { triggerTurn: plan.length === 0 && wakesLlm(EVENT_POLICY["pr-merged-no-plan"]) },
+        );
+      } catch (err) {
+        mergeNotices.release(noticeKey);
+        throw err;
+      }
       return;
     }
     planStore.recordDelivery({ name: "pr_open", task_id: t.task_id, pr: source, head_sha: s.headRefOid });
