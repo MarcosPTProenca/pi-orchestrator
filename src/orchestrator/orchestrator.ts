@@ -716,13 +716,16 @@ export class Orchestrator {
     });
   }
 
+  // keep: check e marcação na mesma trava; ler fora dela deixa duas sessões pegarem o mesmo aviso.
   takeNotice(taskId: string): boolean {
-    const t = this.get(taskId);
-    if (t.notified) return false;
-    this.update(taskId, (x) => {
-      x.notified = true;
+    return this.d.store.mutate((state) => {
+      const t = state.tasks[taskId];
+      if (!t) throw new Error(`tarefa desconhecida: ${taskId}`);
+      if (t.notified) return false;
+      t.notified = true;
+      t.updated_at = this.iso();
+      return true;
     });
-    return true;
   }
 
   async inbox(opts: { consume?: boolean } = {}): Promise<WatchEvent[]> {
@@ -749,8 +752,7 @@ export class Orchestrator {
     const pending =
       !t.notified &&
       (t.status === "blocked" || (!isActive(t.status) && t.status !== "cancelled" && t.status !== "planned"));
-    if (!pending) return null;
-    this.takeNotice(taskId);
+    if (!pending || !this.takeNotice(taskId)) return null;
     this.update(taskId, (x) => {
       x.delivery_pending = t.status;
     });
