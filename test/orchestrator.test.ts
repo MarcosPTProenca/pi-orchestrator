@@ -70,6 +70,7 @@ test("delegate cria workspace do projeto, tab da tarefa e inicia o worker na tab
   };
   assert.equal(tabArgs.cwd, h.project, "tab abre no checkout do projeto; o worker arrenda a worktree dele");
   assert.equal(tabArgs.env.PI_ORCH_ROLE, "worker");
+  assert.equal(tabArgs.env.PI_PR_REVIEW_CHILD, "1", "worker não dispara o hook pessoal de PR review");
   assert.equal(tabArgs.env.PI_ORCH_TASK_ID, t.task_id);
   assert.equal(t.tab_id.startsWith(`${t.workspace_id}:`), true);
   const run = h.herdr.opsOf("runInPane")[0].args as { paneId: string; command: string };
@@ -1058,4 +1059,25 @@ test("bloqueio com pergunta avisa uma vez; repetir noticeFor não reabre o aviso
   await h.orch.refresh(t.task_id);
   assert.equal((await h.orch.noticeFor(t.task_id))?.status, "blocked");
   assert.equal(await h.orch.noticeFor(t.task_id), null, "não repete a pergunta");
+});
+
+// keep: espelho do gate do hook pessoal global (fora do repo, não importável aqui); prova que o env real do launch o desliga.
+function personalHookFires(env: Record<string, string | undefined>): boolean {
+  return !(env.PI_PR_REVIEW_CHILD || env.PI_ORCH_ROLE === "orchestrator");
+}
+
+test("hook pessoal de PR review fica desligado no worker da Factory: um único review (orch_review_verdict)", async () => {
+  const h = makeHarness();
+  await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report" });
+  const env = (h.herdr.opsOf("createTab")[0].args as { env: Record<string, string> }).env;
+  assert.equal(personalHookFires(env), false, "worker não deve disparar o review pessoal em paralelo");
+  assert.equal(personalHookFires({ PI_ORCH_ROLE: "worker" }), true, "controle: sem PI_PR_REVIEW_CHILD o hook dispara");
+});
+
+test("launch com pane projetado também leva PI_PR_REVIEW_CHILD=1 ao worker", async () => {
+  const h = makeHarness({ presentationSpaces: true });
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report" });
+  const run = h.herdr.opsOf("runInPane")[0].args as { paneId: string; command: string };
+  assert.equal(run.paneId, t.pane_id);
+  assert.match(run.command, /^env PI_ORCH_ROLE=worker PI_PR_REVIEW_CHILD=1 /);
 });
