@@ -4,8 +4,6 @@ import { NoticeClaims, mergedNoticeKey } from "../src/orchestrator/pr-watch.ts";
 
 const PR = "https://github.com/MarcosPTProenca/pi-orchestrator/pull/190";
 
-// Duas instâncias da extensão no mesmo processo checam a mesma PR quase ao mesmo tempo:
-// ambas veem MERGED, e cada uma espera um I/O antes de enviar (closeMerged, advancePlans).
 async function merge(checker: (key: string) => boolean, sent: string[], label: string, key: string): Promise<void> {
   await new Promise((r) => setImmediate(r));
   if (!checker(key)) return;
