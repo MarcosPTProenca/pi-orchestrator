@@ -36,6 +36,14 @@ export function reviewRequestText(prUrl: string, headSha: string): string {
   ].join("\n");
 }
 
+export function integrationFixText(prUrl: string, headSha: string, reasons: string[]): string {
+  return [
+    `A PR ${prUrl} foi aprovada pelo review no head ${headSha}, mas o merge não pode ser pedido ainda:`,
+    ...reasons.map((m) => `- ${m}`),
+    "Corrija, publique o novo head e encerre o turno. O próximo review roda sozinho.",
+  ].join("\n");
+}
+
 export function findingsText(prUrl: string, headSha: string, r: ReviewResult): string {
   const items = r.findings.map((f) => `- ${f.file}:${f.line} ${f.blocking ? "(bloqueante) " : ""}${f.cause}`);
   const lines = items.length > 0 ? items : [`- ${r.reason ?? "o revisor reprovou o head sem achados detalhados"}`];
