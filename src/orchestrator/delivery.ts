@@ -1,3 +1,5 @@
+import type { TaskRecord } from "../shared/contract.ts";
+import type { IntegrationResult } from "../shared/merge-gate.ts";
 import type { FixAction } from "./fix-loop.ts";
 import {
   defaultMergePolicy,
@@ -48,4 +50,25 @@ export function repoPolicyFor(store: MergePolicyStore, repo: string, taskId: str
 
 export function ticketFor(taskId: string): TicketFacts {
   return { id: taskId, state: "running", branch: null, allowed_paths: [] };
+}
+
+export function ticketFacts(t: TaskRecord): TicketFacts {
+  const state: TicketFacts["state"] = t.status === "cancelled" ? "cancelled" : t.status === "done" ? "done" : "running";
+  return { id: t.task_id, state, branch: t.branch ?? null, allowed_paths: [] };
+}
+
+const WORKER_FIXABLE = new Set(["draft", "pr_without_issue"]);
+
+export type IntegrationRoute =
+  | { kind: "merge_requested" }
+  | { kind: "ask_worker"; reasons: string[] }
+  | { kind: "ask_user"; reasons: string[]; manual: boolean };
+
+export function integrationRoute(result: IntegrationResult): IntegrationRoute {
+  if (result.decision === "merge_requested" || result.decision === "already_requested")
+    return { kind: "merge_requested" };
+  const reasons = result.reasons.map((r) => r.message);
+  const fixable = result.reasons.length > 0 && result.reasons.every((r) => WORKER_FIXABLE.has(r.code));
+  if (result.decision === "blocked" && fixable) return { kind: "ask_worker", reasons };
+  return { kind: "ask_user", reasons, manual: result.decision === "manual_approval" };
 }

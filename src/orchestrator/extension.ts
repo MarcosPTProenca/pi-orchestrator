@@ -26,8 +26,14 @@ import { judgeDone, type VerifyEnv } from "./verify.ts";
 import { FixQueue } from "./queue.ts";
 import { orchestratorAgentName } from "../shared/label.ts";
 import { Store, defaultStateDir } from "../shared/store.ts";
-import { deliveryFromFix, repoPolicyFor, ticketFor } from "./delivery.ts";
-import { findingsText, reviewAssessment, reviewEvent, reviewRequestText } from "./review-verdict.ts";
+import { deliveryFromFix, integrationRoute, repoPolicyFor, ticketFacts } from "./delivery.ts";
+import {
+  findingsText,
+  integrationFixText,
+  reviewAssessment,
+  reviewEvent,
+  reviewRequestText,
+} from "./review-verdict.ts";
 import { readReview } from "../shared/review-verdict.ts";
 import type { ReviewResult } from "../shared/review.ts";
 import { ghMergeGithub } from "../shared/merge-gate-github.ts";
@@ -427,22 +433,38 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         number: pr.number,
         expected_head_sha: head,
         policy: repoPolicyFor(mergePolicies, `${pr.owner}/${pr.name}`, t.task_id),
-        ticket: ticketFor(t.task_id),
+        ticket: ticketFacts(t),
         reviewer: null,
         review: { head_sha: head, approved: true, assessment },
       },
       { github: ghMergeGithub(remote, t.project_path), store: integrations },
     );
-    if (result.decision === "merge_requested" || result.decision === "already_requested") {
+    const route = integrationRoute(result);
+    if (route.kind === "merge_requested") {
       planStore.recordDelivery({ name: "merge_eligible", task_id: t.task_id, head_sha: head });
       return;
     }
     const key = `${t.task_id}@${head}`;
     if (reviewNoticed.has(key)) return;
     reviewNoticed.add(key);
+    if (route.kind === "ask_worker") {
+      try {
+        await orch.send(t.task_id, integrationFixText(source, head, route.reasons));
+      } catch (err) {
+        emitEvent(eventSink, EVENT_POLICY["send-failed"], {
+          customType: "orch-event",
+          content: `${taskHeadline(t, source, `PR #${pr.number} aprovada, merge pendente`)} Não consegui enviar ao worker o que falta: ${err instanceof Error ? err.message : String(err)}. Decida: orch_send manual.`,
+          display: true,
+        });
+      }
+      return;
+    }
+    const why = route.reasons.join("; ");
     emitEvent(eventSink, EVENT_POLICY["review-approved"], {
       customType: "orch-event",
-      content: `${taskHeadline(t, source, `PR #${pr.number} aprovada pelo review`)} Merge automático não pedido: ${result.reasons.map((r) => r.message).join("; ")}. O plano avança quando a PR for mergeada.`,
+      content: route.manual
+        ? `${taskHeadline(t, source, `PR #${pr.number} aprovada pelo review`)} Precisa da sua aprovação para o merge: ${why}. Decida: aprovar o merge ou não. O plano avança quando a PR for mergeada.`
+        : `${taskHeadline(t, source, `PR #${pr.number} aprovada pelo review`)} Merge automático não pedido: ${why}. O plano avança quando a PR for mergeada.`,
       display: true,
     });
   };

@@ -9,8 +9,10 @@ import { prVerdict } from "../src/orchestrator/pr-watch.ts";
 import type { PrState } from "../src/shared/prs.ts";
 import { readReview, recordReviewVerdict } from "../src/shared/review-verdict.ts";
 import { PlanStore, launchable } from "../src/orchestrator/plans.ts";
-import { repoPolicyFor, ticketFor } from "../src/orchestrator/delivery.ts";
+import { integrationRoute, repoPolicyFor, ticketFacts, ticketFor } from "../src/orchestrator/delivery.ts";
+import type { TaskRecord } from "../src/shared/contract.ts";
 import {
+  decideIntegration,
   IntegrationStore,
   requestIntegration,
   type CheckRunFact,
@@ -347,4 +349,102 @@ test("encadeamento do checkPr: PR aberta -> review -> merge_eligible -> merged -
   assert.deepEqual(launchable(plans.show("entrega")), []);
   assert.equal(plans.show("entrega").items[1]?.task_id, "t-bbbbbbbb");
   assert.equal(merges.length, 1);
+});
+
+const scopedTicket = { id: T_A, state: "running" as const, branch: "feat/x", allowed_paths: ["src/"] };
+const authorizedPolicy = () => {
+  const pol = new MergePolicyStore(dir());
+  pol.save({ ...defaultMergePolicy(REPO), auto_merge: true });
+  const base = repoPolicyFor(pol, REPO, T_A)!;
+  return { ...base, auto_merge: true, authorization: { granted_by: "user" as const, ticket_id: T_A } };
+};
+const decideFor = (policy: ReturnType<typeof repoPolicyFor>, ticket: typeof scopedTicket, snap: PrSnapshot = pr()) =>
+  decideIntegration({
+    policy,
+    ticket,
+    pr: snap,
+    repo: { allow_auto_merge: true, default_branch: "master" },
+    protection: { status: "protected", required_contexts: ["test"] },
+    reviewer: null,
+    review: { head_sha: HEAD, approved: true, assessment: ASSESS },
+    expected_head_sha: HEAD,
+  });
+
+test("ticketFacts: estado e branch vêm da tarefa; escopo vazio (fail-closed)", () => {
+  const task = (status: TaskRecord["status"], branch: string | null) =>
+    ({ task_id: T_A, status, branch }) as TaskRecord;
+  assert.deepEqual(ticketFacts(task("running", "feat/x")), {
+    id: T_A,
+    state: "running",
+    branch: "feat/x",
+    allowed_paths: [],
+  });
+  assert.equal(ticketFacts(task("cancelled", "feat/x")).state, "cancelled");
+  assert.equal(ticketFacts(task("done", null)).branch, null);
+});
+
+test("runtime sem escopo declarado: review aprovado e autorizado não pede merge", async () => {
+  const { github, merges } = githubFake();
+  const ticket = ticketFacts({ task_id: T_A, status: "done", branch: "feat/x" } as TaskRecord);
+  const res = await requestIntegration(request(authorizedPolicy(), ticket), {
+    github,
+    store: new IntegrationStore(dir()),
+  });
+  assert.equal(res.decision, "blocked");
+  assert.ok(
+    res.reasons.some((r) => r.code === "scope_undefined"),
+    JSON.stringify(res.reasons),
+  );
+  assert.equal(merges.length, 0);
+});
+
+test("ticket cancelado no runtime: ticket_inactive e nenhum merge", async () => {
+  const { github, merges } = githubFake();
+  const ticket = ticketFacts({ task_id: T_A, status: "cancelled", branch: "feat/x" } as TaskRecord);
+  const res = await requestIntegration(request(authorizedPolicy(), ticket), {
+    github,
+    store: new IntegrationStore(dir()),
+  });
+  assert.ok(
+    res.reasons.some((r) => r.code === "ticket_inactive"),
+    JSON.stringify(res.reasons),
+  );
+  assert.equal(merges.length, 0);
+});
+
+test("integrationRoute: merge pedido ou já pedido segue o fluxo de merge", () => {
+  const fresh = decideFor(authorizedPolicy(), scopedTicket);
+  assert.equal(fresh.decision, "merge_requested");
+  assert.deepEqual(integrationRoute(fresh), { kind: "merge_requested" });
+  const already = decideFor(authorizedPolicy(), scopedTicket, { ...pr(), auto_merge_enabled: true });
+  assert.equal(already.decision, "already_requested");
+  assert.deepEqual(integrationRoute(already), { kind: "merge_requested" });
+});
+
+test("integrationRoute: draft e PR sem issue (corrigíveis) vão ao worker", () => {
+  const draft = decideFor(authorizedPolicy(), scopedTicket, { ...pr(), is_draft: true });
+  assert.deepEqual(integrationRoute(draft), { kind: "ask_worker", reasons: ["PR em draft"] });
+  const noIssue = decideFor(authorizedPolicy(), scopedTicket, { ...pr(), linked_issue: null });
+  assert.equal(integrationRoute(noIssue).kind, "ask_worker");
+});
+
+test("integrationRoute: escopo ausente (caso real do runtime) vai ao usuário", () => {
+  const res = decideFor(authorizedPolicy(), { ...scopedTicket, allowed_paths: [] });
+  assert.ok(
+    res.reasons.some((r) => r.code === "scope_undefined"),
+    JSON.stringify(res.reasons),
+  );
+  const route = integrationRoute(res);
+  assert.equal(route.kind, "ask_user");
+  assert.equal(route.kind === "ask_user" && route.manual, false);
+});
+
+test("integrationRoute: manual_approval vai ao usuário marcado como aprovação humana", () => {
+  const res = decideFor(repoPolicyFor(new MergePolicyStore(dir()), REPO, T_A), scopedTicket);
+  assert.equal(res.decision, "manual_approval");
+  assert.deepEqual(integrationRoute(res), {
+    kind: "ask_user",
+    reasons: ["sem autorização explícita de auto-merge"],
+    manual: true,
+  });
 });
