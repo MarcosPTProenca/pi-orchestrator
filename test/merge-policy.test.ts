@@ -14,6 +14,9 @@ import {
   type ChangedFile,
   type MergeGateInput,
   type MergePolicy,
+  type ReviewAssessment,
+  type RiskLevel,
+  consolidateRisk,
 } from "../src/shared/merge-policy.ts";
 
 const REPO = "owner/repo";
@@ -147,8 +150,26 @@ test("resolução por herança é sempre a mais restritiva", () => {
   assert.equal(resolveMergePolicy(repo, TICKET, null)?.auto_merge, false);
 });
 
-test("L0 autorizado com checks verdes é elegível sem executar merge", () => {
-  const r = evaluateMergeGate(gateInput());
+const reviewOf = (
+  level: RiskLevel,
+  over: Partial<ReviewAssessment> = {},
+  sha = "sha1",
+): NonNullable<MergeGateInput["review"]> => ({
+  head_sha: sha,
+  fresh_approval: true,
+  assessment: {
+    level,
+    category: "categoria",
+    reason: "justificativa",
+    confidence: "high",
+    requires_human_judgment: false,
+    scope_drift: false,
+    ...over,
+  },
+});
+
+test("L0 autorizado com revisão fresh e risco L0 é elegível sem executar merge", () => {
+  const r = evaluateMergeGate(gateInput({ review: reviewOf("L0") }));
   assert.equal(r.decision, "eligible");
   assert.equal(r.risk, "L0");
   assert.match(r.policy_version ?? "", /^v1-/);
@@ -180,11 +201,86 @@ test("L1 exige review fresh do head_sha atual", () => {
   const sem = evaluateMergeGate(gateInput({ diff }));
   assert.equal(sem.decision, "manual_approval");
   assert.equal(sem.reasons[0].code, "review_required");
-  const staleReview = evaluateMergeGate(gateInput({ diff, review: { head_sha: "sha0", fresh_approval: true } }));
+  const staleReview = evaluateMergeGate(gateInput({ diff, review: reviewOf("L1", {}, "sha0") }));
   assert.equal(staleReview.decision, "manual_approval");
-  const fresh = evaluateMergeGate(gateInput({ diff, review: { head_sha: "sha1", fresh_approval: true } }));
+  const fresh = evaluateMergeGate(gateInput({ diff, review: reviewOf("L1") }));
   assert.equal(fresh.decision, "eligible");
   assert.equal(fresh.risk, "L1");
+});
+
+test("consolidação: R_final é o maior entre estático e revisor, em todas as combinações", () => {
+  const levels: RiskLevel[] = ["L0", "L1", "L2", "L3"];
+  for (const s of levels) {
+    assert.equal(consolidateRisk(s, null), s);
+    for (const r of levels) {
+      const expected = levels[Math.max(levels.indexOf(s), levels.indexOf(r))];
+      assert.equal(consolidateRisk(s, reviewOf(r).assessment), expected, `${s} + ${r}`);
+    }
+  }
+});
+
+test("caso 1: 5 linhas fora de caminho protegido desabilitam auth -> revisor eleva para L3", () => {
+  const diff = [{ path: "src/app/config.ts", kind: "modified" as const, additions: 5, deletions: 5 }];
+  assert.equal(classifyRisk(diff, authorized()).risk, "L1", "estático não enxerga a semântica");
+  const r = evaluateMergeGate(
+    gateInput({
+      diff,
+      review: reviewOf("L3", { category: "auth desabilitada", reason: "requireAuth=false" }),
+    }),
+  );
+  assert.equal(r.decision, "manual_approval");
+  assert.equal(r.risk, "L3");
+  assert.ok(r.reasons.some((x) => x.code === "risk_escalated_by_review"));
+});
+
+test("caso 2: docs triviais ficam L0 e elegíveis com parecer L0", () => {
+  const r = evaluateMergeGate(gateInput({ diff: [file("docs/readme.md")], review: reviewOf("L0") }));
+  assert.equal(r.decision, "eligible");
+  assert.equal(r.risk, "L0");
+});
+
+test("caso 3: tests-only que remove cobertura importante é escalado pelo revisor", () => {
+  const diff = [{ path: "test/payroll.test.ts", kind: "modified" as const, additions: 0, deletions: 40 }];
+  assert.equal(classifyRisk(diff, authorized()).risk, "L0");
+  const r = evaluateMergeGate(
+    gateInput({ diff, review: reviewOf("L2", { category: "cobertura removida", requires_human_judgment: true }) }),
+  );
+  assert.equal(r.decision, "manual_approval");
+  assert.equal(r.risk, "L2");
+});
+
+test("caso 4: mudança de API comportamental em arquivo comum escala para L2", () => {
+  const diff = [file("src/orchestrator/api.ts")];
+  assert.equal(classifyRisk(diff, authorized()).risk, "L1");
+  const r = evaluateMergeGate(gateInput({ diff, review: reviewOf("L2", { category: "contrato público" }) }));
+  assert.equal(r.decision, "manual_approval");
+  assert.equal(r.risk, "L2");
+});
+
+test("revisor nunca rebaixa risco estático: L3 continua L3 com parecer L0", () => {
+  const r = evaluateMergeGate(gateInput({ diff: [file(".github/workflows/ci.yml")], review: reviewOf("L0") }));
+  assert.equal(r.decision, "manual_approval");
+  assert.equal(r.risk, "L3");
+});
+
+test("requires_human_judgment e scope_drift forçam aprovação humana mesmo em L1", () => {
+  const diff = [file("src/worker/fallback.ts")];
+  const human = evaluateMergeGate(gateInput({ diff, review: reviewOf("L1", { requires_human_judgment: true }) }));
+  assert.equal(human.decision, "manual_approval");
+  const drift = evaluateMergeGate(gateInput({ diff, review: reviewOf("L1", { scope_drift: true }) }));
+  assert.equal(drift.decision, "manual_approval");
+});
+
+test("parecer ausente, sem avaliação, de SHA antigo ou ambíguo não habilita auto-merge, nem em L0", () => {
+  assert.equal(evaluateMergeGate(gateInput({ review: null })).reasons[0].code, "review_required");
+  const semAvaliacao = evaluateMergeGate(
+    gateInput({ review: { head_sha: "sha1", fresh_approval: true, assessment: null } }),
+  );
+  assert.equal(semAvaliacao.decision, "manual_approval");
+  assert.equal(semAvaliacao.reasons[0].code, "review_required");
+  assert.equal(evaluateMergeGate(gateInput({ review: reviewOf("L0", {}, "sha0") })).decision, "manual_approval");
+  const ambiguo = evaluateMergeGate(gateInput({ review: reviewOf("L0", { confidence: "unverified" }) }));
+  assert.equal(ambiguo.decision, "manual_approval");
 });
 
 test("L2 e L3 sempre exigem aprovação humana", () => {

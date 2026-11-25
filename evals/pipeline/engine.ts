@@ -12,6 +12,8 @@ import {
 } from "../../src/shared/merge-policy.ts";
 import { summarizeTurns, type TurnRecord } from "../../src/shared/usage.ts";
 import { ReviewCoordinator, type ReviewRequest, type ReviewResult } from "../../src/shared/review.ts";
+import { reviewAssessment } from "../../src/orchestrator/review-verdict.ts";
+import type { ReviewAssessment } from "../../src/shared/merge-policy.ts";
 import { BRANCH, FakeGithub, PR_NUMBER, PR_URL, REPO, REVIEWER, sha } from "./fakes.ts";
 
 export const TASK = "t-0148a001";
@@ -116,14 +118,29 @@ export function ticketFacts(allowed: string[] = ALLOWED): TicketFacts {
   return { id: TICKET_ID, state: "running", branch: BRANCH, allowed_paths: allowed };
 }
 
-export function integrationParams(head: string, policy: MergePolicy | null = authorizedPolicy(), allowed?: string[]) {
+const APPROVED_ASSESSMENT: ReviewAssessment = {
+  level: "L0",
+  category: "revisão simulada",
+  reason: "parecer de fixture do harness",
+  confidence: "high",
+  requires_human_judgment: false,
+  scope_drift: false,
+};
+
+export function integrationParams(
+  head: string,
+  policy: MergePolicy | null = authorizedPolicy(),
+  allowed?: string[],
+  assessment: ReviewAssessment | null = APPROVED_ASSESSMENT,
+) {
   return {
     repo: REPO,
     number: PR_NUMBER,
     expected_head_sha: head,
     policy,
     ticket: ticketFacts(allowed),
-    reviewer: REVIEWER,
+    reviewer: null,
+    review: { head_sha: head, approved: true, assessment },
   };
 }
 
@@ -145,9 +162,18 @@ function reviewRequest(head: string): ReviewRequest {
 
 function reviewJson(head: string, s: ReviewScript): string {
   return JSON.stringify({
-    schema_version: 1,
+    schema_version: 2,
     verdict: s.verdict,
     reviewed_sha: head,
+    risk_assessment: {
+      level: "L0",
+      category: "revisão simulada",
+      reason: "parecer de fixture do harness",
+      evidence: ["test/pipeline.test.ts:1"],
+      confidence: "high",
+    },
+    requires_human_judgment: false,
+    scope_drift: false,
     criteria: [{ id: "AC-1", status: s.verdict === "approve" ? "pass" : "fail", evidence: "test/pipeline.test.ts:1" }],
     findings: Array.from({ length: s.blocking }, (_, i) => ({
       file: "src/orchestrator/fix-loop.ts",
@@ -198,6 +224,7 @@ export async function runDelivery(sc: Scenario, stateDir: string): Promise<RunRe
   const turns: TurnRecord[] = [roleTurn("planner"), roleTurn("implementer")];
   const transitions: string[] = [];
   const reviews: RunResult["reviews"] = [];
+  let assessment: ReviewAssessment | null = null;
   const ci: RunResult["ci"] = [];
   const integrations: RunResult["integrations"] = [];
   const redeliveries: string[] = [];
@@ -243,6 +270,7 @@ export async function runDelivery(sc: Scenario, stateDir: string): Promise<RunRe
       turns.push(roleTurn("reviewer"));
       raw = reviewJson(head, script);
       const result: ReviewResult = await reviewer.request(reviewRequest(head));
+      assessment = reviewAssessment(result);
       reviews.push({ head, verdict: result.verdict });
       if (result.verdict !== "unverified") {
         github.setCheck({
@@ -278,7 +306,7 @@ export async function runDelivery(sc: Scenario, stateDir: string): Promise<RunRe
     }
     if (action.kind === "approved") {
       if (sc.raceHeadOnMerge) github.raceHeadOnMerge = sha(99);
-      const params = integrationParams(head, policy, allowed);
+      const params = integrationParams(head, policy, allowed, assessment);
       const first = await requestIntegration(params, { github, store: integ });
       integrations.push(summarize(first));
       if (sc.duplicateEvent) integrations.push(summarize(await requestIntegration(params, { github, store: integ })));

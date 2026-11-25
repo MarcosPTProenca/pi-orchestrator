@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FixLoopStore } from "../src/orchestrator/fix-loop.ts";
@@ -17,7 +17,16 @@ import {
   type MergeGithub,
   type PrSnapshot,
 } from "../src/shared/merge-gate.ts";
-import { MergePolicyStore, defaultMergePolicy } from "../src/shared/merge-policy.ts";
+import { MergePolicyStore, defaultMergePolicy, type ReviewAssessment } from "../src/shared/merge-policy.ts";
+
+const ASSESS: ReviewAssessment = {
+  level: "L0",
+  category: "fixture",
+  reason: "fixture de aprovação",
+  confidence: "high",
+  requires_human_judgment: false,
+  scope_drift: false,
+};
 
 const REPO = "MarcosPTProenca/pi-orchestrator";
 const PR_URL = `https://github.com/${REPO}/pull/200`;
@@ -29,9 +38,12 @@ const delegate = { project_path: "/tmp/repo", request: "faça", objective: "obj"
 
 const approveJson = (head: string, over: Record<string, unknown> = {}) =>
   JSON.stringify({
-    schema_version: 1,
+    schema_version: 2,
     verdict: "approve",
     reviewed_sha: head,
+    risk_assessment: { level: "L1", category: "local", reason: "ajuste", evidence: ["src/x.ts:1"], confidence: "high" },
+    requires_human_judgment: false,
+    scope_drift: false,
     criteria: [{ id: "AC-1", status: "pass", evidence: "src/x.ts:1" }],
     findings: [],
     suggestions: [],
@@ -40,9 +52,18 @@ const approveJson = (head: string, over: Record<string, unknown> = {}) =>
 
 const rejectJson = (head: string) =>
   JSON.stringify({
-    schema_version: 1,
+    schema_version: 2,
     verdict: "request_changes",
     reviewed_sha: head,
+    risk_assessment: {
+      level: "L0",
+      category: "fixture",
+      reason: "fixture",
+      evidence: ["src/x.ts:9"],
+      confidence: "high",
+    },
+    requires_human_judgment: false,
+    scope_drift: false,
     criteria: [{ id: "AC-1", status: "fail", evidence: "src/x.ts:9" }],
     findings: [{ file: "src/x.ts", line: 9, cause: "falta teste", blocking: true }],
     suggestions: [],
@@ -70,6 +91,9 @@ test("veredito de head antigo é ignorado; head inválido é recusado", () => {
   recordReviewVerdict(d, approveJson(OLD), OLD, false);
   assert.equal(readReview(d, HEAD), null, "review de outro head não vale");
   assert.equal(readReview(dir(), HEAD), null, "sem arquivo, sem veredito");
+  const antigo = dir();
+  writeFileSync(join(antigo, "review.json"), JSON.stringify({ ...JSON.parse(approveJson(HEAD)), schema_version: 1 }));
+  assert.equal(readReview(antigo, HEAD), null, "review no schema antigo não autoriza nada");
   assert.throws(() => recordReviewVerdict(d, approveJson("abc"), "abc", false), /40 hex/);
 });
 
@@ -150,7 +174,11 @@ function githubFake(snap: PrSnapshot | null = pr()) {
 const request = (
   policy: ReturnType<typeof repoPolicyFor>,
   ticket = ticketFor(T_A),
-  review = { head_sha: HEAD, approved: true },
+  review: { head_sha: string; approved: boolean; assessment?: ReviewAssessment | null } = {
+    head_sha: HEAD,
+    approved: true,
+    assessment: ASSESS,
+  },
 ) => ({
   repo: REPO,
   number: 200,
@@ -202,7 +230,7 @@ test("review reprovado ou de outro head bloqueia o merge mesmo com autorização
   const ticket = { ...ticketFor(T_A), branch: "feat/x", allowed_paths: ["src/"] };
   for (const review of [
     { head_sha: HEAD, approved: false },
-    { head_sha: OLD, approved: true },
+    { head_sha: OLD, approved: true, assessment: ASSESS },
   ]) {
     const { github, merges } = githubFake();
     const res = await requestIntegration(request(policy, ticket, review), {
@@ -294,7 +322,7 @@ test("encadeamento do checkPr: PR aberta -> review -> merge_eligible -> merged -
       policy,
       ticket,
       reviewer: null,
-      review: { head_sha: HEAD, approved: true },
+      review: { head_sha: HEAD, approved: true, assessment: ASSESS },
     },
     { github: gh, store: integ },
   );

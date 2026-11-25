@@ -1,4 +1,5 @@
 import { OUTPUT_CONTRACT, type ReviewResult } from "../shared/review.ts";
+import type { ReviewAssessment } from "../shared/merge-policy.ts";
 import type { FixEvent } from "./fix-loop.ts";
 
 export function reviewEvent(r: ReviewResult): FixEvent {
@@ -7,6 +8,19 @@ export function reviewEvent(r: ReviewResult): FixEvent {
     head_sha: r.reviewed_sha,
     verdict: r.verdict,
     blocking: r.findings.filter((f) => f.blocking).length,
+  };
+}
+
+export function reviewAssessment(r: ReviewResult): ReviewAssessment | null {
+  const a = r.risk_assessment;
+  if (!a) return null;
+  return {
+    level: a.level,
+    category: a.category,
+    reason: a.reason,
+    confidence: a.confidence,
+    requires_human_judgment: r.requires_human_judgment,
+    scope_drift: r.scope_drift,
   };
 }
 

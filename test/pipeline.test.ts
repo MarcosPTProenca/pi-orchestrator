@@ -234,7 +234,20 @@ test("aprovação obsoleta não vale: review do head anterior não autoriza o he
     status: "COMPLETED",
     conclusion: "SUCCESS",
   });
-  const fresh = decideIntegration({ ...input, pr: (await gh.snapshot()).pr });
+  const parecer = {
+    level: "L0" as const,
+    category: "fixture",
+    reason: "fixture",
+    confidence: "high" as const,
+    requires_human_judgment: false,
+    scope_drift: false,
+  };
+  const fresh = decideIntegration({
+    ...input,
+    reviewer: null,
+    review: { head_sha: sha(2), approved: true, assessment: parecer },
+    pr: (await gh.snapshot()).pr,
+  });
   assert.equal(fresh.decision, "merge_requested");
 });
 
