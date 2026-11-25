@@ -1,8 +1,11 @@
 import { workerSessionFile } from "../shared/session-file.ts";
 import { resolveModel } from "../shared/models.ts";
 import { workerAgentName, workerTabName } from "../shared/label.ts";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { toExecutionTicket, validationFromScripts, type ExecutionTicket } from "../shared/execution-ticket.ts";
+import { TICKET_FILE } from "../shared/plan.ts";
 import { clampLines, maskSecrets } from "../shared/logs.ts";
 import { summarizeTurns, type TurnRecord } from "../shared/usage.ts";
 import { classifyFailure } from "../policy/failure.ts";
@@ -52,6 +55,36 @@ function proximoPasso(status: TaskStatus): string {
     default:
       return "use orch_delegate para uma tarefa nova";
   }
+}
+
+function ticketForDelegate(
+  input: DelegateInput,
+  model: string | null,
+  ids: { taskId: string; reportPath: string },
+): ExecutionTicket | null {
+  if (!input.acceptance || input.acceptance.length === 0) return null;
+  const head = (() => {
+    try {
+      return execFileSync("git", ["rev-parse", "HEAD"], { cwd: input.project_path, encoding: "utf8" }).trim();
+    } catch {
+      return null;
+    }
+  })();
+  const pkg = join(input.project_path, "package.json");
+  const manifest = existsSync(pkg)
+    ? (JSON.parse(readFileSync(pkg, "utf8")) as { scripts?: Record<string, string> })
+    : {};
+  return toExecutionTicket(
+    { ...input, model: model ?? undefined },
+    {
+      task_id: ids.taskId,
+      attempt_id: `${ids.taskId}-a1`,
+      report_path: ids.reportPath,
+      base_sha: head,
+      head_sha: null,
+      validation: validationFromScripts(manifest.scripts ?? {}),
+    },
+  );
 }
 
 function sameWork(a: DelegateInput, b: DelegateInput): string | null {
@@ -278,11 +311,13 @@ export class Orchestrator {
     const taskId = `t-${this.d.newHex()}`;
     const workerId = workerAgentName(input.project_path, taskId.slice(2));
     const taskDir = join(this.d.tasksDir, taskId);
-    mkdirSync(taskDir, { recursive: true });
     const briefPath = join(taskDir, "brief.md");
     const reportPath = join(taskDir, "report.json");
+    const ticket = ticketForDelegate(input, model ?? null, { taskId, reportPath });
+    mkdirSync(taskDir, { recursive: true });
 
     writeFileSync(briefPath, maskSecrets(renderBrief(taskId, intake, reportPath)));
+    if (ticket) writeFileSync(join(taskDir, TICKET_FILE), `${JSON.stringify(ticket, null, 2)}\n`);
 
     const deadlineAt = input.timeout_minutes ? this.iso(this.d.now() + input.timeout_minutes * 60_000) : null;
     const initialStatus: TaskStatus = this.d.dryRun ? "planned" : "starting";

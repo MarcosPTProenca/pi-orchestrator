@@ -56,6 +56,12 @@ const DELEGATE_ITEM = {
     },
     source: { type: "string", description: "URL da PR ou issue, quando houver." },
     branch: { type: "string", description: "Branch de trabalho. Omitida: o worker descobre a da PR citada." },
+    acceptance: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "Critérios de aceite verificáveis, copiados da fonte. Com critérios, a delegação grava ticket.json e o worker só publica dentro das ações do modo. Sem critérios, a tarefa segue sem ticket (legado).",
+    },
     spec: {
       type: "string",
       description: "Especificação de construção, só quando o pedido precisa de passos próprios.",
