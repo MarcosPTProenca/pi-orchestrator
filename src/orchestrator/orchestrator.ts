@@ -378,6 +378,8 @@ export class Orchestrator {
           label: workerTabName(input.role, taskId.slice(2)),
           env: {
             PI_ORCH_ROLE: "worker",
+            // keep: desliga o hook pessoal de PR review nesta sessão; a revisão da Factory é o orch_review_verdict (um review por PR/SHA).
+            PI_PR_REVIEW_CHILD: "1",
             PI_ORCH_TASK_ID: taskId,
             PI_ORCH_TASK_DIR: taskDir,
             ...(this.d.hookUrl && this.d.hookToken
@@ -408,7 +410,13 @@ export class Orchestrator {
       const launch = ["pi", ...piArgs];
       if (projected)
         // keep: o token do webhook fica fora do pane; qualquer leitura do pane o exporia.
-        launch.unshift("env", "PI_ORCH_ROLE=worker", `PI_ORCH_TASK_ID=${taskId}`, `PI_ORCH_TASK_DIR=${taskDir}`);
+        launch.unshift(
+          "env",
+          "PI_ORCH_ROLE=worker",
+          "PI_PR_REVIEW_CHILD=1",
+          `PI_ORCH_TASK_ID=${taskId}`,
+          `PI_ORCH_TASK_DIR=${taskDir}`,
+        );
       await this.d.herdr.runInPane(tab.pane_id, launch.map(shellQuote).join(" "));
       await this.d.herdr.renamePane(tab.pane_id, workerId).catch(() => undefined);
       return this.update(taskId, (t) => {
