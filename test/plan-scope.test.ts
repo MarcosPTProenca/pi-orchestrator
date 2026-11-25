@@ -8,7 +8,6 @@ import { PlanStore, itemOwnedBy, planOwnedBy } from "../src/orchestrator/plans.t
 import { ownsByRepo, scopeKey } from "../src/shared/lock.ts";
 import { makeHarness } from "./fakes.ts";
 
-// Duas sessões orquestradoras: uma do pi-orchestrator (repoA), outra do adaptative-learning (repoB).
 function twoRepos(): { repoA: string; repoB: string } {
   const parent = realpathSync(mkdtempSync(join(tmpdir(), "orch-plan-scope-")));
   const repoA = join(parent, "pi-orchestrator");
