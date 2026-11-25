@@ -15,6 +15,8 @@ Não altera `~/.pi/agent`. A extensão é carregada só pelos launchers `bin/pi-
 - Pi (`pi`) instalado; testado com 1.5.2.
 - Node.js 22 e npm (para os testes).
 
+Setup reprodutível e checagem de requisitos: ver [SETUP.md](SETUP.md) (`npm run bootstrap`, `npm run doctor`).
+
 ## Quickstart
 
 ### 1. Checagens (fora do Herdr)
