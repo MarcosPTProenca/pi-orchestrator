@@ -22,6 +22,13 @@ export function tailLog(text: string, max = MAX_LOG_CHARS): { text: string; trun
   return { text: `…${text.slice(text.length - max + 1)}`, truncated: true };
 }
 
+const MAX_LOG_ERROR_CHARS = 300;
+
+export function logError(err: unknown): Error {
+  const text = err instanceof Error ? err.message : String(err);
+  return new Error(maskSecrets(text).slice(0, MAX_LOG_ERROR_CHARS));
+}
+
 export function clampLines(n: number | undefined): number {
   if (n === undefined || !Number.isFinite(n)) return DEFAULT_LOG_LINES;
   return Math.min(Math.max(Math.trunc(n), 1), MAX_LOG_LINES);

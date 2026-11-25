@@ -37,3 +37,15 @@ test("segredos conhecidos são mascarados antes de devolver", () => {
   assert.match(out, /ok\n/);
   assert.match(out, /fim$/);
 });
+
+test("erro técnico do painel é mascarado e limitado antes de chegar ao LLM", async () => {
+  const h = makeHarness();
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "y", mode: "report" });
+  h.herdr.readRecent = () => Promise.reject(new Error(`falhou token=abc123secreto ${"x".repeat(1000)}`));
+  await assert.rejects(h.orch.logs(t.task_id), (err: Error) => {
+    assert.doesNotMatch(err.message, /abc123secreto/);
+    assert.match(err.message, /\[mascarado\]/);
+    assert.ok(err.message.length <= 300, `mensagem com ${err.message.length} caracteres`);
+    return true;
+  });
+});

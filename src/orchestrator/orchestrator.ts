@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, s
 import { basename, dirname, join } from "node:path";
 import { toExecutionTicket, validationFromScripts, type ExecutionTicket } from "../shared/execution-ticket.ts";
 import { TICKET_FILE } from "../shared/plan.ts";
-import { clampLines, maskSecrets } from "../shared/logs.ts";
+import { clampLines, logError, maskSecrets } from "../shared/logs.ts";
 import { summarizeTurns, type TurnRecord } from "../shared/usage.ts";
 import { classifyFailure } from "../policy/failure.ts";
 import { RELAUNCH_MARK, relaunchContext, relaunchNotice } from "./relaunch-context.ts";
@@ -799,7 +799,11 @@ export class Orchestrator {
     const owner = await this.ownership(t);
     if (owner === "missing") throw new Error("o painel da tarefa não existe mais; nada foi lido");
     if (owner === "mismatch") throw new Error("o painel trocou de agente; nada foi lido");
-    return maskSecrets(await this.d.herdr.readRecent(t.pane_id, clampLines(lines)));
+    try {
+      return maskSecrets(await this.d.herdr.readRecent(t.pane_id, clampLines(lines)));
+    } catch (err) {
+      throw logError(err);
+    }
   }
 
   async send(taskId: string, text: string): Promise<TaskRecord> {
