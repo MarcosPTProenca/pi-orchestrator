@@ -19,6 +19,7 @@ const limites = [
   "origem do turno indisponível no Pi; by_origin classifica só pelo gatilho observado",
   "usuario = mensagem de usuário do Pi, inclui prompts enviados por automação pelo terminal",
   "automatico = mensagem de extensão (custom_message) ou continuidade após ferramenta",
+  "cache_warm_cost_usd null = nenhuma entrada cache_warm observada (indisponível ou não disparou); 0 = observada com custo zero",
   "sem conteúdo de prompt: só contagens e somas",
 ];
 console.log(JSON.stringify({ ...usageReport(sessions), limites }, null, 2));
