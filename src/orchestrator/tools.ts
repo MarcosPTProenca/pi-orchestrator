@@ -313,6 +313,27 @@ export function registerOrchestratorTools(pi: ExtensionAPI, ctx: OrchestratorToo
   });
 
   pi.registerTool({
+    name: "orch_history",
+    label: "orch history",
+    description:
+      "Mostra a cronologia de uma tarefa: pergunta do worker, entrega ao orquestrador, mensagens e respostas enviadas, relatórios, com remetente, destinatário, status e ID correlacionado. Compacta por padrão (20 itens, texto até 160 caracteres); use offset/next_offset para próxima página e detail=true para o texto completo (até 1200 caracteres por item). Só lê: não consome aviso nem altera estado.",
+    parameters: {
+      type: "object",
+      properties: {
+        task_id: { type: "string" },
+        offset: { type: "number", description: "Item inicial, a partir de 0." },
+        limit: { type: "number", description: "Itens por página, de 1 a 50. Padrão 20." },
+        detail: { type: "boolean", description: "Traz o texto completo de cada item." },
+      },
+      required: ["task_id"],
+      additionalProperties: false,
+    },
+    execute(_id: string, params: { task_id: string; offset?: number; limit?: number; detail?: boolean }) {
+      return Promise.resolve(asText({ task_id: params.task_id, ...orch.history(params.task_id, params) }));
+    },
+  });
+
+  pi.registerTool({
     name: "orch_send",
     label: "orch send",
     description:
