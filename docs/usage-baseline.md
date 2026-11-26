@@ -125,11 +125,37 @@ Rodadas feitas depois do merge da PR #211, sem alterar código. Cada rodada é o
 
 **C1 (worker, com `worker-ext`):** 3 de 3 rodadas completas e 10 de 10 execuções na forma de produção fecharam com `orch_report`. Nenhuma query do worker travou.
 
-**Travamentos (5 de 33 queries de sessão comum):** em todos, a query recebe o primeiro chunk e não recebe mais nada. O bridge registra `fresh query` sem `for-await loop exited`. A rajada da rodada 1 travou nas duas queries ao mesmo tempo. Num caso, o CLI do Claude só registrou `Mid-stream server error after 1 block(s) yielded` cerca de 200 s depois do primeiro chunk. Nas sessões comuns não existe watchdog: a proteção de 90 s vale só para o worker.
+**Travamentos (5 de 33 queries do bridge, nas três rodadas; nenhum na delegação do worker):** em todos, a query recebe o primeiro chunk e não recebe mais nada. Os 33 contam todas as queries do bridge, inclusive as do worker (C1, 3 turnos por rodada); nenhuma delas travou. O bridge registra `fresh query` sem `for-await loop exited`. A rajada da rodada 1 travou nas duas queries ao mesmo tempo. Num caso, o CLI do Claude só registrou `Mid-stream server error after 1 block(s) yielded` cerca de 200 s depois do primeiro chunk. Nas sessões comuns não existe watchdog: a proteção de 90 s vale só para o worker.
 
-**Vazamento de processo:** depois que o timeout encerrou o `pi`, um processo `claude` filho continuou vivo, reparentado ao `init`, por mais de 3 min. Ele começou no mesmo instante da query travada da rodada 3 (E2). Não está no repositório: vem do `pi-claude-bridge` 0.12.0. Este é o mesmo vazamento da classe D.
+**Vazamento de processo:** depois que o timeout encerrou o `pi`, um processo `claude` filho continuou vivo, reparentado ao `init`, por mais de 3 min. Ele começou no mesmo instante da query travada da rodada 3 (E2). Reproduzido de forma determinística com um servidor que trava o stream: 1 processo órfão com o SIGKILL antigo, 0 com o harness novo (PR #213). Não está no repositório: vem do `pi-claude-bridge` 0.12.0. Este é o mesmo vazamento da classe D.
 
-**Decisão pendente:** aplicar o watchdog também às sessões comuns (orquestrador e `pi` interativo). Isso aborta e retoma o turno do usuário, então muda comportamento visível. Não foi feito sem aprovação.
+**Decisão tomada:** o watchdog fica só nos workers. Não é aplicado ao orquestrador nem ao `pi` interativo. Eles não têm proteção contra stream travado: essa lacuna fica registrada aqui. Limitações de custo informado e de aquecimento de cache estão na issue #214.
+
+## Monitor de stream (só workers): quando dispara, como interrompe e retoma
+
+O monitor fica em `src/worker/stall-watchdog.ts` e é ligado pelo `worker-ext`. Não roda no orquestrador nem no `pi` interativo.
+
+**Quando dispara:** 90 s sem nenhum `message_update` enquanto o modelo deveria estar streamando. Durante execução de ferramenta o timer é pausado, porque um `bash` longo não emite atualizações. Evidência, do E2E com provedor falso (`stall.log` e registros da sessão):
+
+| Momento (UTC) | Evento                                               |
+| ------------- | ---------------------------------------------------- |
+| 16:52:12,510  | prompt do usuário (`Execute a tarefa do brief.`)     |
+| 16:53:43,285  | turno abortado, `Request was aborted` (~91 s depois) |
+| 16:53:43,307  | `stall.log`: `stall abort retry=1`                   |
+| 16:53:43,371  | prompt de retomada enviado (66 ms depois do abort)   |
+
+**Como interrompe:** `ctx.abort()`. No servidor, a conexão é fechada pelo cliente ("abort observado").
+
+**Como retoma:** `agent_end` só marca a retomada. O envio acontece em `agent_settled`, com o agente ocioso. Envio dentro de `agent_end` falha com "Agent is already processing". Até 2 retomadas. Esgotadas, o worker termina com relatório `failed` por fallback, em 290 s.
+
+**Falsos positivos medidos:** 44 execuções reais de worker criadas depois da versão com monitor, todas com relatório. Nenhuma tem `stall.log`. Os 7 `stall.log` que existem são dos testes E2E, que travam de propósito.
+
+**Riscos para a decisão:**
+
+- Um turno real com mais de 90 s sem nenhum `message_update` seria abortado e retomado. Não medi a pausa máxima de um turno saudável, só que nenhum disparou em 44 execuções.
+- A retomada repete trabalho. O turno abortado fica no histórico da sessão, e o modelo pode refazer o que já tinha feito.
+- Travamento dentro de ferramenta não é coberto pelo monitor; o timeout de 900 s do `bash` cobre só o `bash`.
+- Orquestrador e `pi` interativo continuam sem proteção contra stream travado, por decisão.
 
 ## Pendências
 
