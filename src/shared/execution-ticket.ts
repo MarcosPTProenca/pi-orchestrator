@@ -1,5 +1,6 @@
 import { buildIntake, MODES, type IntakeInput, type IntakePack, type Mode } from "./intake.ts";
 import { maskSecrets } from "./logs.ts";
+import { invalidToolRelease, isToolRelease } from "./worker-tools.ts";
 
 export const TICKET_SCHEMA_VERSION = 1;
 const POLICY_SCHEMA_VERSION = 1;
@@ -89,11 +90,17 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-export function toExecutionTicket(input: IntakeInput & { acceptance?: string[] }, ctx: TicketContext): ExecutionTicket {
+export function toExecutionTicket(
+  input: IntakeInput & { acceptance?: string[]; allowed_tools?: string[] },
+  ctx: TicketContext,
+): ExecutionTicket {
   const pack = buildIntake(input);
   const criteria = criteriaFor(input.acceptance, pack);
   const ready = criteria !== null;
   const grant = GRANTS[pack.mode];
+  const releases = input.allowed_tools ?? [];
+  const badRelease = invalidToolRelease(releases);
+  if (badRelease) throw new Error(badRelease);
   return deepFreeze({
     schema_version: TICKET_SCHEMA_VERSION,
     task_id: ctx.task_id,
@@ -114,7 +121,7 @@ export function toExecutionTicket(input: IntakeInput & { acceptance?: string[] }
     authority: ready
       ? { execute_plan: grant.execute_plan, integrate: grant.integrate }
       : { execute_plan: false, integrate: false },
-    allowed_actions: ready ? [...grant.actions] : [],
+    allowed_actions: ready ? [...grant.actions, ...releases] : [],
     status: ready ? "ready" : "needs_clarification",
     clarification: ready ? null : `sem critérios de aceite verificáveis para o modo ${pack.mode}: informe acceptance`,
     acceptance: criteria ?? [],
@@ -199,7 +206,14 @@ export function parseExecutionTicket(raw: unknown): ExecutionTicket {
   if (status === "ready" && acceptance.length === 0) throw new Error("ticket pronto sem critérios de aceite");
   const grant = status === "ready" ? GRANTS[mode as Mode] : { execute_plan: false, integrate: false, actions: [] };
   const allowed = strList(o, "allowed_actions");
-  if (!sameList(allowed, grant.actions)) throw new Error(`allowed_actions incompatível com o modo ${mode}`);
+  if (
+    !sameList(
+      allowed.filter((a) => !isToolRelease(a)),
+      grant.actions,
+    )
+  ) {
+    throw new Error(`allowed_actions incompatível com o modo ${mode}`);
+  }
   if (authority.execute_plan !== grant.execute_plan || authority.integrate !== grant.integrate) {
     throw new Error(`authority incompatível com o modo ${mode}`);
   }

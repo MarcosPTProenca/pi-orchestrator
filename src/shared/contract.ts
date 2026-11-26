@@ -68,6 +68,7 @@ export interface TaskRecord {
   model: string | null;
   mode?: string;
   delegate_input?: Record<string, unknown> | null;
+  released_tools?: string[];
   relaunched_from?: string | null;
 }
 

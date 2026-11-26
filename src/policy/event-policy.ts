@@ -17,6 +17,9 @@ export const EVENT_POLICY = {
   // keep: decision aqui tem orch_send/orch_close/orch_cancel/orch_release reais; herdr-check-failed e readonly-session não têm ação possível.
   "plan-launched": "decision",
   "plan-transition": "decision",
+  // keep: revisão de escopo pede ao LLM o subagent oracle; fora do escopo bloqueia o item e pede decisão do usuário.
+  "scope-review": "decision",
+  "scope-blocked": "decision",
   "idle-candidates": "decision",
   "worker-stalled": "decision",
   "herdr-check-failed": "routine",

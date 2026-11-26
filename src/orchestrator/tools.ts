@@ -17,6 +17,8 @@ import { tailLog } from "../shared/logs.ts";
 import { closeBlocker, idleReport } from "./idle.ts";
 import type { orchestratorUsage } from "../shared/usage.ts";
 import { asText, compactEvent, formatBrasilia, INBOX_MAX_ITEMS, projectLabel } from "./messages.ts";
+import { readVision } from "../shared/intake.ts";
+import { missingVisionNotice } from "./scope.ts";
 
 export interface OrchestratorToolContext {
   orch: Orchestrator;
@@ -29,6 +31,7 @@ export interface OrchestratorToolContext {
   chooseModel: (requested: string | undefined) => Promise<{ model: string | undefined; reason: string }>;
   startTask: (input: DelegateInput) => Promise<string>;
   launchReady: (planId: string) => Promise<void>;
+  scopeVerdict: (taskId: string, raw: string) => Promise<string>;
   usage: () => ReturnType<typeof orchestratorUsage> | null;
 }
 
@@ -65,6 +68,12 @@ const DELEGATE_ITEM = {
     spec: {
       type: "string",
       description: "Especificação de construção, só quando o pedido precisa de passos próprios.",
+    },
+    allowed_tools: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "Ferramentas liberadas além da política do modo, só quando o trabalho precisa de um sistema externo (ex.: mcp__plane__* para ler o tracker). Padrão: nenhuma. Ficam registradas na tarefa.",
     },
     model: {
       type: "string",
@@ -121,7 +130,10 @@ export function registerOrchestratorTools(pi: ExtensionAPI, ctx: OrchestratorToo
       if (full) throw new Error(full);
       orch.checkBatch(inputs);
       const started = [];
+      const notices: string[] = [];
       for (const input of inputs) {
+        const vn = missingVisionNotice(input.project_path, readVision(input.project_path));
+        if (vn) notices.push(vn);
         const task = await orch.delegate(input);
         started.push({
           task_id: task.task_id,
@@ -134,7 +146,12 @@ export function registerOrchestratorTools(pi: ExtensionAPI, ctx: OrchestratorToo
           brief: task.brief_path,
         });
       }
-      return asText({ started_count: started.length, dry_run: dryRun, started });
+      return asText({
+        started_count: started.length,
+        dry_run: dryRun,
+        started,
+        ...(notices.length ? { notices } : {}),
+      });
     },
   });
 
@@ -460,6 +477,26 @@ export function registerOrchestratorTools(pi: ExtensionAPI, ctx: OrchestratorToo
       },
     });
   }
+
+  pi.registerTool({
+    name: "orch_scope_verdict",
+    label: "orch scope verdict",
+    description:
+      "Registra o parecer da revisão de escopo (subagent oracle, contexto limpo) de um item cujo worker reportou done. raw é o JSON do subagent: verdict (aligned, out_of_scope, unverified) e reason. Parecer fora do escopo bloqueia o item.",
+    parameters: {
+      type: "object",
+      properties: {
+        task_id: { type: "string" },
+        raw: { type: "string", description: "JSON do subagent, sem alterações" },
+      },
+      required: ["task_id", "raw"],
+      additionalProperties: false,
+    },
+    async execute(_id: string, params: { task_id: string; raw: string }) {
+      assertWritable();
+      return asText(await ctx.scopeVerdict(params.task_id, params.raw));
+    },
+  });
 
   pi.registerTool({
     name: "orch_plan_update",

@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, s
 import { basename, dirname, join } from "node:path";
 import { toExecutionTicket, validationFromScripts, type ExecutionTicket } from "../shared/execution-ticket.ts";
 import { TICKET_FILE } from "../shared/plan.ts";
+import { invalidToolRelease, workerToolArgs, workerToolSet } from "../shared/worker-tools.ts";
 import { clampLines, logError, maskSecrets } from "../shared/logs.ts";
 import { summarizeTurns, type TurnRecord } from "../shared/usage.ts";
 import { classifyFailure } from "../policy/failure.ts";
@@ -307,12 +308,16 @@ export class Orchestrator {
     opts: { forkSession?: string; briefRevised?: boolean } = {},
   ): Promise<TaskRecord> {
     const input = this.d.enrichSource ? await this.d.enrichSource(rawInput) : rawInput;
+    const badRelease = invalidToolRelease(input.allowed_tools ?? []);
+    if (badRelease) throw new Error(badRelease);
     this.assertNotActive(input);
     const model = this.d.chooseModel
       ? (await this.d.chooseModel(input.model)).model
       : resolveModel(input.model, this.d.availableModels());
     const projectId = this.projectIdFor(input.project_path);
     const intake = buildIntake({ ...input, model });
+    const releases = input.allowed_tools ?? [];
+    const toolPolicy = JSON.stringify({ mode: intake.mode, allowed: workerToolSet(intake.mode, releases) });
     const projected = this.d.presentationSpaces === true && !this.d.dryRun;
     if (projected) await this.assertSpacesFloor();
 
@@ -340,6 +345,7 @@ export class Orchestrator {
       model: model ?? null,
       mode: input.mode,
       delegate_input: rawInput as unknown as Record<string, unknown>,
+      released_tools: releases,
       role: input.role,
       worker_id: workerId,
       workspace_id: "",
@@ -390,6 +396,7 @@ export class Orchestrator {
             PI_PR_REVIEW_CHILD: "1",
             PI_ORCH_TASK_ID: taskId,
             PI_ORCH_TASK_DIR: taskDir,
+            PI_ORCH_TOOL_POLICY: toolPolicy,
             ...(this.d.hookUrl && this.d.hookToken
               ? { PI_ORCH_HOOK_URL: this.d.hookUrl, PI_ORCH_HOOK_TOKEN: this.d.hookToken }
               : {}),
@@ -404,7 +411,8 @@ export class Orchestrator {
         t.terminal_id = tab.terminal_id;
       });
       // keep: o Herdr recusa texto multilinha em argumento; o brief completo chega pela extensão do worker.
-      const piArgs = ["-e", this.d.workerExtPath];
+      // keep: --tools é lista de permissão; sem ela o worker herdaria todas as ferramentas e servidores MCP do usuário.
+      const piArgs = ["-e", this.d.workerExtPath, ...workerToolArgs(intake.mode, releases)];
       if (opts.forkSession) piArgs.push("--fork", opts.forkSession);
       if (model) piArgs.push("--model", model);
       piArgs.push(
@@ -424,6 +432,7 @@ export class Orchestrator {
           "PI_PR_REVIEW_CHILD=1",
           `PI_ORCH_TASK_ID=${taskId}`,
           `PI_ORCH_TASK_DIR=${taskDir}`,
+          `PI_ORCH_TOOL_POLICY=${toolPolicy}`,
         );
       await this.d.herdr.runInPane(tab.pane_id, launch.map(shellQuote).join(" "));
       await this.d.herdr.renamePane(tab.pane_id, workerId).catch(() => undefined);
