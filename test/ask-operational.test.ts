@@ -108,3 +108,21 @@ test("texto do aviso manda responder por orch_send só com autorização e escal
   assert.match(msg, /não use orch_answer/i);
   assert.match(msg, /Reutilizar qual contrato\?/);
 });
+
+test("worker ocioso aguardando resposta falha com motivo de pergunta sem resposta, não de relatório", async () => {
+  const { h, t } = await startTask();
+  await askAndNotice(h, t, entry("a1"));
+  const idle = (minutes: number) => {
+    h.clock.ms += minutes * 60_000;
+    h.herdr.panesList = h.herdr.panesList.map((p) =>
+      p.pane_id === t.pane_id ? { ...p, agent: "pi", agent_status: "idle" } : p,
+    );
+    return h.orch.refresh(t.task_id);
+  };
+  await idle(0);
+  await idle(11);
+  const after = h.orch.get(t.task_id);
+  assert.equal(after.status, "failed", "sem resposta, o limite de ociosidade ainda encerra a tarefa");
+  assert.match(after.error ?? "", /aguard\w* resposta/, "o motivo diz que faltou resposta à pergunta");
+  assert.doesNotMatch(after.error ?? "", /não entregou relatório/);
+});

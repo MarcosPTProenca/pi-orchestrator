@@ -945,11 +945,11 @@ export class Orchestrator {
     if (now - since < IDLE_NO_REPORT_MS) return null;
     this.idleSince.delete(taskId);
     const min = Math.round(IDLE_NO_REPORT_MS / 60_000);
-    return this.setTerminal(
-      taskId,
-      "failed",
-      `worker ficou ocioso por ${min} min sem chamar orch_report; a tarefa não entregou relatório. Veja orch_logs e relance se necessário.`,
-    );
+    const ask = this.get(taskId).pending_ask;
+    const error = ask
+      ? `worker ficou ocioso por ${min} min aguardando resposta à pergunta "${ask.question.slice(0, 160)}"; a resposta não chegou. Responda com orch_send ou relance se necessário.`
+      : `worker ficou ocioso por ${min} min sem chamar orch_report; a tarefa não entregou relatório. Veja orch_logs e relance se necessário.`;
+    return this.setTerminal(taskId, "failed", error);
   }
 
   async cancel(taskId: string): Promise<TaskRecord> {
