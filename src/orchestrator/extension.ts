@@ -217,7 +217,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         { triggerTurn: batch.some((b) => wakesLlm(statusKind(b.event.status))) },
       );
       // keep: confirma só após o envio; se sendMessage lançar, o batcher tenta de novo e o pendente persiste.
-      for (const b of batch) orch.markDelivered(b.event.task_id, b.event.status);
+      for (const b of batch) orch.markEventDelivered(b.event);
     },
     undefined,
     3,
@@ -226,24 +226,29 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     },
   );
 
+  // keep: o aviso de pergunta leva o contrato do Oracle; o replay de pergunta pendente usa o mesmo texto.
+  const askTextFor = (event: WatchEvent): string => {
+    const task = orch.get(event.task_id);
+    const delegate = task.delegate_input as unknown as DelegateInput | null;
+    const contract = oracleContract({
+      taskId: event.task_id,
+      askId: event.ask_id ?? "",
+      question: event.question ?? "",
+      askContext: event.result ?? "",
+      projectLabel: projectLabel(task.project_id),
+      projectPath: task.project_path,
+      objective: delegate?.objective ?? "",
+      source: delegate?.source ?? task.source ?? null,
+      visionPath: join(task.project_path, VISION_FILE),
+    });
+    return askMessageFor(event, contract);
+  };
+
   const announce = async (event: WatchEvent): Promise<void> => {
     if (event.kind === "ask") {
-      const task = orch.get(event.task_id);
-      const delegate = task.delegate_input as unknown as DelegateInput | null;
-      const contract = oracleContract({
-        taskId: event.task_id,
-        askId: event.ask_id ?? "",
-        question: event.question ?? "",
-        askContext: event.result ?? "",
-        projectLabel: projectLabel(task.project_id),
-        projectPath: task.project_path,
-        objective: delegate?.objective ?? "",
-        source: delegate?.source ?? task.source ?? null,
-        visionPath: join(task.project_path, VISION_FILE),
-      });
       notices.push({
-        key: `${event.task_id}:ask:${event.question}`,
-        text: askMessageFor(event, contract),
+        key: `${event.task_id}:ask:${event.ask_id ?? event.question}`,
+        text: askTextFor(event),
         event,
       });
       return;
@@ -873,11 +878,11 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     if (pending.length > 0) {
       emitEvent(eventSink, EVENT_POLICY["pending-replay"], {
         customType: "orch-event",
-        content: pending.map((e) => modelMessageFor(e)).join("\n\n---\n\n"),
+        content: pending.map((e) => (e.kind === "ask" ? askTextFor(e) : modelMessageFor(e))).join("\n\n---\n\n"),
         display: false,
         details: { pending: pending.map((e) => e.task_id) },
       });
-      for (const e of pending) orch.markDelivered(e.task_id, e.status);
+      for (const e of pending) orch.markEventDelivered(e);
     }
   });
 

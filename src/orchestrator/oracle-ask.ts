@@ -92,7 +92,8 @@ export function settleOracleVerdict(input: SettleInput): string {
   const verdict = parsed?.verdict ?? "failed";
   if (!recordOracleVerdict(input.taskDir, input.askId, verdict))
     throw new Error(`já há parecer para a pergunta ${input.askId}; não consulte de novo: escale ao usuário`);
-  const escalate = `Para o worker encerrar sem decidir, orch_send(task_id="${input.taskId}", text=<instrução para orch_report status blocked com a pergunta>) sem ask_id, e informe o usuário da pergunta e do task_id.`;
+  // keep: sem parecer answered o worker não recebe orientação; a pergunta segue pendente até a decisão do usuário.
+  const escalate = `Não responda ao worker: informe o usuário da pergunta e do task_id (${input.taskId}); a pergunta segue pendente até a decisão dele.`;
   if (!parsed)
     return `Oracle não entregou parecer válido (${failure}). Consulta encerrada: não consulte de novo. ${escalate}`;
   if (parsed.verdict === "answered")

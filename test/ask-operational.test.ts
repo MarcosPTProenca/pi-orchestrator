@@ -2,10 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { makeHarness, writeReport } from "./fakes.ts";
+import { makeHarness, reopenHarness, writeReport } from "./fakes.ts";
 import { asWorker, reportDone } from "./worker-harness.ts";
 import { appendAsk } from "../src/shared/ask.ts";
 import { askMessageFor } from "../src/orchestrator/messages.ts";
+import { settleOracleVerdict } from "../src/orchestrator/oracle-ask.ts";
 
 const entry = (id: string, question = "Reutilizar qual contrato?") => ({
   id,
@@ -15,8 +16,9 @@ const entry = (id: string, question = "Reutilizar qual contrato?") => ({
   asked_at: "2026-11-16T12:00:00Z",
 });
 
-async function startTask() {
+async function startTask(owner?: string) {
   const h = makeHarness();
+  if (owner !== undefined) h.orch.setScope(owner);
   const t = await h.orch.delegate({
     project_path: h.project,
     role: "a",
@@ -27,6 +29,12 @@ async function startTask() {
   return { h, t };
 }
 
+// keep: resposta com ask_id só segue com parecer answered do Oracle; este helper grava esse parecer como orch_ask_verdict faria.
+function oracleAnswered(taskId: string, taskDir: string, askId: string): void {
+  const raw = JSON.stringify({ verdict: "answered", answer: "use o helper", reason: "spec cita o helper" });
+  settleOracleVerdict({ taskId, taskDir, askId, raw });
+}
+
 async function askAndNotice(
   h: Awaited<ReturnType<typeof startTask>>["h"],
   t: Awaited<ReturnType<typeof startTask>>["t"],
@@ -34,6 +42,7 @@ async function askAndNotice(
 ) {
   appendAsk(t.task_dir, e);
   await h.orch.refresh(t.task_id);
+  oracleAnswered(t.task_id, t.task_dir, e.id);
   return h.orch.noticeFor(t.task_id);
 }
 
@@ -68,7 +77,7 @@ test("a mesma pergunta não é avisada duas vezes", async () => {
 test("send responde a pergunta pelo canal do worker, sem orch_answer, e a tarefa segue running", async () => {
   const { h, t } = await startTask();
   await askAndNotice(h, t, entry("a1"));
-  await h.orch.send(t.task_id, "use o helper de src/shared/x.ts");
+  await h.orch.send(t.task_id, "use o helper de src/shared/x.ts", "a1");
   const prompts = h.herdr.opsOf("prompt");
   assert.equal(prompts.length, 1, "a resposta vai como mensagem ao painel do worker");
   assert.equal(h.orch.get(t.task_id).status, "running");
@@ -80,7 +89,7 @@ test("send responde a pergunta pelo canal do worker, sem orch_answer, e a tarefa
 test("pergunta nova depois de uma respondida gera novo aviso", async () => {
   const { h, t } = await startTask();
   await askAndNotice(h, t, entry("a1"));
-  await h.orch.send(t.task_id, "resposta 1");
+  await h.orch.send(t.task_id, "resposta 1", "a1");
   appendAsk(t.task_dir, entry("a2", "Usar o módulo B?"));
   await h.orch.refresh(t.task_id);
   const ev = await h.orch.noticeFor(t.task_id);
@@ -142,9 +151,175 @@ test("sequência completa: worker pergunta, orquestrador responde, worker conclu
     const ev = await h.orch.noticeFor(t.task_id);
     assert.equal(ev?.kind, "ask");
     assert.equal(h.orch.get(t.task_id).status, "running");
-    await h.orch.send(t.task_id, "use o helper de src/shared/x.ts");
+    oracleAnswered(t.task_id, t.task_dir, ev?.ask_id ?? "");
+    await h.orch.send(t.task_id, "use o helper de src/shared/x.ts", ev?.ask_id);
     assert.equal(h.herdr.opsOf("prompt").length, 1);
 
     await reportDone({ tools, startTurn, endTurn }, h.orch, t.task_id, "PR aberta");
   });
+});
+
+test("reinício depois do aviso e antes da entrega reenvia a pergunta pendente uma vez", async () => {
+  const { h, t } = await startTask();
+  appendAsk(t.task_dir, entry("a1"));
+  await h.orch.refresh(t.task_id);
+  assert.equal((await h.orch.noticeFor(t.task_id))?.kind, "ask", "primeiro aviso é reivindicado");
+
+  const restarted = reopenHarness(h);
+  const replay = await restarted.pendingNotices();
+  assert.equal(replay.length, 1, "a pergunta não entregue volta após o reinício");
+  assert.equal(replay[0].kind, "ask");
+  assert.equal(replay[0].question, "Reutilizar qual contrato?");
+
+  restarted.markAskDelivered(t.task_id, "a1");
+  const again = reopenHarness(h);
+  assert.deepEqual(await again.pendingNotices(), [], "entregue não é reenviada");
+});
+
+test("pergunta entregue não volta depois de reinício", async () => {
+  const { h, t } = await startTask();
+  await askAndNotice(h, t, entry("a1"));
+  h.orch.markAskDelivered(t.task_id, "a1");
+  assert.deepEqual(await reopenHarness(h).pendingNotices(), []);
+});
+
+test("pergunta respondida antes do reinício não é reenviada", async () => {
+  const { h, t } = await startTask();
+  await askAndNotice(h, t, entry("a1"));
+  await h.orch.send(t.task_id, "use o helper", "a1");
+  assert.deepEqual(await reopenHarness(h).pendingNotices(), []);
+});
+
+test("resposta com ask_id errado é recusada e nada vai ao worker", async () => {
+  const { h, t } = await startTask();
+  await askAndNotice(h, t, entry("a1"));
+  await assert.rejects(h.orch.send(t.task_id, "resposta", "outra"), /não está pendente/);
+  assert.equal(h.herdr.opsOf("prompt").length, 0);
+  assert.equal(h.orch.get(t.task_id).pending_ask?.id, "a1", "a pergunta segue pendente");
+});
+
+test("replay da mesma resposta não envia segunda vez ao worker", async () => {
+  const { h, t } = await startTask();
+  await askAndNotice(h, t, entry("a1"));
+  await h.orch.send(t.task_id, "use o helper", "a1");
+  await assert.rejects(h.orch.send(t.task_id, "use o helper", "a1"), /já foi respondida/);
+  assert.equal(h.herdr.opsOf("prompt").length, 1, "um único comando ao worker");
+});
+
+test("orch_send sem ask_id com pergunta pendente após restart é recusado e cita o ask_id", async () => {
+  const { h, t } = await startTask();
+  await askAndNotice(h, t, entry("a1"));
+  const restarted = reopenHarness(h);
+  await assert.rejects(restarted.send(t.task_id, "resposta sem id"), /a1/);
+  assert.equal(h.herdr.opsOf("prompt").length, 0, "nada vai ao worker sem ask_id");
+  assert.equal(restarted.get(t.task_id).pending_ask?.id, "a1", "a pergunta segue pendente");
+  await restarted.send(t.task_id, "resposta certa", "a1");
+  assert.equal(restarted.get(t.task_id).last_answered_ask_id, "a1", "a resposta grava a correlação");
+  assert.equal(restarted.get(t.task_id).pending_ask ?? null, null);
+});
+
+test("duas respostas concorrentes com o mesmo ask_id produzem um único envio", async () => {
+  const { h, t } = await startTask();
+  await askAndNotice(h, t, entry("a1"));
+  const results = await Promise.allSettled([
+    h.orch.send(t.task_id, "use o helper", "a1"),
+    h.orch.send(t.task_id, "use o helper", "a1"),
+  ]);
+  assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);
+  assert.equal(h.herdr.opsOf("prompt").length, 1);
+});
+
+test("falha ao enviar ao painel mantém a pergunta pendente e a retentativa com ask_id funciona", async () => {
+  const { h, t } = await startTask();
+  await askAndNotice(h, t, entry("a1"));
+  const real = h.herdr.prompt.bind(h.herdr);
+  h.herdr.prompt = async () => {
+    throw new Error("painel ocupado");
+  };
+  await assert.rejects(h.orch.send(t.task_id, "use o helper", "a1"), /painel ocupado/);
+  assert.equal(h.orch.get(t.task_id).pending_ask?.id, "a1", "não marca como entregue");
+  h.herdr.prompt = real;
+  await h.orch.send(t.task_id, "use o helper", "a1");
+  assert.equal(h.herdr.opsOf("prompt").length, 1);
+});
+
+test("aviso de pergunta de outra sessão do orquestrador não é entregue nem respondido", async () => {
+  const { h, t } = await startTask("A");
+  const other = reopenHarness(h);
+  other.setScope("B");
+  appendAsk(t.task_dir, entry("a1"));
+  await h.orch.refresh(t.task_id);
+  assert.equal(await other.noticeFor(t.task_id), null, "sessão B não recebe pergunta da sessão A");
+  assert.deepEqual(
+    (await other.pendingNotices()).filter((e) => e.task_id === t.task_id),
+    [],
+    "replay de B não traz pergunta de A",
+  );
+  await assert.rejects(other.send(t.task_id, "resposta", "a1"), /outra sessão do orquestrador/);
+  assert.equal(h.herdr.opsOf("prompt").length, 0);
+});
+
+test("pergunta nova coletada durante o envio não é apagada pela confirmação da resposta anterior", async () => {
+  const { h, t } = await startTask();
+  await askAndNotice(h, t, entry("a1"));
+  const real = h.herdr.prompt.bind(h.herdr);
+  h.herdr.prompt = async (target: string, text: string) => {
+    appendAsk(t.task_dir, entry("a2", "Usar o módulo B?"));
+    await h.orch.refresh(t.task_id);
+    await real(target, text);
+  };
+  await h.orch.send(t.task_id, "resposta", "a1");
+  const after = h.orch.get(t.task_id);
+  assert.equal(after.last_answered_ask_id, "a1", "a resposta grava a correlação da pergunta respondida");
+  assert.equal(after.pending_ask?.id, "a2", "a pergunta nova continua pendente");
+  assert.equal((await h.orch.noticeFor(t.task_id))?.question, "Usar o módulo B?", "a nova pergunta é avisada");
+});
+
+test("painel inexistente com pergunta pendente: nada enviado, pergunta segue pendente e o erro diz o que fazer", async () => {
+  const { h, t } = await startTask();
+  await askAndNotice(h, t, entry("a1"));
+  h.herdr.panesList = h.herdr.panesList.filter((p) => p.pane_id !== t.pane_id);
+  await assert.rejects(h.orch.send(t.task_id, "resposta", "a1"), (err: Error) => {
+    assert.match(err.message, /não existe mais; nada foi enviado/);
+    assert.match(err.message, /a1 segue pendente/);
+    assert.match(err.message, /orch_status/);
+    return true;
+  });
+  assert.equal(h.herdr.opsOf("prompt").length, 0);
+  assert.equal(h.orch.get(t.task_id).pending_ask?.id, "a1", "a pergunta não se perde");
+  assert.match(h.orch.get(t.task_id).pending_ask?.send_error ?? "", /não existe mais/, "o motivo fica registrado");
+});
+
+test("painel trocado de agente com pergunta pendente: não envia a outro agente e orienta a conferir o painel", async () => {
+  const { h, t } = await startTask();
+  await askAndNotice(h, t, entry("a1"));
+  h.herdr.panesList = h.herdr.panesList.map((p) => (p.pane_id === t.pane_id ? { ...p, terminal_id: "outro" } : p));
+  await assert.rejects(h.orch.send(t.task_id, "resposta", "a1"), (err: Error) => {
+    assert.match(err.message, /trocou de agente; nada foi enviado/);
+    assert.match(err.message, /a1 segue pendente/);
+    assert.match(err.message, /orch_status/);
+    return true;
+  });
+  assert.equal(h.herdr.opsOf("prompt").length, 0);
+  assert.equal(h.orch.get(t.task_id).pending_ask?.id, "a1");
+  assert.match(h.orch.get(t.task_id).pending_ask?.send_error ?? "", /trocou de agente/);
+});
+
+test("falha do painel ao receber a resposta: pergunta segue pendente, motivo registrado e a retentativa diz como repetir", async () => {
+  const { h, t } = await startTask();
+  await askAndNotice(h, t, entry("a1"));
+  h.herdr.prompt = async () => {
+    throw new Error("painel ocupado");
+  };
+  await assert.rejects(h.orch.send(t.task_id, "resposta", "a1"), (err: Error) => {
+    assert.match(err.message, /painel ocupado/);
+    assert.match(err.message, /a1 segue pendente/);
+    assert.match(err.message, /orch_logs/, "o operador confere se o worker recebeu antes de repetir");
+    assert.match(err.message, /ask_id="a1"/);
+    return true;
+  });
+  const pending = h.orch.get(t.task_id).pending_ask;
+  assert.equal(pending?.id, "a1");
+  assert.match(pending?.send_error ?? "", /painel ocupado/);
+  assert.equal(h.orch.get(t.task_id).last_answered_ask_id ?? null, null, "não marca como respondida");
 });

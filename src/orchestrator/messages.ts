@@ -63,8 +63,8 @@ export function askMessageFor(e: WatchEvent, contract?: string): string {
   const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)} [truncado]` : text);
   const askId = e.ask_id ?? "(sem id)";
   const lines = [
-    `[pergunta de worker] tarefa ${e.task_id} (${projectLabel(e.project_id)}) tem uma dúvida operacional; a tarefa segue em andamento. Pergunta ${askId}.`,
-    `Pergunta: ${clip(e.question ?? "", 600)}`,
+    `[pergunta de worker] tarefa ${e.task_id} (${projectLabel(e.project_id)}) tem uma dúvida operacional; a tarefa segue em andamento.`,
+    `Pergunta (ask_id ${askId}): ${clip(e.question ?? "", 600)}`,
   ];
   if (e.result) lines.push(`Contexto do worker: ${clip(e.result, 600)}`);
   lines.push(
@@ -73,7 +73,7 @@ export function askMessageFor(e: WatchEvent, contract?: string): string {
     contract ?? "(contrato indisponível: confira só pela spec e pelo pedido)",
     `2. Chame orch_ask_verdict(task_id="${e.task_id}", ask_id="${askId}", raw=<JSON do subagent>). Uma consulta por pergunta: a segunda é recusada.`,
     `3. Só responda se o parecer for answered e a orientação couber na spec, no VISION.md ou no pedido do usuário: orch_send(task_id="${e.task_id}", ask_id="${askId}", text). Sem parecer autorizado, a resposta não chega ao worker.`,
-    "4. Parecer não autorizado ou falha: não invente. Informe o usuário da pergunta e do task_id. Não use orch_answer: a tarefa não está bloqueada.",
+    "4. Parecer não autorizado ou falha: não responda ao worker. Informe o usuário da pergunta e do task_id; a pergunta segue pendente até a decisão dele. Não use orch_answer: a tarefa não está bloqueada.",
   );
   return lines.join("\n");
 }

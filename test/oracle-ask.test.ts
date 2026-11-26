@@ -153,8 +153,50 @@ test("sequência ponta a ponta: worker pergunta, Oracle responde, orquestrador e
     );
     assert.equal(h.orch.get(t.task_id).status, "running", "a tarefa segue running");
 
-    await assert.rejects(h.orch.send(t.task_id, "outra", askId), /não está pendente/);
+    await assert.rejects(h.orch.send(t.task_id, "outra", askId), /já foi respondida/);
 
     await reportDone({ tools, startTurn, endTurn }, h.orch, t.task_id, "PR aberta");
   });
+});
+
+// keep: combina as duas camadas: pendência da #232 (sem ask_id é recusado) e parecer answered do Oracle (sem ele, nada segue).
+test("pergunta pendente com parecer não-answered: sem ask_id e com ask_id, nada vai ao worker", async () => {
+  const { h, t } = await startTask();
+  const askId = await askWorker(h, t);
+  settleOracleVerdict({
+    taskId: t.task_id,
+    taskDir: t.task_dir,
+    askId,
+    raw: JSON.stringify({ verdict: "inconclusive", reason: "a spec não diz" }),
+  });
+  await assert.rejects(h.orch.send(t.task_id, "sem id"), /há pergunta pendente/);
+  await assert.rejects(h.orch.send(t.task_id, "com id", askId), /sem parecer do Oracle que autorize/);
+  assert.equal(h.herdr.opsOf("prompt").length, 0);
+  assert.equal(h.orch.get(t.task_id).pending_ask?.id, askId, "a pergunta segue pendente");
+});
+
+// keep: combina as duas camadas: falha de envio mantém a pergunta pendente com motivo, e a retentativa com o mesmo parecer entrega uma vez.
+test("parecer answered + falha de envio: retentativa entrega uma vez e replay é recusado", async () => {
+  const { h, t } = await startTask();
+  const askId = await askWorker(h, t);
+  settleOracleVerdict({ taskId: t.task_id, taskDir: t.task_dir, askId, raw: answered() });
+  let failOnce = true;
+  const original = h.herdr.prompt.bind(h.herdr);
+  h.herdr.prompt = async (target: string, text: string) => {
+    if (failOnce) {
+      failOnce = false;
+      throw new Error("painel ocupado");
+    }
+    return original(target, text);
+  };
+  await assert.rejects(h.orch.send(t.task_id, "use X", askId), /painel ocupado/);
+  const pending = h.orch.get(t.task_id).pending_ask;
+  assert.equal(pending?.id, askId, "a pergunta segue pendente");
+  assert.match(pending?.send_error ?? "", /painel ocupado/);
+  await h.orch.send(t.task_id, "use X", askId);
+  const sent = h.herdr.opsOf("prompt");
+  assert.equal(sent.length, 1, "uma única entrega ao worker");
+  assert.equal((sent[0].args as { text: string }).text, `[resposta à pergunta ${askId}] use X`);
+  await assert.rejects(h.orch.send(t.task_id, "use X", askId), /já foi respondida/);
+  assert.equal(h.orch.get(t.task_id).pending_ask ?? null, null);
 });

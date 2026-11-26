@@ -324,7 +324,8 @@ export function registerOrchestratorTools(pi: ExtensionAPI, ctx: OrchestratorToo
         text: { type: "string" },
         ask_id: {
           type: "string",
-          description: "Id da pergunta operacional do worker, quando a resposta vem de parecer answered do Oracle.",
+          description:
+            "ID da pergunta operacional do aviso. Obrigatório quando há pergunta pendente do worker; só segue com parecer answered do Oracle, e repetir a mesma resposta é recusada.",
         },
       },
       required: ["task_id", "text"],

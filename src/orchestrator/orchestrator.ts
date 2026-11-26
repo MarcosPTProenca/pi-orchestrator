@@ -795,6 +795,21 @@ export class Orchestrator {
     });
   }
 
+  // keep: marca entregue só se a pergunta ainda é a pendente; resposta já enviada não precisa de marca.
+  markAskDelivered(taskId: string, askId: string): void {
+    this.d.store.mutate((state) => {
+      const t = state.tasks[taskId];
+      if (!t?.pending_ask || t.pending_ask.id !== askId) return;
+      t.pending_ask.delivered = true;
+      t.updated_at = this.iso();
+    });
+  }
+
+  markEventDelivered(e: WatchEvent): void {
+    if (e.kind === "ask" && e.ask_id !== undefined) this.markAskDelivered(e.task_id, e.ask_id);
+    else this.markDelivered(e.task_id, e.status);
+  }
+
   private takeAsk(taskId: string): WatchEvent | null {
     const pending = this.d.store.mutate((state) => {
       const t = state.tasks[taskId];
@@ -832,11 +847,24 @@ export class Orchestrator {
 
   async pendingNotices(): Promise<WatchEvent[]> {
     const out = await this.sweep();
-    const seen = new Set(out.map((e) => e.task_id));
+    const seen = new Set(out.filter((e) => e.kind !== "ask").map((e) => e.task_id));
+    const asked = new Set(out.filter((e) => e.kind === "ask").map((e) => e.task_id));
     // keep: pendente só volta se ainda é o estado atual; pergunta já respondida não é reenviada.
     for (const t of this.owned()) {
       if (t.delivery_pending !== t.status || seen.has(t.task_id)) continue;
       out.push(this.toEvent(t));
+    }
+    // keep: pergunta reivindicada mas não entregue (queda entre o aviso e o LLM) volta no início, uma vez.
+    for (const t of this.owned()) {
+      const p = t.pending_ask;
+      if (!p || p.delivered || asked.has(t.task_id) || t.status !== "running") continue;
+      out.push({
+        ...this.toEvent(t),
+        kind: "ask",
+        ask_id: p.id,
+        question: p.question,
+        result: p.context || null,
+      });
     }
     return out;
   }
@@ -853,6 +881,7 @@ export class Orchestrator {
     }
   }
 
+  // keep: askId liga a resposta à pergunta; a checagem roda sob a trava, então replay ou corrida não envia duas vezes.
   async send(taskId: string, text: string, askId?: string): Promise<TaskRecord> {
     return this.withTaskLock(taskId, () => this.sendLocked(taskId, text, askId));
   }
@@ -863,10 +892,30 @@ export class Orchestrator {
     if (t.status !== "running" && t.status !== "blocked" && t.status !== "done")
       throw new Error(`tarefa ${taskId} não aceita mensagem (status: ${t.status}); ${proximoPasso(t.status)}`);
     if (text.trim() === "") throw new Error("mensagem vazia");
-    const body = askId === undefined ? text : this.answerToAsk(t, askId, text);
+    if (askId !== undefined) {
+      if (t.last_answered_ask_id === askId) throw new Error(`pergunta ${askId} já foi respondida; nada foi enviado`);
+      if (t.status !== "running" || t.pending_ask?.id !== askId)
+        throw new Error(`pergunta ${askId} não está pendente nesta tarefa; nada foi enviado`);
+    } else if (t.pending_ask) {
+      // keep: sem ask_id, um replay após crash reenviaria a resposta; por isso a recusa cita o id pendente.
+      throw new Error(
+        `há pergunta pendente ${t.pending_ask.id}; responda com orch_send ask_id="${t.pending_ask.id}"; nada foi enviado`,
+      );
+    }
+    const body = askId === undefined ? text : this.oracleAnswerText(t, askId, text);
     const owner = await this.ownership(t);
-    if (owner === "missing") throw new Error("o painel da tarefa não existe mais; nada foi enviado");
-    if (owner === "mismatch") throw new Error("o painel trocou de agente; nada foi enviado");
+    if (owner === "missing")
+      throw this.sendError(
+        t,
+        "o painel da tarefa não existe mais; nada foi enviado",
+        "confira com orch_status antes de qualquer nova tentativa; não reenvie a outro painel.",
+      );
+    if (owner === "mismatch")
+      throw this.sendError(
+        t,
+        "o painel trocou de agente; nada foi enviado",
+        "confira com orch_status; a resposta não vai para outro agente.",
+      );
     if (t.status === "blocked") return this.answerLocked(taskId, body);
     if (t.status === "done") {
       const pane = (await this.d.herdr.panes()).find((p) => p.pane_id === t.pane_id && p.terminal_id === t.terminal_id);
@@ -895,25 +944,47 @@ export class Orchestrator {
       }
       return this.get(taskId);
     }
-    await this.d.herdr.prompt(t.pane_id, body);
-    if (t.pending_ask) {
+    // keep: a pergunta só sai do pendente depois do envio; falha no painel deixa a retentativa possível.
+    const answered = t.pending_ask?.id;
+    try {
+      await this.d.herdr.prompt(t.pane_id, body);
+    } catch (err) {
+      if (answered === undefined) throw err;
+      const detail = err instanceof Error ? err.message : String(err);
+      throw this.sendError(
+        t,
+        `falha ao enviar ao painel: ${detail}; nada foi confirmado`,
+        `confira com orch_logs se o worker recebeu; se não recebeu, repita orch_send(task_id, text, ask_id="${answered}").`,
+      );
+    }
+    if (answered !== undefined) {
+      // keep: só limpa se a pergunta ainda é a respondida; uma nova coletada durante o envio fica pendente.
       this.update(taskId, (x) => {
-        x.pending_ask = null;
+        if (x.pending_ask?.id === answered) x.pending_ask = null;
+        x.last_answered_ask_id = answered;
       });
     }
     return t;
   }
 
   // keep: resposta a pergunta do worker só segue com parecer answered gravado; inconclusivo, contraditório ou fora do escopo não vira orientação.
-  private answerToAsk(t: TaskRecord, askId: string, text: string): string {
-    if (t.status !== "running" || t.pending_ask?.id !== askId)
-      throw new Error(`pergunta ${askId} não está pendente na tarefa ${t.task_id}; nada foi enviado`);
+  private oracleAnswerText(t: TaskRecord, askId: string, text: string): string {
     const verdict = oracleVerdictFor(t.task_dir, askId);
     if (verdict !== "answered")
       throw new Error(
         `sem parecer do Oracle que autorize a pergunta ${askId} (parecer: ${verdict ?? "nenhum"}); nada foi enviado`,
       );
     return `[resposta à pergunta ${askId}] ${text}`;
+  }
+
+  // keep: com pergunta pendente, a falha grava o motivo e mantém a pergunta para retentativa; sem pergunta, a mensagem é a de sempre.
+  private sendError(t: TaskRecord, motivo: string, proximo: string): Error {
+    const pending = t.pending_ask;
+    if (!pending) return new Error(motivo);
+    this.update(t.task_id, (x) => {
+      if (x.pending_ask?.id === pending.id) x.pending_ask.send_error = motivo;
+    });
+    return new Error(`${motivo}. A pergunta ${pending.id} segue pendente: ${proximo}`);
   }
 
   async answer(taskId: string, text: string): Promise<TaskRecord> {
