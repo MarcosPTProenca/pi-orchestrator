@@ -56,6 +56,8 @@ const CHANNEL: Record<string, "tela" | "acorda"> = {
   "ci-action-sent": "tela",
   "plan-launched": "acorda",
   "plan-transition": "acorda",
+  "scope-review": "acorda",
+  "scope-blocked": "acorda",
   "idle-candidates": "acorda",
   "worker-stalled": "acorda",
   "orphan-worktrees": "acorda",
