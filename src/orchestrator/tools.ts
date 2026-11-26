@@ -69,6 +69,12 @@ const DELEGATE_ITEM = {
       type: "string",
       description: "Especificação de construção, só quando o pedido precisa de passos próprios.",
     },
+    allowed_tools: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "Ferramentas liberadas além da política do modo, só quando o trabalho precisa de um sistema externo (ex.: mcp__plane__* para ler o tracker). Padrão: nenhuma. Ficam registradas na tarefa.",
+    },
     model: {
       type: "string",
       description:

@@ -15,6 +15,7 @@ export interface DelegateInput {
   tracker?: "github" | "plane" | "none";
   timeout_minutes?: number;
   acceptance?: string[];
+  allowed_tools?: string[];
 }
 
 export interface WatchEvent {

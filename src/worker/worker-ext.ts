@@ -1,4 +1,5 @@
 import { recordReviewVerdict } from "../shared/review-verdict.ts";
+import { toolCallBlockReason, type ToolPolicy } from "../shared/worker-tools.ts";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -67,6 +68,19 @@ const PLAN_PROTOCOL = [
 
 const EDIT_TOOLS = ["edit", "write"];
 const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+// keep: fail-closed; política ilegível bloqueia a chamada, liberar por erro de parse seria fail-open.
+function toolGateReason(toolName: string): string | null {
+  const raw = process.env.PI_ORCH_TOOL_POLICY;
+  if (raw === undefined) return null;
+  let policy: ToolPolicy;
+  try {
+    policy = JSON.parse(raw) as ToolPolicy;
+  } catch {
+    return "política de ferramentas ilegível: chamada bloqueada";
+  }
+  return toolCallBlockReason(toolName, policy);
+}
 
 const hasTicket = (dir: string | undefined): dir is string => !!dir && existsSync(join(dir, TICKET_FILE));
 
@@ -268,6 +282,8 @@ function briefInHistory(ctx: unknown, sha256: string): boolean {
 export default function workerExtension(pi: ExtensionAPI): void {
   if (process.env.PI_ORCH_ROLE !== "worker") return;
   pi.on("tool_call", (event) => {
+    const toolReason = toolGateReason(event.toolName);
+    if (toolReason) return { block: true, reason: toolReason };
     if (event.toolName === "AskUserQuestion") return { block: true, reason: ASK_BLOCK_REASON };
     if (event.toolName === "subagent" && (event as { input?: { agent?: unknown } }).input?.agent === "pr-reviewer")
       return { block: true, reason: REVIEW_BLOCK_REASON };
