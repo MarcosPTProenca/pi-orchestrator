@@ -69,7 +69,7 @@ test("a mesma pergunta não é avisada duas vezes", async () => {
 test("send responde a pergunta pelo canal do worker, sem orch_answer, e a tarefa segue running", async () => {
   const { h, t } = await startTask();
   await askAndNotice(h, t, entry("a1"));
-  await h.orch.send(t.task_id, "use o helper de src/shared/x.ts");
+  await h.orch.send(t.task_id, "use o helper de src/shared/x.ts", "a1");
   const prompts = h.herdr.opsOf("prompt");
   assert.equal(prompts.length, 1, "a resposta vai como mensagem ao painel do worker");
   assert.equal(h.orch.get(t.task_id).status, "running");
@@ -81,7 +81,7 @@ test("send responde a pergunta pelo canal do worker, sem orch_answer, e a tarefa
 test("pergunta nova depois de uma respondida gera novo aviso", async () => {
   const { h, t } = await startTask();
   await askAndNotice(h, t, entry("a1"));
-  await h.orch.send(t.task_id, "resposta 1");
+  await h.orch.send(t.task_id, "resposta 1", "a1");
   appendAsk(t.task_dir, entry("a2", "Usar o módulo B?"));
   await h.orch.refresh(t.task_id);
   const ev = await h.orch.noticeFor(t.task_id);
@@ -152,7 +152,7 @@ test("sequência completa: worker pergunta, orquestrador responde, worker conclu
     const ev = await h.orch.noticeFor(t.task_id);
     assert.equal(ev?.kind, "ask");
     assert.equal(h.orch.get(t.task_id).status, "running");
-    await h.orch.send(t.task_id, "use o helper de src/shared/x.ts");
+    await h.orch.send(t.task_id, "use o helper de src/shared/x.ts", ev?.ask_id);
     assert.equal(h.herdr.opsOf("prompt").length, 1);
 
     await handlers.agent_start({}, ctx);
@@ -215,6 +215,18 @@ test("replay da mesma resposta não envia segunda vez ao worker", async () => {
   await h.orch.send(t.task_id, "use o helper", "a1");
   await assert.rejects(h.orch.send(t.task_id, "use o helper", "a1"), /já foi respondida/);
   assert.equal(h.herdr.opsOf("prompt").length, 1, "um único comando ao worker");
+});
+
+test("orch_send sem ask_id com pergunta pendente após restart é recusado e cita o ask_id", async () => {
+  const { h, t } = await startTask();
+  await askAndNotice(h, t, entry("a1"));
+  const restarted = reopenHarness(h);
+  await assert.rejects(restarted.send(t.task_id, "resposta sem id"), /a1/);
+  assert.equal(h.herdr.opsOf("prompt").length, 0, "nada vai ao worker sem ask_id");
+  assert.equal(restarted.get(t.task_id).pending_ask?.id, "a1", "a pergunta segue pendente");
+  await restarted.send(t.task_id, "resposta certa", "a1");
+  assert.equal(restarted.get(t.task_id).last_answered_ask_id, "a1", "a resposta grava a correlação");
+  assert.equal(restarted.get(t.task_id).pending_ask ?? null, null);
 });
 
 test("duas respostas concorrentes com o mesmo ask_id produzem um único envio", async () => {

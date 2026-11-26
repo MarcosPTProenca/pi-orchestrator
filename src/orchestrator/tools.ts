@@ -324,7 +324,7 @@ export function registerOrchestratorTools(pi: ExtensionAPI, ctx: OrchestratorToo
         ask_id: {
           type: "string",
           description:
-            "ID da pergunta operacional do aviso. Obrigatório para responder pergunta; repetir a mesma resposta é recusado.",
+            "ID da pergunta operacional do aviso. Obrigatório quando há pergunta pendente do worker; repetir a mesma resposta é recusada.",
         },
       },
       required: ["task_id", "text"],

@@ -896,6 +896,11 @@ export class Orchestrator {
       if (t.last_answered_ask_id === askId) throw new Error(`pergunta ${askId} já foi respondida; nada foi enviado`);
       if (t.status !== "running" || t.pending_ask?.id !== askId)
         throw new Error(`pergunta ${askId} não está pendente nesta tarefa; nada foi enviado`);
+    } else if (t.pending_ask) {
+      // keep: sem ask_id, um replay após crash reenviaria a resposta; por isso a recusa cita o id pendente.
+      throw new Error(
+        `há pergunta pendente ${t.pending_ask.id}; responda com orch_send ask_id="${t.pending_ask.id}"; nada foi enviado`,
+      );
     }
     const owner = await this.ownership(t);
     if (owner === "missing") throw new Error("o painel da tarefa não existe mais; nada foi enviado");
