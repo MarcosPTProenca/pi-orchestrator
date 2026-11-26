@@ -181,9 +181,10 @@ async function main(): Promise<void> {
     }),
   );
 
-  const pi = async (args: string[], extraEnv: Record<string, string> = {}) => {
+  // keep: lançamento igual ao do orquestrador; --no-tools tira read/bash/orch_report e o modelo emite marcação de ferramenta como texto.
+  const pi = async (args: string[], extraEnv: Record<string, string> = {}, production = false) => {
     const started = Date.now();
-    const base = [
+    const harnessFlags = [
       "-ne",
       "--no-context-files",
       "--no-skills",
@@ -191,6 +192,9 @@ async function main(): Promise<void> {
       "--no-themes",
       "--no-tools",
       "--offline",
+    ];
+    const base = [
+      ...(production ? [] : harnessFlags),
       "--session-dir",
       sessionDir,
       ...(real
@@ -255,16 +259,24 @@ async function main(): Promise<void> {
   mkdirSync(taskDir);
   writeFileSync(join(taskDir, "brief.md"), "# Tarefa\nResponda com a palavra ok.\n");
   const workerExt = fileURLToPath(new URL("../src/worker/worker-ext.ts", import.meta.url));
-  const delegationRun = await pi(["-e", workerExt, "-p", "Execute a tarefa do brief."], {
-    PI_ORCH_ROLE: "worker",
-    PI_ORCH_TASK_ID: "t-baseline",
-    PI_ORCH_TASK_DIR: taskDir,
-  });
+  // keep: mesma mensagem de lançamento do orquestrador (src/shared/launch.ts, modo report).
+  const launch = `Leia o brief em ${join(taskDir, "brief.md")} com a ferramenta read e execute a tarefa que ele descreve. Ao terminar, chame orch_report.`;
+  const delegationRun = await pi(
+    ["-e", workerExt, "-p", launch],
+    { PI_ORCH_ROLE: "worker", PI_ORCH_TASK_ID: "t-baseline", PI_ORCH_TASK_DIR: taskDir },
+    true,
+  );
   steps.push({ step: "C1 delegação (worker)", ...delegationRun });
   const usageFile = join(taskDir, "usage.json");
   const workerUsage = existsSync(usageFile) ? (JSON.parse(readFileSync(usageFile, "utf8")) as UsageState) : null;
+  const reportFile = join(taskDir, "report.json");
+  const workerReport = existsSync(reportFile)
+    ? (JSON.parse(readFileSync(reportFile, "utf8")) as { status?: string; source?: string })
+    : null;
   const delegation = {
     usage_json_written: workerUsage !== null,
+    report_status: workerReport?.status ?? null,
+    report_source: workerReport ? (workerReport.source ?? "orch_report") : null,
     ...summarizeTurns(workerUsage?.turns ?? []),
   };
 
