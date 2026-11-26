@@ -142,21 +142,18 @@ test("sequência completa: worker pergunta, orquestrador responde, worker conclu
     const { handlers, tools } = loadWorker();
     const ctx = { sessionManager: { getEntries: () => [], getBranch: () => [], getSessionFile: () => undefined } };
 
-    // 1. worker pergunta e encerra o turno sem relatório
     const asked = await tools.orch_ask.execute("c1", { kind: "operacional", question: "Reutilizar qual contrato?" });
     assert.match(asked.content[0].text, /encerre o turno/i);
     await handlers.agent_end({ messages: [] }, ctx);
     await handlers.agent_settled({}, ctx);
     assert.equal(existsSync(join(t.task_dir, "report.json")), false, "pergunta não fecha a tarefa");
 
-    // 2. orquestrador vê a pergunta sem bloquear e responde pelo canal do worker
     const ev = await h.orch.noticeFor(t.task_id);
     assert.equal(ev?.kind, "ask");
     assert.equal(h.orch.get(t.task_id).status, "running");
     await h.orch.send(t.task_id, "use o helper de src/shared/x.ts");
     assert.equal(h.herdr.opsOf("prompt").length, 1);
 
-    // 3. worker retoma no mesmo turno seguinte e conclui
     await handlers.agent_start({}, ctx);
     await tools.orch_report.execute("c2", { status: "done", result: "PR aberta" });
     await handlers.agent_end({ messages: [] }, ctx);
