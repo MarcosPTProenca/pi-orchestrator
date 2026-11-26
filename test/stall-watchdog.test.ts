@@ -2,7 +2,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { StallWatchdog } from "../src/worker/stall-watchdog.ts";
 
-// Timers falsos: avançar o relógio dispara os callbacks agendados que venceram.
 function fakeClock() {
   let now = 0;
   let nextId = 1;

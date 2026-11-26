@@ -27,18 +27,15 @@ export class StallWatchdog {
     this.clearTimer = opts.clearTimer ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
   }
 
-  /** Início de um turno do modelo, ou fim de uma ferramenta. */
   start(): void {
     this.armed = true;
     this.reset();
   }
 
-  /** Chegou progresso do stream (message_update). Só reinicia se estiver armado. */
   progress(): void {
     if (this.armed) this.reset();
   }
 
-  /** Fim do turno ou início de uma ferramenta: o modelo não está streamando. */
   pause(): void {
     this.armed = false;
     this.clear();

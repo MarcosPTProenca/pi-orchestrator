@@ -7,7 +7,6 @@ import workerExtension, { WORKER_BASH_TIMEOUT_S } from "../src/worker/worker-ext
 
 type Handler = (event: unknown, ctx?: unknown) => unknown;
 
-// Captura os handlers registrados; chamadas não usadas viram no-op.
 function fakePi(handlers: Record<string, Handler[]>) {
   const target: Record<string, unknown> = {
     on: (name: string, h: Handler) => {
