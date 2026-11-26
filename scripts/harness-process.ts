@@ -6,8 +6,7 @@ export interface ProcessGroupResult {
   stderr: string;
 }
 
-// Roda o comando num grupo de processos próprio. No prazo, e ao fechar, mata o grupo
-// inteiro: o pi mata seu filho claude só com cleanup; um SIGKILL só no pi deixa o filho órfão.
+// keep: no prazo ou ao fechar, mata o grupo inteiro; matar só o pi deixa o claude filho órfão.
 export function runProcessGroup(
   cmd: string,
   args: string[],
@@ -29,7 +28,7 @@ export function runProcessGroup(
       try {
         process.kill(-child.pid, "SIGKILL");
       } catch {
-        // grupo já sem membros: nada a matar
+        // keep: grupo já sem membros, nada a matar.
       }
     };
     const timer = setTimeout(() => {
@@ -41,7 +40,7 @@ export function runProcessGroup(
       killGroup();
       resolveRun({ code: -1, timedOut, stderr: stderr || String(err) });
     });
-    // exit, não close: close espera todos os pipes fechar, e um neto órfão segura o stdout.
+    // keep: exit, não close; close espera todos os pipes, e um neto órfão segura o stdout.
     child.on("exit", (code) => {
       clearTimeout(timer);
       killGroup();

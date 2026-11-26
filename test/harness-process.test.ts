@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runProcessGroup } from "../scripts/harness-process.ts";
 
-// Processo vivo = existe e não é zumbi (zumbi já morreu, só falta ser colhido).
+// keep: processo vivo existe e não é zumbi; zumbi já morreu e só falta ser colhido.
 function alive(pid: number): boolean {
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
@@ -56,7 +56,7 @@ test("no prazo, mata o neto que ficaria órfão", async () => {
   const dir = tmp();
   const pidFile = join(dir, "neto.pid");
   try {
-    // sh espera um neto (sleep) que herda o grupo; sem matar o grupo, o neto sobrevive.
+    // keep: o neto herda o grupo; sem matar o grupo ele sobrevive.
     const r = await runProcessGroup("sh", ["-c", `sleep 300 & echo $! > ${pidFile}; wait`], {
       cwd: dir,
       env,
