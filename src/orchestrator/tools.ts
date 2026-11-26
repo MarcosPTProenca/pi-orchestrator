@@ -318,17 +318,25 @@ export function registerOrchestratorTools(pi: ExtensionAPI, ctx: OrchestratorToo
       "Envia mensagem a um worker em execução, bloqueado ou concluído. Para continuar trabalho anterior, prefira a tarefa existente: quando concluída, reabre no mesmo painel se ainda existir e pertencer à tarefa. O texto é a instrução concreta do trabalho que resta, compatível com o papel do worker; não repasse pedido de coordenação do usuário. Não interrompe o turno atual. Recusa outros estados e painel que não é mais da tarefa.",
     parameters: {
       type: "object",
-      properties: { task_id: { type: "string" }, text: { type: "string" } },
+      properties: {
+        task_id: { type: "string" },
+        text: { type: "string" },
+        ask_id: {
+          type: "string",
+          description:
+            "ID da pergunta operacional do aviso. Obrigatório para responder pergunta; repetir a mesma resposta é recusado.",
+        },
+      },
       required: ["task_id", "text"],
       additionalProperties: false,
     },
-    async execute(_id: string, params: { task_id: string; text: string }) {
+    async execute(_id: string, params: { task_id: string; text: string; ask_id?: string }) {
       assertWritable();
       if (orch.get(params.task_id).status === "done") {
         const full = capError(orch.activeCount(), 1, maxActive);
         if (full) throw new Error(full);
       }
-      const task = await orch.send(params.task_id, params.text);
+      const task = await orch.send(params.task_id, params.text, params.ask_id);
       return asText({ task_id: task.task_id, status: task.status, delivered_after: "turno atual do worker" });
     },
   });

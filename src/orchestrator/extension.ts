@@ -216,7 +216,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         { triggerTurn: batch.some((b) => wakesLlm(statusKind(b.event.status))) },
       );
       // keep: confirma só após o envio; se sendMessage lançar, o batcher tenta de novo e o pendente persiste.
-      for (const b of batch) orch.markDelivered(b.event.task_id, b.event.status);
+      for (const b of batch) orch.markEventDelivered(b.event);
     },
     undefined,
     3,
@@ -227,7 +227,11 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 
   const announce = async (event: WatchEvent): Promise<void> => {
     if (event.kind === "ask") {
-      notices.push({ key: `${event.task_id}:ask:${event.question}`, text: askMessageFor(event), event });
+      notices.push({
+        key: `${event.task_id}:ask:${event.ask_id ?? event.question}`,
+        text: askMessageFor(event),
+        event,
+      });
       return;
     }
     let prLine = "";
@@ -851,11 +855,11 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     if (pending.length > 0) {
       emitEvent(eventSink, EVENT_POLICY["pending-replay"], {
         customType: "orch-event",
-        content: pending.map((e) => modelMessageFor(e)).join("\n\n---\n\n"),
+        content: pending.map((e) => (e.kind === "ask" ? askMessageFor(e) : modelMessageFor(e))).join("\n\n---\n\n"),
         display: false,
         details: { pending: pending.map((e) => e.task_id) },
       });
-      for (const e of pending) orch.markDelivered(e.task_id, e.status);
+      for (const e of pending) orch.markEventDelivered(e);
     }
   });
 

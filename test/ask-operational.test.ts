@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { makeHarness, writeReport } from "./fakes.ts";
+import { makeHarness, reopenHarness, writeReport } from "./fakes.ts";
 import { loadWorker } from "./worker-harness.ts";
 import { appendAsk } from "../src/shared/ask.ts";
 import { askMessageFor } from "../src/orchestrator/messages.ts";
@@ -15,8 +15,9 @@ const entry = (id: string, question = "Reutilizar qual contrato?") => ({
   asked_at: "2026-11-16T12:00:00Z",
 });
 
-async function startTask() {
+async function startTask(owner?: string) {
   const h = makeHarness();
+  if (owner !== undefined) h.orch.setScope(owner);
   const t = await h.orch.delegate({
     project_path: h.project,
     role: "a",
@@ -167,4 +168,92 @@ test("sequência completa: worker pergunta, orquestrador responde, worker conclu
       else process.env[k] = v;
     }
   }
+});
+
+test("reinício depois do aviso e antes da entrega reenvia a pergunta pendente uma vez", async () => {
+  const { h, t } = await startTask();
+  appendAsk(t.task_dir, entry("a1"));
+  await h.orch.refresh(t.task_id);
+  assert.equal((await h.orch.noticeFor(t.task_id))?.kind, "ask", "primeiro aviso é reivindicado");
+
+  const restarted = reopenHarness(h);
+  const replay = await restarted.pendingNotices();
+  assert.equal(replay.length, 1, "a pergunta não entregue volta após o reinício");
+  assert.equal(replay[0].kind, "ask");
+  assert.equal(replay[0].question, "Reutilizar qual contrato?");
+
+  restarted.markAskDelivered(t.task_id, "a1");
+  const again = reopenHarness(h);
+  assert.deepEqual(await again.pendingNotices(), [], "entregue não é reenviada");
+});
+
+test("pergunta entregue não volta depois de reinício", async () => {
+  const { h, t } = await startTask();
+  await askAndNotice(h, t, entry("a1"));
+  h.orch.markAskDelivered(t.task_id, "a1");
+  assert.deepEqual(await reopenHarness(h).pendingNotices(), []);
+});
+
+test("pergunta respondida antes do reinício não é reenviada", async () => {
+  const { h, t } = await startTask();
+  await askAndNotice(h, t, entry("a1"));
+  await h.orch.send(t.task_id, "use o helper", "a1");
+  assert.deepEqual(await reopenHarness(h).pendingNotices(), []);
+});
+
+test("resposta com ask_id errado é recusada e nada vai ao worker", async () => {
+  const { h, t } = await startTask();
+  await askAndNotice(h, t, entry("a1"));
+  await assert.rejects(h.orch.send(t.task_id, "resposta", "outra"), /não está pendente/);
+  assert.equal(h.herdr.opsOf("prompt").length, 0);
+  assert.equal(h.orch.get(t.task_id).pending_ask?.id, "a1", "a pergunta segue pendente");
+});
+
+test("replay da mesma resposta não envia segunda vez ao worker", async () => {
+  const { h, t } = await startTask();
+  await askAndNotice(h, t, entry("a1"));
+  await h.orch.send(t.task_id, "use o helper", "a1");
+  await assert.rejects(h.orch.send(t.task_id, "use o helper", "a1"), /já foi respondida/);
+  assert.equal(h.herdr.opsOf("prompt").length, 1, "um único comando ao worker");
+});
+
+test("duas respostas concorrentes com o mesmo ask_id produzem um único envio", async () => {
+  const { h, t } = await startTask();
+  await askAndNotice(h, t, entry("a1"));
+  const results = await Promise.allSettled([
+    h.orch.send(t.task_id, "use o helper", "a1"),
+    h.orch.send(t.task_id, "use o helper", "a1"),
+  ]);
+  assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);
+  assert.equal(h.herdr.opsOf("prompt").length, 1);
+});
+
+test("falha ao enviar ao painel mantém a pergunta pendente e a retentativa com ask_id funciona", async () => {
+  const { h, t } = await startTask();
+  await askAndNotice(h, t, entry("a1"));
+  const real = h.herdr.prompt.bind(h.herdr);
+  h.herdr.prompt = async () => {
+    throw new Error("painel ocupado");
+  };
+  await assert.rejects(h.orch.send(t.task_id, "use o helper", "a1"), /painel ocupado/);
+  assert.equal(h.orch.get(t.task_id).pending_ask?.id, "a1", "não marca como entregue");
+  h.herdr.prompt = real;
+  await h.orch.send(t.task_id, "use o helper", "a1");
+  assert.equal(h.herdr.opsOf("prompt").length, 1);
+});
+
+test("aviso de pergunta de outra sessão do orquestrador não é entregue nem respondido", async () => {
+  const { h, t } = await startTask("A");
+  const other = reopenHarness(h);
+  other.setScope("B");
+  appendAsk(t.task_dir, entry("a1"));
+  await h.orch.refresh(t.task_id);
+  assert.equal(await other.noticeFor(t.task_id), null, "sessão B não recebe pergunta da sessão A");
+  assert.deepEqual(
+    (await other.pendingNotices()).filter((e) => e.task_id === t.task_id),
+    [],
+    "replay de B não traz pergunta de A",
+  );
+  await assert.rejects(other.send(t.task_id, "resposta", "a1"), /outra sessão do orquestrador/);
+  assert.equal(h.herdr.opsOf("prompt").length, 0);
 });

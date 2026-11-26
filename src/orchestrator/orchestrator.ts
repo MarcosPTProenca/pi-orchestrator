@@ -795,6 +795,21 @@ export class Orchestrator {
     });
   }
 
+  // keep: marca entregue só se a pergunta ainda é a pendente; resposta já enviada não precisa de marca.
+  markAskDelivered(taskId: string, askId: string): void {
+    this.d.store.mutate((state) => {
+      const t = state.tasks[taskId];
+      if (!t?.pending_ask || t.pending_ask.id !== askId) return;
+      t.pending_ask.delivered = true;
+      t.updated_at = this.iso();
+    });
+  }
+
+  markEventDelivered(e: WatchEvent): void {
+    if (e.kind === "ask" && e.ask_id !== undefined) this.markAskDelivered(e.task_id, e.ask_id);
+    else this.markDelivered(e.task_id, e.status);
+  }
+
   private takeAsk(taskId: string): WatchEvent | null {
     const pending = this.d.store.mutate((state) => {
       const t = state.tasks[taskId];
@@ -808,6 +823,7 @@ export class Orchestrator {
     return {
       ...this.toEvent(this.get(taskId)),
       kind: "ask",
+      ask_id: pending.id,
       question: pending.question,
       result: pending.context || null,
     };
@@ -831,11 +847,24 @@ export class Orchestrator {
 
   async pendingNotices(): Promise<WatchEvent[]> {
     const out = await this.sweep();
-    const seen = new Set(out.map((e) => e.task_id));
+    const seen = new Set(out.filter((e) => e.kind !== "ask").map((e) => e.task_id));
+    const asked = new Set(out.filter((e) => e.kind === "ask").map((e) => e.task_id));
     // keep: pendente só volta se ainda é o estado atual; pergunta já respondida não é reenviada.
     for (const t of this.owned()) {
       if (t.delivery_pending !== t.status || seen.has(t.task_id)) continue;
       out.push(this.toEvent(t));
+    }
+    // keep: pergunta reivindicada mas não entregue (queda entre o aviso e o LLM) volta no início, uma vez.
+    for (const t of this.owned()) {
+      const p = t.pending_ask;
+      if (!p || p.delivered || asked.has(t.task_id) || t.status !== "running") continue;
+      out.push({
+        ...this.toEvent(t),
+        kind: "ask",
+        ask_id: p.id,
+        question: p.question,
+        result: p.context || null,
+      });
     }
     return out;
   }
@@ -852,16 +881,22 @@ export class Orchestrator {
     }
   }
 
-  async send(taskId: string, text: string): Promise<TaskRecord> {
-    return this.withTaskLock(taskId, () => this.sendLocked(taskId, text));
+  // keep: askId liga a resposta à pergunta; a checagem roda sob a trava, então replay ou corrida não envia duas vezes.
+  async send(taskId: string, text: string, askId?: string): Promise<TaskRecord> {
+    return this.withTaskLock(taskId, () => this.sendLocked(taskId, text, askId));
   }
 
-  private async sendLocked(taskId: string, text: string): Promise<TaskRecord> {
+  private async sendLocked(taskId: string, text: string, askId?: string): Promise<TaskRecord> {
     this.assertMine(taskId);
     const t = this.get(taskId);
     if (t.status !== "running" && t.status !== "blocked" && t.status !== "done")
       throw new Error(`tarefa ${taskId} não aceita mensagem (status: ${t.status}); ${proximoPasso(t.status)}`);
     if (text.trim() === "") throw new Error("mensagem vazia");
+    if (askId !== undefined) {
+      if (t.last_answered_ask_id === askId) throw new Error(`pergunta ${askId} já foi respondida; nada foi enviado`);
+      if (t.status !== "running" || t.pending_ask?.id !== askId)
+        throw new Error(`pergunta ${askId} não está pendente nesta tarefa; nada foi enviado`);
+    }
     const owner = await this.ownership(t);
     if (owner === "missing") throw new Error("o painel da tarefa não existe mais; nada foi enviado");
     if (owner === "mismatch") throw new Error("o painel trocou de agente; nada foi enviado");
@@ -893,10 +928,13 @@ export class Orchestrator {
       }
       return this.get(taskId);
     }
+    // keep: a pergunta só sai do pendente depois do envio; falha no painel deixa a retentativa possível.
     await this.d.herdr.prompt(t.pane_id, text);
     if (t.pending_ask) {
+      const answered = t.pending_ask.id;
       this.update(taskId, (x) => {
         x.pending_ask = null;
+        x.last_answered_ask_id = answered;
       });
     }
     return t;
