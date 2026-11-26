@@ -276,6 +276,12 @@ export class PlanStore {
     return plan;
   }
 
+  // keep: true só na transição para concluído; varreduras seguintes do mesmo plano devolvem false, então o aviso sai uma vez.
+  completedNow(planId: string): boolean {
+    if (this.show(planId).state === "completed") return false;
+    return this.complete(planId).state === "completed";
+  }
+
   update(planId: string, itemId: string, fields: { status?: ItemStatus; task_id?: string; pr?: string }): PlanItem {
     const plan = this.show(planId);
     const item = plan.items.find((i) => i.id === itemId);
