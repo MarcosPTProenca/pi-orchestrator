@@ -3,7 +3,14 @@ import assert from "node:assert/strict";
 import { mkdtempSync, existsSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PlanStore, launchable, nextState } from "../src/orchestrator/plans.ts";
+import {
+  PlanStore,
+  findOwnedLaunch,
+  launchable,
+  nextState,
+  orphanLaunches,
+  trackedItems,
+} from "../src/orchestrator/plans.ts";
 
 const fresh = () => new PlanStore(mkdtempSync(join(tmpdir(), "plans-")), () => "2026-11-21T00:00:00.000Z");
 
@@ -258,4 +265,78 @@ test("plano antigo sem estado vira rascunho: não lança sozinho", () => {
   const plan = new PlanStore(dir).show("velho");
   assert.equal(plan.state, "draft");
   assert.deepEqual(launchable(plan), []);
+});
+
+const T0 = Date.parse("2026-11-21T00:00:00.000Z");
+const at = (ms: number) => new Date(ms).toISOString();
+const DELEGATE = { project_path: "/repo/x", request: "fazer", objective: "pronto", mode: "direct-pr" };
+// keep: reproduz o crash da #118: processo cai entre reserve() e orch.delegate
+const reservado = (store: PlanStore) => {
+  store.create("p", "P", [{ title: "a", delegate: DELEGATE }]);
+  store.act("p", "approve");
+  store.reserve("p", "1");
+  return store.show("p");
+};
+
+test("#118: reserva que caiu antes do lançamento vira órfã só depois do limiar, após reiniciar", () => {
+  const dir = mkdtempSync(join(tmpdir(), "plans-orfa-"));
+  reservado(new PlanStore(dir, () => at(T0)));
+  const plan = new PlanStore(dir, () => at(T0)).show("p");
+  assert.equal(plan.items[0].status, "in_progress");
+  assert.equal(plan.items[0].task_id, null);
+  assert.deepEqual(trackedItems(plan), [], "reconciliação atual não enxerga o órfão (a lacuna)");
+  assert.deepEqual(orphanLaunches(plan, T0 + 119_000, 120_000, new Set()), [], "antes do limiar não mexe");
+  assert.deepEqual(
+    orphanLaunches(plan, T0 + 120_000, 120_000, new Set()).map((i) => i.id),
+    ["1"],
+  );
+});
+
+test("#118: órfã em lançamento ainda em curso nesta sessão não é tocada", () => {
+  const plan = reservado(fresh());
+  assert.deepEqual(orphanLaunches(plan, T0 + 999_999, 120_000, new Set(["1"])), []);
+});
+
+test("#118: órfã sem tarefa criada vira blocked e nunca volta a ser lançável sozinha", () => {
+  const s = fresh();
+  const plan = reservado(s);
+  assert.equal(findOwnedLaunch(plan.items[0], "p", []), null);
+  assert.equal(s.blocked("p", "1", "lançamento interrompido antes de criar a tarefa").status, "blocked");
+  assert.deepEqual(launchable(s.show("p")), []);
+});
+
+test("#118: órfã com tarefa do mesmo papel e projeto criada depois da reserva é adotada, e o plano segue", () => {
+  const s = new PlanStore(mkdtempSync(join(tmpdir(), "plans-adota-")), () => at(T0));
+  const plan = reservado(s);
+  const owned = [
+    { task_id: "t-0a1b2c3d", role: "plano-p", project_path: "/repo/x", created_at: at(T0 + 5_000) },
+    { task_id: "t-11223344", role: "outro", project_path: "/repo/x", created_at: at(T0 + 6_000) },
+  ];
+  const taskId = findOwnedLaunch(plan.items[0], "p", owned);
+  assert.equal(taskId, "t-0a1b2c3d");
+  assert.ok(taskId);
+  s.launched("p", "1", taskId);
+  assert.deepEqual(
+    trackedItems(s.show("p")).map((i) => i.task_id),
+    ["t-0a1b2c3d"],
+    "item adotado volta a ser acompanhado pela reconciliação",
+  );
+  assert.deepEqual(s.markMerged("t-0a1b2c3d"), [{ plan: "p", item: "1" }]);
+});
+
+test("#118: tarefa criada antes da reserva, ou de outro projeto, não é adotada", () => {
+  const plan = reservado(fresh());
+  const antes = {
+    task_id: "t-0a1b2c3d",
+    role: "plano-p",
+    project_path: "/repo/x",
+    created_at: "2000-01-01T00:00:00.000Z",
+  };
+  const outroProjeto = {
+    ...antes,
+    task_id: "t-aaaaaaaa",
+    project_path: "/repo/y",
+    created_at: "2099-01-01T00:00:00.000Z",
+  };
+  assert.equal(findOwnedLaunch(plan.items[0], "p", [antes, outroProjeto]), null);
 });
