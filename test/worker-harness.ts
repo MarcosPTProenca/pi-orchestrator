@@ -5,7 +5,7 @@ export type Tool = {
   execute: (id: string, params: Record<string, unknown>) => Promise<{ content: { text: string }[] }>;
 };
 
-// Carrega a extensão do worker com handlers e ferramentas registrados em memória, sem Pi real.
+// keep: carrega a extensão do worker com handlers e ferramentas em memória, sem Pi real.
 export function loadWorker(): { handlers: Record<string, Handler>; tools: Record<string, Tool> } {
   const handlers: Record<string, Handler> = {};
   const tools: Record<string, Tool> = {};

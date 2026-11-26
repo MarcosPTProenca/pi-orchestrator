@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-// Pergunta operacional do worker ao orquestrador: não bloqueia a tarefa e não é decisão do usuário.
+// keep: pergunta operacional do worker ao orquestrador; não bloqueia a tarefa nem é decisão do usuário.
 const ASK_FILE = "ask.json";
 export const ASK_KINDS = ["operacional", "produto", "arquitetura", "escopo"] as const;
 const MAX_ASKS_PER_TASK = 3;
@@ -30,7 +30,7 @@ export function latestAsk(dir: string): AskEntry | null {
   return asks.length > 0 ? asks[asks.length - 1] : null;
 }
 
-// Contrato verificável: só dúvida operacional passa; o resto segue para orch_report com status blocked.
+// keep: contrato verificável; só dúvida operacional passa, o resto segue para orch_report com status blocked.
 export function askRefusal(kind: string, previous: number): string | null {
   if (!(ASK_KINDS as readonly string[]).includes(kind))
     return `tipo de pergunta inválido: ${kind}. Use operacional, produto, arquitetura ou escopo.`;
