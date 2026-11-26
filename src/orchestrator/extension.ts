@@ -52,7 +52,8 @@ import {
   type PlanItem,
 } from "./plans.ts";
 import { missingVisionNotice, parseScopeVerdict, scopeReviewText, scopeStep } from "./scope.ts";
-import { readVision } from "../shared/intake.ts";
+import { readVision, VISION_FILE } from "../shared/intake.ts";
+import { oracleContract, settleOracleVerdict } from "./oracle-ask.ts";
 import { EVENT_POLICY, UI_ENTRY, emitEvent, statusKind, wakesLlm, type EventSink } from "../policy/event-policy.ts";
 import { orchestratorUsage } from "../shared/usage.ts";
 import { NoticeBatcher } from "./notices.ts";
@@ -227,7 +228,24 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 
   const announce = async (event: WatchEvent): Promise<void> => {
     if (event.kind === "ask") {
-      notices.push({ key: `${event.task_id}:ask:${event.question}`, text: askMessageFor(event), event });
+      const task = orch.get(event.task_id);
+      const delegate = task.delegate_input as unknown as DelegateInput | null;
+      const contract = oracleContract({
+        taskId: event.task_id,
+        askId: event.ask_id ?? "",
+        question: event.question ?? "",
+        askContext: event.result ?? "",
+        projectLabel: projectLabel(task.project_id),
+        projectPath: task.project_path,
+        objective: delegate?.objective ?? "",
+        source: delegate?.source ?? task.source ?? null,
+        visionPath: join(task.project_path, VISION_FILE),
+      });
+      notices.push({
+        key: `${event.task_id}:ask:${event.question}`,
+        text: askMessageFor(event, contract),
+        event,
+      });
       return;
     }
     let prLine = "";
@@ -512,6 +530,10 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       display: true,
     });
     await advancePlans();
+  };
+  const recordAskVerdict = (taskId: string, askId: string, raw: string): string => {
+    const task = orch.get(taskId);
+    return settleOracleVerdict({ taskId, taskDir: task.task_dir, askId, raw });
   };
   // keep: o parecer chega por orch_scope_verdict; reconcilePlans reavalia o item na hora, sem esperar a varredura.
   const recordScopeVerdict = async (taskId: string, raw: string): Promise<string> => {
@@ -890,6 +912,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     startTask,
     launchReady,
     scopeVerdict: recordScopeVerdict,
+    askVerdict: recordAskVerdict,
     usage: () => orchUsage,
   });
 }

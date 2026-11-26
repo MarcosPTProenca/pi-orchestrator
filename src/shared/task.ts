@@ -29,4 +29,5 @@ export interface WatchEvent {
   correction?: string | null;
   // keep: aviso de pergunta operacional do worker; a tarefa segue running e não entra no inbox de decisão.
   kind?: "ask";
+  ask_id?: string;
 }

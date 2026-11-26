@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, s
 import { basename, dirname, join } from "node:path";
 import { toExecutionTicket, validationFromScripts, type ExecutionTicket } from "../shared/execution-ticket.ts";
 import { TICKET_FILE } from "../shared/plan.ts";
-import { latestAsk } from "../shared/ask.ts";
+import { latestAsk, oracleVerdictFor } from "../shared/ask.ts";
 import { invalidToolRelease, workerToolArgs, workerToolSet } from "../shared/worker-tools.ts";
 import { clampLines, logError, maskSecrets } from "../shared/logs.ts";
 import { summarizeTurns, type TurnRecord } from "../shared/usage.ts";
@@ -808,6 +808,7 @@ export class Orchestrator {
     return {
       ...this.toEvent(this.get(taskId)),
       kind: "ask",
+      ask_id: pending.id,
       question: pending.question,
       result: pending.context || null,
     };
@@ -852,20 +853,21 @@ export class Orchestrator {
     }
   }
 
-  async send(taskId: string, text: string): Promise<TaskRecord> {
-    return this.withTaskLock(taskId, () => this.sendLocked(taskId, text));
+  async send(taskId: string, text: string, askId?: string): Promise<TaskRecord> {
+    return this.withTaskLock(taskId, () => this.sendLocked(taskId, text, askId));
   }
 
-  private async sendLocked(taskId: string, text: string): Promise<TaskRecord> {
+  private async sendLocked(taskId: string, text: string, askId?: string): Promise<TaskRecord> {
     this.assertMine(taskId);
     const t = this.get(taskId);
     if (t.status !== "running" && t.status !== "blocked" && t.status !== "done")
       throw new Error(`tarefa ${taskId} não aceita mensagem (status: ${t.status}); ${proximoPasso(t.status)}`);
     if (text.trim() === "") throw new Error("mensagem vazia");
+    const body = askId === undefined ? text : this.answerToAsk(t, askId, text);
     const owner = await this.ownership(t);
     if (owner === "missing") throw new Error("o painel da tarefa não existe mais; nada foi enviado");
     if (owner === "mismatch") throw new Error("o painel trocou de agente; nada foi enviado");
-    if (t.status === "blocked") return this.answerLocked(taskId, text);
+    if (t.status === "blocked") return this.answerLocked(taskId, body);
     if (t.status === "done") {
       const pane = (await this.d.herdr.panes()).find((p) => p.pane_id === t.pane_id && p.terminal_id === t.terminal_id);
       // keep: o Herdr reporta "done" no painel de quem já terminou a vez; é o mesmo estado de espera por mensagem que "idle".
@@ -882,7 +884,7 @@ export class Orchestrator {
         x.question = null;
       });
       try {
-        await this.d.herdr.prompt(t.pane_id, text);
+        await this.d.herdr.prompt(t.pane_id, body);
       } catch (err) {
         if (existsSync(previous) && !existsSync(report)) renameSync(previous, report);
         this.update(taskId, (x) => {
@@ -893,13 +895,25 @@ export class Orchestrator {
       }
       return this.get(taskId);
     }
-    await this.d.herdr.prompt(t.pane_id, text);
+    await this.d.herdr.prompt(t.pane_id, body);
     if (t.pending_ask) {
       this.update(taskId, (x) => {
         x.pending_ask = null;
       });
     }
     return t;
+  }
+
+  // keep: resposta a pergunta do worker só segue com parecer answered gravado; inconclusivo, contraditório ou fora do escopo não vira orientação.
+  private answerToAsk(t: TaskRecord, askId: string, text: string): string {
+    if (t.status !== "running" || t.pending_ask?.id !== askId)
+      throw new Error(`pergunta ${askId} não está pendente na tarefa ${t.task_id}; nada foi enviado`);
+    const verdict = oracleVerdictFor(t.task_dir, askId);
+    if (verdict !== "answered")
+      throw new Error(
+        `sem parecer do Oracle que autorize a pergunta ${askId} (parecer: ${verdict ?? "nenhum"}); nada foi enviado`,
+      );
+    return `[resposta à pergunta ${askId}] ${text}`;
   }
 
   async answer(taskId: string, text: string): Promise<TaskRecord> {

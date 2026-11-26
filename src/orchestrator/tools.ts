@@ -32,6 +32,7 @@ export interface OrchestratorToolContext {
   startTask: (input: DelegateInput) => Promise<string>;
   launchReady: (planId: string) => Promise<void>;
   scopeVerdict: (taskId: string, raw: string) => Promise<string>;
+  askVerdict: (taskId: string, askId: string, raw: string) => string;
   usage: () => ReturnType<typeof orchestratorUsage> | null;
 }
 
@@ -318,17 +319,24 @@ export function registerOrchestratorTools(pi: ExtensionAPI, ctx: OrchestratorToo
       "Envia mensagem a um worker em execução, bloqueado ou concluído. Para continuar trabalho anterior, prefira a tarefa existente: quando concluída, reabre no mesmo painel se ainda existir e pertencer à tarefa. O texto é a instrução concreta do trabalho que resta, compatível com o papel do worker; não repasse pedido de coordenação do usuário. Não interrompe o turno atual. Recusa outros estados e painel que não é mais da tarefa.",
     parameters: {
       type: "object",
-      properties: { task_id: { type: "string" }, text: { type: "string" } },
+      properties: {
+        task_id: { type: "string" },
+        text: { type: "string" },
+        ask_id: {
+          type: "string",
+          description: "Id da pergunta operacional do worker, quando a resposta vem de parecer answered do Oracle.",
+        },
+      },
       required: ["task_id", "text"],
       additionalProperties: false,
     },
-    async execute(_id: string, params: { task_id: string; text: string }) {
+    async execute(_id: string, params: { task_id: string; text: string; ask_id?: string }) {
       assertWritable();
       if (orch.get(params.task_id).status === "done") {
         const full = capError(orch.activeCount(), 1, maxActive);
         if (full) throw new Error(full);
       }
-      const task = await orch.send(params.task_id, params.text);
+      const task = await orch.send(params.task_id, params.text, params.ask_id);
       return asText({ task_id: task.task_id, status: task.status, delivered_after: "turno atual do worker" });
     },
   });
@@ -495,6 +503,28 @@ export function registerOrchestratorTools(pi: ExtensionAPI, ctx: OrchestratorToo
     async execute(_id: string, params: { task_id: string; raw: string }) {
       assertWritable();
       return asText(await ctx.scopeVerdict(params.task_id, params.raw));
+    },
+  });
+
+  pi.registerTool({
+    name: "orch_ask_verdict",
+    label: "orch ask verdict",
+    description:
+      "Registra o parecer do Oracle (subagent oracle, contexto limpo, somente leitura) sobre uma pergunta operacional de worker. raw é o JSON do subagent. Uma consulta por pergunta: falha ou JSON inválido também a encerram. Só parecer answered autoriza orch_send com ask_id.",
+    parameters: {
+      type: "object",
+      properties: {
+        task_id: { type: "string" },
+        ask_id: { type: "string" },
+        raw: { type: "string", description: "JSON do subagent, sem alterações" },
+      },
+      required: ["task_id", "ask_id", "raw"],
+      additionalProperties: false,
+    },
+    execute(_id: string, params: { task_id: string; ask_id: string; raw: string }) {
+      assertWritable();
+      const next = ctx.askVerdict(params.task_id, params.ask_id, params.raw);
+      return Promise.resolve(asText({ task_id: params.task_id, ask_id: params.ask_id, next }));
     },
   });
 

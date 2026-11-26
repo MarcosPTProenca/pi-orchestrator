@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { makeHarness, writeReport } from "./fakes.ts";
-import { loadWorker } from "./worker-harness.ts";
+import { asWorker, reportDone } from "./worker-harness.ts";
 import { appendAsk } from "../src/shared/ask.ts";
 import { askMessageFor } from "../src/orchestrator/messages.ts";
 
@@ -95,7 +95,7 @@ test("relatório blocked continua sendo decisão humana, sem afetar o fluxo de p
   assert.equal((await h.orch.noticeFor(t.task_id))?.kind, undefined, "blocked segue o aviso comum");
 });
 
-test("texto do aviso manda responder por orch_send só com autorização e escalar caso contrário", () => {
+test("texto do aviso manda consultar o Oracle e responder por orch_send só com parecer answered", () => {
   const msg = askMessageFor({
     task_id: "t-1",
     project_id: "p",
@@ -107,7 +107,8 @@ test("texto do aviso manda responder por orch_send só com autorização e escal
     kind: "ask",
   });
   assert.match(msg, /orch_send/);
-  assert.match(msg, /autorizada/);
+  assert.match(msg, /orch_ask_verdict/);
+  assert.match(msg, /answered/);
   assert.match(msg, /não use orch_answer/i);
   assert.match(msg, /Reutilizar qual contrato\?/);
 });
@@ -132,20 +133,10 @@ test("worker ocioso aguardando resposta falha com motivo de pergunta sem respost
 
 test("sequência completa: worker pergunta, orquestrador responde, worker conclui com done", async () => {
   const { h, t } = await startTask();
-  const keys = ["PI_ORCH_ROLE", "PI_ORCH_TASK_ID", "PI_ORCH_TASK_DIR", "PI_ORCH_TOOL_POLICY"] as const;
-  const prev = keys.map((k) => [k, process.env[k]] as const);
-  try {
-    delete process.env.PI_ORCH_TOOL_POLICY;
-    process.env.PI_ORCH_ROLE = "worker";
-    process.env.PI_ORCH_TASK_ID = t.task_id;
-    process.env.PI_ORCH_TASK_DIR = t.task_dir;
-    const { handlers, tools } = loadWorker();
-    const ctx = { sessionManager: { getEntries: () => [], getBranch: () => [], getSessionFile: () => undefined } };
-
+  await asWorker(t, async ({ tools, startTurn, endTurn }) => {
     const asked = await tools.orch_ask.execute("c1", { kind: "operacional", question: "Reutilizar qual contrato?" });
     assert.match(asked.content[0].text, /encerre o turno/i);
-    await handlers.agent_end({ messages: [] }, ctx);
-    await handlers.agent_settled({}, ctx);
+    await endTurn();
     assert.equal(existsSync(join(t.task_dir, "report.json")), false, "pergunta não fecha a tarefa");
 
     const ev = await h.orch.noticeFor(t.task_id);
@@ -154,17 +145,6 @@ test("sequência completa: worker pergunta, orquestrador responde, worker conclu
     await h.orch.send(t.task_id, "use o helper de src/shared/x.ts");
     assert.equal(h.herdr.opsOf("prompt").length, 1);
 
-    await handlers.agent_start({}, ctx);
-    await tools.orch_report.execute("c2", { status: "done", result: "PR aberta" });
-    await handlers.agent_end({ messages: [] }, ctx);
-    await handlers.agent_settled({}, ctx);
-    await h.orch.refresh(t.task_id);
-    assert.equal(h.orch.get(t.task_id).status, "done");
-    assert.equal(h.orch.get(t.task_id).result, "PR aberta");
-  } finally {
-    for (const [k, v] of prev) {
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
-    }
-  }
+    await reportDone({ tools, startTurn, endTurn }, h.orch, t.task_id, "PR aberta");
+  });
 });
