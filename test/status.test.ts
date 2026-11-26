@@ -388,3 +388,23 @@ test("regressão: pendência humana (bloqueada) nunca é cortada pelo teto de ab
   assert.equal(grupo.tasks.length, COMPACT_OPEN_LIMIT + 10);
   assert.equal(grupo.omitted_open, 0);
 });
+
+test("orch_status: aquecimento não observado vira null, não zero", () => {
+  const semAquecimento = t({
+    task_id: "t-na",
+    status: "done",
+    updated_at: "2026-11-17T11:50:00Z",
+    usage: {
+      input: 20,
+      output: 1,
+      cacheRead: 80,
+      cacheWrite: 0,
+      totalTokens: 101,
+      cost: 0.4,
+      costFromProvider: true,
+      cacheWarmCost: null,
+    },
+  });
+  const rows = buildStatus([semAquecimento], NOW, {}).flatMap((g) => g.tasks);
+  assert.equal(rows.find((r) => r.task_id === "t-na")?.cache_warm_cost_usd, null);
+});

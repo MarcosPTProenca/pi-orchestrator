@@ -640,7 +640,7 @@ export class Orchestrator {
           cost?: number;
           costFromProvider?: boolean;
         };
-        warm?: { cost?: number };
+        warm?: { cost?: number; warmIds?: string[] };
         turns?: TurnRecord[];
       };
       const u = parsed.total;
@@ -652,7 +652,7 @@ export class Orchestrator {
         cacheWrite: u.cacheWrite ?? 0,
         cost: u.cost ?? 0,
         costFromProvider: u.costFromProvider === true,
-        cacheWarmCost: parsed.warm?.cost ?? 0,
+        cacheWarmCost: (parsed.warm?.warmIds?.length ?? 0) > 0 ? (parsed.warm?.cost ?? 0) : null,
         turns: Array.isArray(parsed.turns) ? summarizeTurns(parsed.turns) : null,
         totalTokens: u.totalTokens,
       };

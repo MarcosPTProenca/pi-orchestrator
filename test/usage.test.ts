@@ -488,3 +488,17 @@ test("relatório: extensão conta como automático; taxa de acerto sem denominad
   assert.equal(r.cache.hit_ratio, null);
   assert.equal(usageReport([]).turns.turns, 0);
 });
+
+test("sem entrada cache_warm o custo do aquecimento é null (não observado), não zero", () => {
+  const messages = [{ type: "message", message: asst(1, 10, 1) }];
+  assert.equal(usageReport([messages]).cache_warm_cost_usd, null);
+  assert.equal(orchestratorUsage(messages).cacheWarmCost, null);
+});
+
+test("aquecimento observado com custo zero continua sendo 0, não null", () => {
+  const entries = [
+    { type: "usage", id: "w0", kind: "cache_warm", usage: { input: 1, output: 1, totalTokens: 2, cost: { total: 0 } } },
+  ];
+  assert.equal(usageReport([entries]).cache_warm_cost_usd, 0);
+  assert.equal(orchestratorUsage(entries).cacheWarmCost, 0);
+});
