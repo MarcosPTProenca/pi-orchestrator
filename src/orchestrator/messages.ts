@@ -67,6 +67,7 @@ export function askMessageFor(e: WatchEvent, contract?: string): string {
     `Pergunta (ask_id ${askId}): ${clip(e.question ?? "", 600)}`,
   ];
   if (e.result) lines.push(`Contexto do worker: ${clip(e.result, 600)}`);
+  if (e.hint) lines.push(`Aviso do diálogo: ${clip(e.hint, 400)}`);
   lines.push(
     "",
     "1. Rode o subagent `oracle` com contexto limpo (não passe a sua conversa), somente leitura, com este contrato:",

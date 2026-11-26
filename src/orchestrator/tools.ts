@@ -90,6 +90,13 @@ const DELEGATE_ITEM = {
       type: "number",
       description: "Prazo explícito pedido pelo usuário, em minutos. Omitir = sem prazo.",
     },
+    dialogue_budget: {
+      type: "integer",
+      minimum: 1,
+      maximum: 10,
+      description:
+        "Perguntas operacionais que o worker pode fazer antes de o diálogo autônomo bloquear a tarefa. Omitir = PI_ORCH_DIALOGUE_BUDGET ou 3.",
+    },
   },
   required: ["project_path", "role", "request", "objective", "mode"],
   additionalProperties: false,

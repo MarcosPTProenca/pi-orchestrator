@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { TurnSummary } from "./usage.ts";
+import type { DialogueRecord } from "./dialogue.ts";
 
 export const REPORT_STATUSES = ["done", "blocked", "failed"] as const;
 type ReportStatus = (typeof REPORT_STATUSES)[number];
@@ -61,7 +62,10 @@ export interface TaskRecord {
     notified: boolean;
     delivered?: boolean;
     send_error?: string | null;
+    hint?: string | null;
   } | null;
+  // keep: orçamento do diálogo autônomo vive no registro da tarefa, não em ask.json (que o worker escreve); relançar herda o gasto.
+  dialogue?: DialogueRecord | null;
   // keep: correlação pergunta–resposta; uma resposta com o mesmo ask_id não é enviada duas vezes.
   last_answered_ask_id?: string | null;
   source?: string | null;
