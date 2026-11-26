@@ -14,6 +14,7 @@ import {
   recordAsk,
   redirectHint,
   resolveDialogueBudget,
+  stopReason,
   stopSummary,
 } from "../shared/dialogue.ts";
 import { appendHistory, readHistory, type HistoryInput, type HistoryPage } from "../shared/history.ts";
@@ -824,6 +825,7 @@ export class Orchestrator {
     const before = t.dialogue ?? newDialogue(DIALOGUE_BUDGET_DEFAULT);
     const verdict = judgeAsk(before, ask);
     const after = recordAsk(before, ask, verdict);
+    const pending = t.pending_ask ?? null;
     if (verdict === "progress" || verdict === "redirect") {
       this.update(taskId, (x) => {
         x.last_ask_id = ask.id;
@@ -843,11 +845,21 @@ export class Orchestrator {
         x.dialogue = after;
         x.pending_ask = null;
         x.status = "blocked";
-        x.question = stopSummary(after, ask, verdict);
+        x.question = stopSummary(after, ask, verdict, pending ? { id: pending.id, question: pending.question } : null);
         x.notified = false;
         x.error = null;
       });
     }
+    // keep: pergunta anterior sem resposta não some quando o diálogo para; o descarte fica na cronologia com o motivo.
+    if (pending && verdict !== "progress" && verdict !== "redirect")
+      this.record(t, {
+        from: "worker",
+        to: "orquestrador",
+        kind: "pergunta",
+        status: "descartada",
+        ref: pending.id,
+        text: `Pergunta sem resposta descartada: ${stopReason(after, verdict)}. Pergunta: ${pending.question}`,
+      });
     // keep: a cronologia registra toda pergunta nova, entregue ou parada; o registro não altera a decisão.
     this.record(t, {
       from: "worker",

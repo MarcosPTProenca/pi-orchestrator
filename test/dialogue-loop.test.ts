@@ -119,3 +119,22 @@ test("reenvio da mesma pergunta (duplicada) não gasta orçamento", async () => 
   assert.equal(rec.dialogue?.spent, 1);
   assert.equal(rec.status, "running");
 });
+
+test("bloqueio por orçamento com pergunta anterior sem resposta registra o descarte", async () => {
+  const { h, t } = await startTask(1);
+  appendAsk(t.task_dir, entry("a1", "pergunta um"));
+  await h.orch.refresh(t.task_id);
+  assert.equal(h.orch.get(t.task_id).pending_ask?.id, "a1", "a1 fica pendente sem resposta");
+
+  appendAsk(t.task_dir, entry("a2", "pergunta dois"));
+  await h.orch.refresh(t.task_id);
+  const rec = h.orch.get(t.task_id);
+  assert.equal(rec.status, "blocked");
+  assert.equal(rec.pending_ask ?? null, null);
+
+  const discarded = h.orch.history(t.task_id, {}).items.find((i) => i.ref === "a1" && i.status === "descartada");
+  assert.ok(discarded, "a pergunta pendente descartada aparece na cronologia");
+  assert.equal(discarded.kind, "pergunta");
+  assert.match(discarded.text, /orçamento/, "o motivo do descarte fica explícito");
+  assert.match(rec.question ?? "", /pergunta um/, "o resumo do bloqueio cita a pergunta descartada");
+});

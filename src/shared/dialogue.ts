@@ -81,19 +81,26 @@ export function redirectHint(d: DialogueRecord): string {
 }
 
 // keep: o resumo do bloqueio precisa bastar para a decisão humana: tentativas, saldo e a pergunta concreta; nunca declara sucesso.
+// keep: o motivo do bloqueio sai daqui para o resumo e para a cronologia, para ficarem iguais.
+export function stopReason(d: DialogueRecord, verdict: AskVerdict): string {
+  return verdict === "exhausted"
+    ? `orçamento de ${d.budget} perguntas operacionais esgotado`
+    : `a pergunta voltou com o mesmo contexto, sem evidência nova, depois da estratégia redirecionada`;
+}
+
 export function stopSummary(
   d: DialogueRecord,
   ask: { question: string; context: string },
   verdict: AskVerdict,
+  discarded: { id: string; question: string } | null = null,
 ): string {
   const left = Math.max(d.budget - d.spent, 0);
   const tried = d.asks.map((a, i) => `${i + 1}) ${a.question}`).join(" ");
-  const reason =
-    verdict === "exhausted"
-      ? `orçamento de ${d.budget} perguntas operacionais esgotado`
-      : `a pergunta voltou com o mesmo contexto, sem evidência nova, depois da estratégia redirecionada`;
+  const dropped = discarded
+    ? ` Pergunta anterior sem resposta descartada (${discarded.id}): "${discarded.question.slice(0, HISTORY_CHARS)}".`
+    : "";
   return [
-    `Diálogo autônomo parado: ${reason} (gasto ${d.spent}/${d.budget}; ${left} restantes).`,
+    `Diálogo autônomo parado: ${stopReason(d, verdict)} (gasto ${d.spent}/${d.budget}; ${left} restantes).${dropped}`,
     `Tentativas: ${tried || "nenhuma"}.`,
     `Evidência mais recente: ${ask.context.slice(0, HISTORY_CHARS) || "(nenhuma)"}.`,
     `Decisão necessária: orientar o worker sobre "${ask.question.slice(0, HISTORY_CHARS)}". Responda com orch_answer ou cancele com orch_cancel; nada foi declarado concluído.`,
