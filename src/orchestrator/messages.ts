@@ -58,19 +58,22 @@ export function modelMessageFor(e: WatchEvent): string {
   return lines.join("\n");
 }
 
-// keep: pergunta operacional não é decisão do usuário; o LLM responde ao worker só com autorização, senão escala.
-export function askMessageFor(e: WatchEvent): string {
+// keep: pergunta operacional não é decisão do usuário; o Oracle orienta, o orquestrador valida o escopo e só então responde ao worker.
+export function askMessageFor(e: WatchEvent, contract?: string): string {
   const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)} [truncado]` : text);
+  const askId = e.ask_id ?? "(sem id)";
   const lines = [
     `[pergunta de worker] tarefa ${e.task_id} (${projectLabel(e.project_id)}) tem uma dúvida operacional; a tarefa segue em andamento.`,
-    `Pergunta (ask_id ${e.ask_id ?? ""}): ${clip(e.question ?? "", 600)}`,
+    `Pergunta (ask_id ${askId}): ${clip(e.question ?? "", 600)}`,
   ];
   if (e.result) lines.push(`Contexto do worker: ${clip(e.result, 600)}`);
   lines.push(
     "",
-    "Se a spec, o VISION.md ou o pedido do usuário autorizam a resposta, responda com orch_send(task_id, text, ask_id): o worker recebe como mensagem nova e segue a mesma tarefa.",
-    "Se não houver resposta autorizada, não invente: informe o usuário da pergunta e do task_id. Para encerrar a dúvida sem decidir, oriente o worker com orch_send a registrar a pergunta com orch_report status blocked.",
-    "Não use orch_answer: a tarefa não está bloqueada.",
+    "1. Rode o subagent `oracle` com contexto limpo (não passe a sua conversa), somente leitura, com este contrato:",
+    contract ?? "(contrato indisponível: confira só pela spec e pelo pedido)",
+    `2. Chame orch_ask_verdict(task_id="${e.task_id}", ask_id="${askId}", raw=<JSON do subagent>). Uma consulta por pergunta: a segunda é recusada.`,
+    `3. Só responda se o parecer for answered e a orientação couber na spec, no VISION.md ou no pedido do usuário: orch_send(task_id="${e.task_id}", ask_id="${askId}", text). Sem parecer autorizado, a resposta não chega ao worker.`,
+    "4. Parecer não autorizado ou falha: não responda ao worker. Informe o usuário da pergunta e do task_id; a pergunta segue pendente até a decisão dele. Não use orch_answer: a tarefa não está bloqueada.",
   );
   return lines.join("\n");
 }
