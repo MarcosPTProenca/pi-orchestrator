@@ -86,6 +86,27 @@ Cada tarefa recebe um ticket de execução (`src/shared/execution-ticket.ts`) co
 - Merge nunca é ação do worker. O texto que o worker recebe diz que nenhuma autoridade de merge é concedida por ele. O review fresh é somente leitura: não edita, não commita, não faz push nem merge.
 - A decisão do gate (`decideIntegration`) não executa nada. `requestIntegration` pede `gh pr merge --auto` só quando a decisão é `merge_requested`, e hoje só o harness o chama.
 
+### Ferramentas do worker (padrão restritivo)
+
+O worker não herda as ferramentas nem os servidores MCP do usuário. O lançamento (`src/orchestrator/orchestrator.ts`) passa `--tools` com a lista do modo (`src/shared/worker-tools.ts`):
+
+- `report` e `design`: `read`, `bash`, `grep`, `find`, `ls`.
+- `direct-pr`: as acima mais `edit` e `write`.
+- Em todos os modos, os contratos `orch_report`, `orch_mark_tdd`, `orch_review_verdict` e `orch_submit_plan`.
+- Nenhum servidor MCP. Sem liberação, o lançamento usa `--no-mcp`. `codemode` e `subagent` ficam fora da lista de ferramentas. As skills globais continuam carregadas: esta política não as restringe (`--no-skills` não foi aplicado).
+
+A barreira é dupla: o `--tools` impede a declaração das ferramentas ao modelo, e o worker bloqueia qualquer chamada fora da política com o motivo (`ferramenta mcp__plane__workitem não liberada para o modo report ...`). Uma política ilegível bloqueia a chamada (fail-closed).
+
+**Liberar uma ferramenta específica:** a tarefa passa `allowed_tools` no `orch_delegate`, com o nome exato ou um servidor inteiro:
+
+```json
+{ "mode": "report", "allowed_tools": ["mcp__plane__*"] }
+```
+
+Só entram entradas `mcp__<servidor>__*` ou `mcp__<servidor>__<ferramenta>`; outras são recusadas antes do lançamento. A liberação fica em `released_tools` no registro da tarefa, e o comando do lançamento deixa de ter `--no-mcp`.
+
+Risco conhecido, fora desta política: a chave de API de um servidor MCP pode estar em texto literal em `~/.pi/agent/mcp.json`. Um worker com `bash` consegue lê-la. Rotacionar ou mover esse segredo é tarefa de configuração do usuário.
+
 ## Política de auto-merge
 
 O auto-merge é pedido ao GitHub (`gh pr merge <n> --auto --squash --match-head-commit <sha>`, nunca com `--admin`) só quando **todas** as condições valem para o head_sha atual:
