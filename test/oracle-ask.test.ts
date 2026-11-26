@@ -118,7 +118,6 @@ test("parecer de pergunta que não é a atual é recusado", async () => {
 test("sequência ponta a ponta: worker pergunta, Oracle responde, orquestrador envia correlacionado, worker conclui", async () => {
   const { h, t } = await startTask();
   await asWorker(t, async ({ tools, startTurn, endTurn }) => {
-    // 1. worker pergunta e encerra o turno sem fechar a tarefa
     await tools.orch_ask.execute("c1", {
       kind: "operacional",
       question: "Reutilizar qual contrato?",
@@ -126,7 +125,6 @@ test("sequência ponta a ponta: worker pergunta, Oracle responde, orquestrador e
     });
     await endTurn();
 
-    // 2. orquestrador recebe o aviso com id e monta a mensagem com o contrato do Oracle
     const ev = await h.orch.noticeFor(t.task_id);
     assert.ok(ev, "o orquestrador recebe a pergunta");
     assert.equal(ev.kind, "ask");
@@ -144,7 +142,6 @@ test("sequência ponta a ponta: worker pergunta, Oracle responde, orquestrador e
     assert.ok(msg.includes(contract), "a mensagem leva o contrato, e não a conversa do worker");
     assert.ok(msg.includes(`orch_ask_verdict(task_id="${t.task_id}", ask_id="${askId}"`));
 
-    // 3. Oracle (simulado) responde answered; orquestrador valida e envia com ask_id
     const next = settleOracleVerdict({ taskId: t.task_id, taskDir: t.task_dir, askId, raw: answered() });
     assert.match(next, /orch_send\(task_id=.*ask_id=/);
     await h.orch.send(t.task_id, "use o helper de src/shared/x.ts", askId);
@@ -156,10 +153,8 @@ test("sequência ponta a ponta: worker pergunta, Oracle responde, orquestrador e
     );
     assert.equal(h.orch.get(t.task_id).status, "running", "a tarefa segue running");
 
-    // 4. a mesma pergunta não é respondida duas vezes
     await assert.rejects(h.orch.send(t.task_id, "outra", askId), /não está pendente/);
 
-    // 5. worker continua e conclui com relatório válido (gate final)
     await reportDone({ tools, startTurn, endTurn }, h.orch, t.task_id, "PR aberta");
   });
 });
