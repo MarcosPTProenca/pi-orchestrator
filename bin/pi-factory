@@ -10,19 +10,36 @@ fi
 # Sincroniza com a master antes de subir, só avança (ff-only). Se não der (rede, branch
 # diferente, mudanças locais, histórico divergente), segue com a cópia atual sem bloquear.
 # PI_ORCH_NO_SYNC=1 desliga.
-if [ "${PI_ORCH_NO_SYNC:-}" != "1" ] && [ "$(git -C "$HERE" symbolic-ref --short -q HEAD 2>/dev/null)" = "master" ]; then
-  if git -C "$HERE" diff --quiet && git -C "$HERE" diff --cached --quiet; then
-    before="$(git -C "$HERE" rev-parse HEAD)"
-    if GIT_TERMINAL_PROMPT=0 timeout 15 git -C "$HERE" pull --ff-only --quiet origin master >/dev/null 2>&1; then
-      after="$(git -C "$HERE" rev-parse HEAD)"
-      [ "$before" = "$after" ] || echo "pi-factory: atualizado com master (${before:0:7} -> ${after:0:7})" >&2
+if [ "${PI_ORCH_NO_SYNC:-}" != "1" ]; then
+  branch="$(git -C "$HERE" symbolic-ref --short -q HEAD 2>/dev/null || true)"
+  if [ "$branch" = "master" ]; then
+    if git -C "$HERE" diff --quiet && git -C "$HERE" diff --cached --quiet; then
+      before="$(git -C "$HERE" rev-parse HEAD)"
+      if GIT_TERMINAL_PROMPT=0 timeout 15 git -C "$HERE" pull --ff-only --quiet origin master >/dev/null 2>&1; then
+        after="$(git -C "$HERE" rev-parse HEAD)"
+        if [ "$before" != "$after" ]; then
+          echo "pi-factory: atualizado com master (${before:0:7} -> ${after:0:7})" >&2
+          if git -C "$HERE" diff --name-only "$before" "$after" | grep -qx "package-lock.json"; then
+            echo "pi-factory: package-lock.json mudou; rode 'npm ci' em $HERE antes de subir (node_modules pode estar desatualizado)" >&2
+          fi
+        fi
+      else
+        echo "pi-factory: sync com master não aplicado (rede ou histórico divergente); seguindo com a cópia atual" >&2
+      fi
     else
-      echo "pi-factory: sync com master não aplicado (rede ou histórico divergente); seguindo com a cópia atual" >&2
+      echo "pi-factory: mudanças locais em arquivos rastreados; sync com master pulado" >&2
+    fi
+  elif GIT_TERMINAL_PROMPT=0 timeout 15 git -C "$HERE" fetch --quiet origin master >/dev/null 2>&1; then
+    # Outra branch: não move HEAD (sem merge silencioso); só avisa que a versão carregada está atrás.
+    behind="$(git -C "$HERE" rev-list --count HEAD..origin/master 2>/dev/null || echo 0)"
+    if [ "$behind" -gt 0 ]; then
+      echo "pi-factory: branch ${branch:-(detached)} está atrás de origin/master ($behind commit(s)); não alterada. Atualize-a para carregar a versão nova." >&2
     fi
   else
-    echo "pi-factory: mudanças locais em arquivos rastreados; sync com master pulado" >&2
+    echo "pi-factory: não foi possível verificar origin/master (rede); seguindo com a cópia atual" >&2
   fi
 fi
+echo "pi-factory: versão $(git -C "$HERE" rev-parse --short=7 HEAD 2>/dev/null || echo desconhecida)" >&2
 export PI_ORCH_WORKER_EXT="$HERE/src/worker-ext.ts"
 # Papel da sessão: as extensões globais (ex.: pr-review-hook) leem isto para não rodar no orquestrador. Workers definem o próprio papel no comando.
 export PI_ORCH_ROLE=orchestrator

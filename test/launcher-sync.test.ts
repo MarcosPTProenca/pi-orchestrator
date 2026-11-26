@@ -89,3 +89,63 @@ test("launcher pula o sync com mudanças locais em arquivo rastreado", () => {
   assert.equal(head(t.inst), before);
   assert.equal(readFileSync(join(t.inst, "f.txt"), "utf8"), "local\n");
 });
+
+function advanceOrigin(t: ReturnType<typeof setup>, file: string, content: string) {
+  writeFileSync(join(t.seed, file), content);
+  git(t.seed, "commit", "-qam", "up");
+  git(t.seed, "push", "-q", "origin", "master");
+}
+
+test("launcher sempre informa o commit efetivamente carregado", () => {
+  const t = setup();
+  advanceOrigin(t, "f.txt", "b\n");
+  const r = run(t.inst, t.stub);
+  assert.equal(r.status, 0);
+  const sha = head(t.inst).slice(0, 7);
+  assert.match(r.stderr, new RegExp(`pi-factory: versão ${sha}\\b`));
+});
+
+test("launcher avisa, sem mover o HEAD, quando a branch de trabalho está atrás de master", () => {
+  const t = setup();
+  git(t.inst, "switch", "-q", "-c", "feat/x");
+  advanceOrigin(t, "f.txt", "b\n");
+  const before = head(t.inst);
+  const r = run(t.inst, t.stub);
+  assert.equal(r.status, 0);
+  assert.equal(head(t.inst), before);
+  assert.match(r.stderr, /branch feat\/x está atrás de origin\/master \(1 commit/);
+  assert.match(r.stdout, /stub pi/);
+});
+
+test("launcher não avança master quando o histórico local divergiu do origin", () => {
+  const t = setup();
+  writeFileSync(join(t.inst, "local.txt"), "x\n");
+  git(t.inst, "add", "-A");
+  git(t.inst, "commit", "-qm", "local");
+  advanceOrigin(t, "f.txt", "b\n");
+  const before = head(t.inst);
+  const r = run(t.inst, t.stub);
+  assert.equal(r.status, 0);
+  assert.equal(head(t.inst), before);
+  assert.match(r.stderr, /sync com master não aplicado/);
+});
+
+test("launcher avisa para reinstalar dependências quando o sync trouxe package-lock.json", () => {
+  const t = setup();
+  writeFileSync(join(t.seed, "package-lock.json"), "{}\n");
+  git(t.seed, "add", "-A");
+  git(t.seed, "commit", "-qm", "deps");
+  git(t.seed, "push", "-q", "origin", "master");
+  const r = run(t.inst, t.stub);
+  assert.equal(r.status, 0);
+  assert.match(r.stderr, /package-lock\.json mudou.*npm ci/);
+});
+
+test("pi sobe com o código atualizado, não com a cópia antiga", () => {
+  const t = setup();
+  advanceOrigin(t, "src/index.ts", "versao-nova\n");
+  writeFileSync(join(t.stub, "pi"), '#!/usr/bin/env bash\ncat "$2"\n');
+  const r = run(t.inst, t.stub);
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout, "versao-nova\n");
+});
