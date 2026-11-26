@@ -103,15 +103,33 @@ Limite conhecido: o watchdog aborta um turno que fica mais de 90 s sem nenhum `m
 
 ## Acceptance da #102
 
-| Critério                                                                         | Estado                                                                               |
-| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| Semântica de `input`, `cacheRead`, `cacheWrite`, `output`, `totalTokens`, `cost` | Feito para `claude-bridge`. Outros provedores não medidos.                           |
-| Registro por turno e agregação por tarefa e sessão                               | Feito (13 turnos, por gatilho e modelo).                                             |
-| Eventos de cache warming                                                         | **Não disponível** nesta medição: nenhum evento desse tipo apareceu no provedor.     |
-| De-duplicação após fork e reinício                                               | Feito: 17 entradas viram 13.                                                         |
-| Relatório com totais, cache hit ratio, custo e turnos automáticos                | Feito. Custo: não reportado pelo provedor. Cache: varia entre rodadas (69 % a 95 %). |
-| Baseline: status, delegação, continuação, rajada, ociosa                         | Feito, com provedor real, na rodada completa.                                        |
-| Testes com fixtures (cache 0, campos ausentes, fork, reinício)                   | Já existem em `test/usage.test.ts` (38 testes), não alterados aqui.                  |
+| Critério                                                                         | Estado                                                                                                             |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Semântica de `input`, `cacheRead`, `cacheWrite`, `output`, `totalTokens`, `cost` | Feito para `claude-bridge`. Outros provedores não medidos.                                                         |
+| Registro por turno e agregação por tarefa e sessão                               | Feito (13 turnos, por gatilho e modelo).                                                                           |
+| Eventos de cache warming                                                         | **Não disponível** nesta medição: nenhum evento desse tipo apareceu no provedor.                                   |
+| De-duplicação após fork e reinício                                               | Feito: 17 entradas viram 13.                                                                                       |
+| Relatório com totais, cache hit ratio, custo e turnos automáticos                | Feito. Custo: não reportado pelo provedor. Cache: varia entre rodadas (69 % a 95 %).                               |
+| Baseline: status, delegação, continuação, rajada, ociosa                         | **Parcial.** C1 fecha em todas as rodadas. Passos de sessão comum travam em ~15 % das queries; ver "Estabilidade". |
+| Testes com fixtures (cache 0, campos ausentes, fork, reinício)                   | Já existem em `test/usage.test.ts` (38 testes), não alterados aqui.                                                |
+
+## Estabilidade em rodadas sobre `master` 9386647
+
+Rodadas feitas depois do merge da PR #211, sem alterar código. Cada rodada é o baseline completo com `CLAUDE_BRIDGE_DEBUG=1`.
+
+| Rodada | Passos com exit 0 | Passos com timeout (180 s)       | C1                    | Cache hit | Total de-duplicado |
+| ------ | ----------------- | -------------------------------- | --------------------- | --------- | ------------------ |
+| 1      | 9/11              | A3a, A3b (rajada)                | 30,9 s, `orch_report` | 95,4 %    | 250.595            |
+| 2      | 11/11             | nenhum                           | 23,0 s, `orch_report` | 94,9 %    | 261.949            |
+| 3      | 8/11              | B1, B2 (fork), E2 (orquestrador) | 72,0 s, `orch_report` | 75,6 %    | 175.698            |
+
+**C1 (worker, com `worker-ext`):** 3 de 3 rodadas completas e 10 de 10 execuções na forma de produção fecharam com `orch_report`. Nenhuma query do worker travou.
+
+**Travamentos (5 de 33 queries de sessão comum):** em todos, a query recebe o primeiro chunk e não recebe mais nada. O bridge registra `fresh query` sem `for-await loop exited`. A rajada da rodada 1 travou nas duas queries ao mesmo tempo. Num caso, o CLI do Claude só registrou `Mid-stream server error after 1 block(s) yielded` cerca de 200 s depois do primeiro chunk. Nas sessões comuns não existe watchdog: a proteção de 90 s vale só para o worker.
+
+**Vazamento de processo:** depois que o timeout encerrou o `pi`, um processo `claude` filho continuou vivo, reparentado ao `init`, por mais de 3 min. Ele começou no mesmo instante da query travada da rodada 3 (E2). Não está no repositório: vem do `pi-claude-bridge` 0.12.0. Este é o mesmo vazamento da classe D.
+
+**Decisão pendente:** aplicar o watchdog também às sessões comuns (orquestrador e `pi` interativo). Isso aborta e retoma o turno do usuário, então muda comportamento visível. Não foi feito sem aprovação.
 
 ## Pendências
 
