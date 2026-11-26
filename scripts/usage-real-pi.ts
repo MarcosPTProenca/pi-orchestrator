@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import {
   existsSync,
@@ -13,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runProcessGroup } from "./harness-process.ts";
 import {
   addNewUsage,
   entriesToMessages,
@@ -23,27 +23,15 @@ import {
   type UsageState,
 } from "../src/shared/usage.ts";
 
-function run(
+// keep: o pi roda em grupo próprio; no prazo mata o grupo, senão o claude filho fica órfão.
+async function run(
   cmd: string,
   args: string[],
   opts: { cwd: string; env: NodeJS.ProcessEnv; timeout: number },
 ): Promise<void> {
-  return new Promise((ok, fail) => {
-    const child = spawn(cmd, args, { cwd: opts.cwd, env: opts.env, stdio: ["ignore", "pipe", "pipe"] });
-    let stderr = "";
-    child.stderr.on("data", (c) => (stderr += c));
-    child.stdout.resume();
-    const timer = setTimeout(() => child.kill("SIGKILL"), opts.timeout);
-    child.on("error", (err) => {
-      clearTimeout(timer);
-      fail(err);
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      if (code === 0) ok();
-      else fail(Object.assign(new Error(stderr.slice(0, 300) || `exit ${code}`), { code: code ?? -1, stderr }));
-    });
-  });
+  const r = await runProcessGroup(cmd, args, opts);
+  if (r.code === 0) return;
+  throw Object.assign(new Error(r.stderr.slice(0, 300) || `exit ${r.code}`), { code: r.code, stderr: r.stderr });
 }
 const keep = process.argv.includes("--keep");
 const real = process.argv.includes("--real");
