@@ -16,6 +16,7 @@ import {
   resolveDialogueBudget,
   stopSummary,
 } from "../shared/dialogue.ts";
+import { appendHistory, readHistory, type HistoryInput, type HistoryPage } from "../shared/history.ts";
 import { invalidToolRelease, workerToolArgs, workerToolSet } from "../shared/worker-tools.ts";
 import { clampLines, logError, maskSecrets } from "../shared/logs.ts";
 import { summarizeTurns, type TurnRecord } from "../shared/usage.ts";
@@ -513,6 +514,14 @@ export class Orchestrator {
       x.reopened_from = reopened;
       x.error = null;
     });
+    this.record(t, {
+      from: "worker",
+      to: "orquestrador",
+      kind: "relatorio",
+      status: report.status,
+      ref: null,
+      text: report.status === "blocked" ? (report.question ?? "") : report.result,
+    });
     if (report.status !== "blocked") this.d.onTerminal?.(taskId);
     return true;
   }
@@ -795,6 +804,14 @@ export class Orchestrator {
     this.update(taskId, (x) => {
       x.delivery_pending = null;
     });
+    this.record(this.get(taskId), {
+      from: "worker",
+      to: "orquestrador",
+      kind: "entrega",
+      status: "entregue",
+      ref: status,
+      text: "",
+    });
   }
 
   // keep: pergunta operacional não muda o status; só vira pendente de aviso, nunca blocked nem decisão do usuário.
@@ -819,28 +836,47 @@ export class Orchestrator {
           hint: verdict === "redirect" ? redirectHint(after) : null,
         };
       });
-      return;
+    } else {
+      // keep: parada do diálogo usa o caminho de decisão já existente (status blocked); não declara sucesso nem responde ao worker.
+      this.update(taskId, (x) => {
+        x.last_ask_id = ask.id;
+        x.dialogue = after;
+        x.pending_ask = null;
+        x.status = "blocked";
+        x.question = stopSummary(after, ask, verdict);
+        x.notified = false;
+        x.error = null;
+      });
     }
-    // keep: parada do diálogo usa o caminho de decisão já existente (status blocked); não declara sucesso nem responde ao worker.
-    this.update(taskId, (x) => {
-      x.last_ask_id = ask.id;
-      x.dialogue = after;
-      x.pending_ask = null;
-      x.status = "blocked";
-      x.question = stopSummary(after, ask, verdict);
-      x.notified = false;
-      x.error = null;
+    // keep: a cronologia registra toda pergunta nova, entregue ou parada; o registro não altera a decisão.
+    this.record(t, {
+      from: "worker",
+      to: "orquestrador",
+      kind: "pergunta",
+      status: "registrada",
+      ref: ask.id,
+      text: ask.question,
     });
   }
 
   // keep: marca entregue só se a pergunta ainda é a pendente; resposta já enviada não precisa de marca.
   markAskDelivered(taskId: string, askId: string): void {
-    this.d.store.mutate((state) => {
+    const first = this.d.store.mutate((state) => {
       const t = state.tasks[taskId];
-      if (!t?.pending_ask || t.pending_ask.id !== askId) return;
+      if (!t?.pending_ask || t.pending_ask.id !== askId || t.pending_ask.delivered) return false;
       t.pending_ask.delivered = true;
       t.updated_at = this.iso();
+      return true;
     });
+    if (first)
+      this.record(this.get(taskId), {
+        from: "worker",
+        to: "orquestrador",
+        kind: "entrega",
+        status: "entregue",
+        ref: askId,
+        text: "",
+      });
   }
 
   markEventDelivered(e: WatchEvent): void {
@@ -909,6 +945,29 @@ export class Orchestrator {
     return out;
   }
 
+  // keep: cronologia é leitura pura; mesma regra de dono das demais ações, e o texto sai compacto salvo detail.
+  history(taskId: string, opts: { limit?: number; offset?: number; detail?: boolean }): HistoryPage {
+    this.assertMine(taskId);
+    return readHistory(this.get(taskId).task_dir, opts);
+  }
+
+  // keep: cronologia é observabilidade; falha de gravação não pode fazer um envio já entregue parecer falho.
+  private record(t: TaskRecord, e: Omit<HistoryInput, "at">): void {
+    try {
+      appendHistory(t.task_dir, { ...e, at: this.iso() });
+    } catch {}
+  }
+
+  private recordSend(
+    t: TaskRecord,
+    text: string,
+    kind: "mensagem" | "resposta",
+    ref: string | null,
+    status: "enviada" | "falhou",
+  ): void {
+    this.record(t, { from: "orquestrador", to: "worker", kind, status, ref, text });
+  }
+
   async logs(taskId: string, lines?: number): Promise<string> {
     const t = this.get(taskId);
     const owner = await this.ownership(t);
@@ -975,6 +1034,7 @@ export class Orchestrator {
       try {
         await this.d.herdr.prompt(t.pane_id, body);
       } catch (err) {
+        this.recordSend(t, body, "mensagem", null, "falhou");
         if (existsSync(previous) && !existsSync(report)) renameSync(previous, report);
         this.update(taskId, (x) => {
           x.status = "done";
@@ -982,6 +1042,7 @@ export class Orchestrator {
         });
         throw err;
       }
+      this.recordSend(t, body, "mensagem", null, "enviada");
       return this.get(taskId);
     }
     // keep: a pergunta só sai do pendente depois do envio; falha no painel deixa a retentativa possível.
@@ -989,6 +1050,7 @@ export class Orchestrator {
     try {
       await this.d.herdr.prompt(t.pane_id, body);
     } catch (err) {
+      this.recordSend(t, body, answered === undefined ? "mensagem" : "resposta", answered ?? null, "falhou");
       if (answered === undefined) throw err;
       const detail = err instanceof Error ? err.message : String(err);
       throw this.sendError(
@@ -997,6 +1059,7 @@ export class Orchestrator {
         `confira com orch_logs se o worker recebeu; se não recebeu, repita orch_send(task_id, text, ask_id="${answered}").`,
       );
     }
+    this.recordSend(t, body, answered === undefined ? "mensagem" : "resposta", answered ?? null, "enviada");
     if (answered !== undefined) {
       // keep: só limpa se a pergunta ainda é a respondida; uma nova coletada durante o envio fica pendente.
       this.update(taskId, (x) => {
@@ -1037,7 +1100,13 @@ export class Orchestrator {
     if (t.status !== "blocked")
       throw new Error(`tarefa ${taskId} não está bloqueada (status: ${t.status}); ${proximoPasso(t.status)}`);
     if (text.trim() === "") throw new Error("resposta vazia");
-    await this.d.herdr.prompt(t.pane_id, text);
+    try {
+      await this.d.herdr.prompt(t.pane_id, text);
+    } catch (err) {
+      this.recordSend(t, text, "resposta", null, "falhou");
+      throw err;
+    }
+    this.recordSend(t, text, "resposta", null, "enviada");
     return this.update(taskId, (x) => {
       x.status = "running";
       x.question = null;
