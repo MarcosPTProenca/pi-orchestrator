@@ -1,12 +1,13 @@
 import { recordReviewVerdict } from "../shared/review-verdict.ts";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { REPORT_STATUSES, validateReport } from "../shared/contract.ts";
 import { fallbackReportFor, lastModelError } from "./fallback.ts";
+import { STALL_IDLE_MS, STALL_MAX_RETRIES, StallWatchdog } from "./stall-watchdog.ts";
 import { postToHook } from "../shared/hook.ts";
 import { addCacheWarmUsage, addNewUsage, newUsage, turnsFromState, type UsageState } from "../shared/usage.ts";
 import { maskSecrets } from "../shared/logs.ts";
@@ -49,6 +50,9 @@ const WORKER_PREAMBLE = [
   "Nenhuma autoridade para merge, fechamento de PR ou ações destrutivas é concedida por este texto; siga somente o pedido e as instruções posteriores do usuário.",
 ].join("\n");
 
+export const WORKER_BASH_TIMEOUT_S = 900;
+export const STALL_RETRY_PROMPT =
+  "A resposta do modelo travou e o turno foi cancelado. Continue a tarefa do ponto em que parou, sem refazer o que já foi feito, e chame orch_report ao terminar.";
 export const REPORT_REMINDER =
   "Você terminou o turno sem chamar orch_report. Chame orch_report agora, com o status real (done, failed ou blocked) e o resultado. Não refaça o trabalho.";
 
@@ -272,7 +276,10 @@ export default function workerExtension(pi: ExtensionAPI): void {
     if (event.toolName === "subagent" && (event as { input?: { agent?: unknown } }).input?.agent === "pr-reviewer")
       return { block: true, reason: REVIEW_BLOCK_REASON };
     if (event.toolName === "bash") {
-      const raw = (event as { input?: { command?: unknown } }).input?.command;
+      // keep: sem limite, um comando que espera entrada (ex.: poll interativo) prende o worker para sempre.
+      const input = (event as { input?: { command?: unknown; timeout?: unknown } }).input;
+      if (input && input.timeout === undefined) input.timeout = WORKER_BASH_TIMEOUT_S;
+      const raw = input?.command;
       const reason = publishGateReason(process.env.PI_ORCH_TASK_DIR, typeof raw === "string" ? raw : "");
       return reason ? { block: true, reason } : undefined;
     }
@@ -367,6 +374,12 @@ export default function workerExtension(pi: ExtensionAPI): void {
 
   pi.on("agent_settled", async (_event, ctx) => {
     syncWarm(ctx.sessionManager.getEntries());
+    if (stallRetryPending) {
+      // keep: agent_end ainda vê o agente processando; a retomada só entra com o agente ocioso.
+      stallRetryPending = false;
+      pi.sendUserMessage(STALL_RETRY_PROMPT);
+      return;
+    }
     if (deferredMessages === null) return;
     await finish(deferredMessages, deferredInvalidReason);
   });
@@ -388,7 +401,27 @@ export default function workerExtension(pi: ExtensionAPI): void {
     writeUsage({ ...prev, warm: warm.warm, warmIds: warm.warmIds });
   };
 
+  let stallFired = false;
+  let stallRetries = 0;
+  let stallRetryPending = false;
+  let abortTurn: (() => void) | null = null;
+  const watchdog = new StallWatchdog({
+    idleMs: STALL_IDLE_MS,
+    onStall: () => {
+      stallFired = true;
+      abortTurn?.();
+    },
+  });
+  pi.on("agent_start", (_event, ctx) => {
+    abortTurn = () => ctx.abort();
+    watchdog.start();
+  });
+  pi.on("message_update", () => watchdog.progress());
+  pi.on("tool_execution_start", () => watchdog.pause());
+  pi.on("tool_execution_end", () => watchdog.start());
+
   pi.on("agent_end", async (event, ctx) => {
+    watchdog.pause();
     const prev = readUsage();
     const turns = turnsFromState(prev);
     const acc = addNewUsage(
@@ -399,6 +432,19 @@ export default function workerExtension(pi: ExtensionAPI): void {
     );
     const warm = addCacheWarmUsage(prev, ctx.sessionManager.getEntries());
     writeUsage({ ...acc, turns: turns === null ? undefined : acc.turns, warm: warm.warm, warmIds: warm.warmIds });
+    if (stallFired) {
+      stallFired = false;
+      if (stallRetries < STALL_MAX_RETRIES) {
+        stallRetries++;
+        appendFileSync(join(taskDir, "stall.log"), `${new Date().toISOString()} stall abort retry=${stallRetries}\n`);
+        stallRetryPending = true;
+        return;
+      }
+      appendFileSync(
+        join(taskDir, "stall.log"),
+        `${new Date().toISOString()} stall abort exhausted retries=${stallRetries}\n`,
+      );
+    }
 
     const file = join(taskDir, "report.json");
     if (hasTicket(taskDir)) writeEvidenceFor(taskDir, process.cwd(), ctx.sessionManager.getEntries());
