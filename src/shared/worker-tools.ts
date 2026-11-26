@@ -7,7 +7,7 @@ const BASE_TOOLS: Record<Mode, string[]> = {
   "direct-pr": ["read", "bash", "edit", "write", "grep", "find", "ls"],
 };
 
-const ORCH_TOOLS = ["orch_report", "orch_mark_tdd", "orch_review_verdict", "orch_submit_plan"];
+const ORCH_TOOLS = ["orch_report", "orch_ask", "orch_mark_tdd", "orch_review_verdict", "orch_submit_plan"];
 
 const RELEASE_RE = /^mcp__[A-Za-z0-9_-]+__(\*|[A-Za-z0-9_-]+)$/;
 

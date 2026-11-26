@@ -74,6 +74,7 @@ import {
 import { registerOrchestratorTools } from "./tools.ts";
 import { ORCHESTRATOR_ROLE } from "./prompts.ts";
 import {
+  askMessageFor,
   idleNoticeFor,
   modelMessageFor,
   type OrphanLease,
@@ -225,6 +226,10 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   );
 
   const announce = async (event: WatchEvent): Promise<void> => {
+    if (event.kind === "ask") {
+      notices.push({ key: `${event.task_id}:ask:${event.question}`, text: askMessageFor(event), event });
+      return;
+    }
     let prLine = "";
     if (event.status === "done") {
       const task = orch.get(event.task_id);
