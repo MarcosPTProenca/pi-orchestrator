@@ -378,7 +378,9 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         [...launching].filter((k) => k.startsWith(`${planId}/`)).map((k) => k.slice(planId.length + 1)),
       );
       for (const item of orphanLaunches(plan, Date.now(), ORPHAN_LAUNCH_MS, inFlight)) {
-        const taskId = findOwnedLaunch(item, planId, orch.owned());
+        // keep: tarefa já atribuída a outro item do plano (mesmo papel e projeto) não pode ser adotada de novo.
+        const taken = new Set(planStore.show(planId).items.flatMap((i) => (i.task_id ? [i.task_id] : [])));
+        const taskId = findOwnedLaunch(item, planId, orch.owned(), taken);
         if (taskId) {
           planStore.launched(planId, item.id, taskId);
           emitEvent(eventSink, EVENT_POLICY["plan-launched"], {

@@ -93,14 +93,22 @@ export interface OwnedLaunch {
 }
 
 // keep: só adota tarefa criada depois da reserva, com o mesmo papel e projeto; sem match, nada foi lançado (ou não há como provar) e o item não é relançado.
-export function findOwnedLaunch(item: PlanItem, planId: string, tasks: OwnedLaunch[]): string | null {
+export function findOwnedLaunch(
+  item: PlanItem,
+  planId: string,
+  tasks: OwnedLaunch[],
+  taken: ReadonlySet<string> = new Set(),
+): string | null {
   const spec = item.delegate;
   if (!spec) return null;
   const role = spec.role ?? `plano-${planId}`;
   const since = Date.parse(item.updated_at);
   const hit = tasks.find(
     (t) =>
-      t.role === role && resolve(t.project_path) === resolve(spec.project_path) && Date.parse(t.created_at) >= since,
+      !taken.has(t.task_id) &&
+      t.role === role &&
+      resolve(t.project_path) === resolve(spec.project_path) &&
+      Date.parse(t.created_at) >= since,
   );
   return hit?.task_id ?? null;
 }

@@ -340,3 +340,9 @@ test("#118: tarefa criada antes da reserva, ou de outro projeto, não é adotada
   };
   assert.equal(findOwnedLaunch(plan.items[0], "p", [antes, outroProjeto]), null);
 });
+
+test("#118: tarefa já atribuída a outro item do plano não é adotada pela órfã", () => {
+  const plan = reservado(fresh());
+  const t = { task_id: "t-0a1b2c3d", role: "plano-p", project_path: "/repo/x", created_at: at(T0 + 5_000) };
+  assert.equal(findOwnedLaunch(plan.items[0], "p", [t], new Set(["t-0a1b2c3d"])), null);
+});
