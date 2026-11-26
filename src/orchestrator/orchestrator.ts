@@ -14,7 +14,7 @@ import { classifyFailure } from "../policy/failure.ts";
 import { RELAUNCH_MARK, relaunchContext, relaunchNotice } from "./relaunch-context.ts";
 import { isActive, reportKey, validateReport, type TaskRecord, type TaskStatus } from "../shared/contract.ts";
 import type { Report } from "../shared/contract.ts";
-import { belowFloor, PRESENTATION_FLOOR, type HerdrPort, type TabResult } from "../shared/herdr.ts";
+import { belowFloor, PRESENTATION_FLOOR, type HerdrPort, type PaneInfo, type TabResult } from "../shared/herdr.ts";
 import type { Store } from "../shared/store.ts";
 
 export interface OrchDeps {
@@ -42,6 +42,8 @@ import type { DelegateInput, WatchEvent } from "../shared/task.ts";
 export type { DelegateInput, WatchEvent } from "../shared/task.ts";
 
 const OP_LOCK_WAIT_MS = 5_000;
+// keep: pane ocioso sem orch_report além deste tempo é falha (#227); um report posterior reabre a tarefa.
+const IDLE_NO_REPORT_MS = 10 * 60_000;
 const OP_LOCK_STALE_MS = 30_000;
 
 function proximoPasso(status: TaskStatus): string {
@@ -122,6 +124,7 @@ export class Orchestrator {
   }
 
   private sharedWith?: (projectPath: string) => boolean;
+  private idleSince = new Map<string, number>();
 
   setScope(key: string, sharedWith?: (projectPath: string) => boolean): void {
     this.scope = key;
@@ -531,6 +534,7 @@ export class Orchestrator {
   }
 
   private setTerminal(taskId: string, status: TaskStatus, error: string | null): WatchEvent {
+    this.idleSince.delete(taskId);
     const t = this.update(taskId, (x) => {
       x.status = status;
       x.error = error;
@@ -568,12 +572,12 @@ export class Orchestrator {
         `prazo definido por você (${t.deadline_at}) foi atingido; o worker segue rodando`,
       );
     }
-    const owner = await this.ownership(t);
+    const { owner, pane } = await this.paneOwnership(t);
     if (owner !== "owned") {
       this.noteWorktree(taskId);
       return this.setTerminal(taskId, "lost", `pane ${owner === "missing" ? "não existe mais" : "trocou de agente"}`);
     }
-    return null;
+    return t.status === "running" ? this.failIfIdleWithoutReport(taskId, pane) : null;
   }
 
   forgetDeadTab(taskId: string): boolean {
@@ -917,9 +921,35 @@ export class Orchestrator {
   }
 
   private async ownership(t: TaskRecord): Promise<"owned" | "missing" | "mismatch"> {
-    const pane = (await this.d.herdr.panes()).find((p) => p.pane_id === t.pane_id);
-    if (!pane) return "missing";
-    return pane.terminal_id === t.terminal_id ? "owned" : "mismatch";
+    return (await this.paneOwnership(t)).owner;
+  }
+
+  private async paneOwnership(
+    t: TaskRecord,
+  ): Promise<{ owner: "owned" | "missing" | "mismatch"; pane: PaneInfo | null }> {
+    const pane = (await this.d.herdr.panes()).find((p) => p.pane_id === t.pane_id) ?? null;
+    if (!pane) return { owner: "missing", pane: null };
+    return { owner: pane.terminal_id === t.terminal_id ? "owned" : "mismatch", pane };
+  }
+
+  // keep: o relógio só corre com pane ocioso ou aguardando; qualquer trabalho zera a contagem.
+  private failIfIdleWithoutReport(taskId: string, pane: PaneInfo | null): WatchEvent | null {
+    const waiting = pane?.agent_status === "idle" || pane?.agent_status === "done";
+    if (!waiting) {
+      this.idleSince.delete(taskId);
+      return null;
+    }
+    const now = this.d.now();
+    const since = this.idleSince.get(taskId) ?? now;
+    this.idleSince.set(taskId, since);
+    if (now - since < IDLE_NO_REPORT_MS) return null;
+    this.idleSince.delete(taskId);
+    const min = Math.round(IDLE_NO_REPORT_MS / 60_000);
+    return this.setTerminal(
+      taskId,
+      "failed",
+      `worker ficou ocioso por ${min} min sem chamar orch_report; a tarefa não entregou relatório. Veja orch_logs e relance se necessário.`,
+    );
   }
 
   async cancel(taskId: string): Promise<TaskRecord> {
