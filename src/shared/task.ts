@@ -14,6 +14,8 @@ export interface DelegateInput {
   model?: string;
   tracker?: "github" | "plane" | "none";
   timeout_minutes?: number;
+  // keep: perguntas operacionais que a tarefa pode gerar antes de o diálogo autônomo parar; omitido = PI_ORCH_DIALOGUE_BUDGET ou padrão.
+  dialogue_budget?: number;
   acceptance?: string[];
   allowed_tools?: string[];
 }
@@ -30,4 +32,5 @@ export interface WatchEvent {
   // keep: aviso de pergunta operacional do worker; a tarefa segue running e não entra no inbox de decisão.
   kind?: "ask";
   ask_id?: string;
+  hint?: string | null;
 }

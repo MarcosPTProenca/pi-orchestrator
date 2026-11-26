@@ -7,6 +7,15 @@ import { basename, dirname, join } from "node:path";
 import { toExecutionTicket, validationFromScripts, type ExecutionTicket } from "../shared/execution-ticket.ts";
 import { TICKET_FILE } from "../shared/plan.ts";
 import { latestAsk, oracleVerdictFor } from "../shared/ask.ts";
+import {
+  DIALOGUE_BUDGET_DEFAULT,
+  judgeAsk,
+  newDialogue,
+  recordAsk,
+  redirectHint,
+  resolveDialogueBudget,
+  stopSummary,
+} from "../shared/dialogue.ts";
 import { invalidToolRelease, workerToolArgs, workerToolSet } from "../shared/worker-tools.ts";
 import { clampLines, logError, maskSecrets } from "../shared/logs.ts";
 import { summarizeTurns, type TurnRecord } from "../shared/usage.ts";
@@ -325,6 +334,8 @@ export class Orchestrator {
     const projected = this.d.presentationSpaces === true && !this.d.dryRun;
     if (projected) await this.assertSpacesFloor();
 
+    // keep: orçamento validado antes de qualquer efeito colateral; valor explícito inválido não lança tarefa.
+    const dialogueBudget = resolveDialogueBudget(input.dialogue_budget, process.env.PI_ORCH_DIALOGUE_BUDGET);
     const taskId = `t-${this.d.newHex()}`;
     const workerId = workerAgentName(input.project_path, taskId.slice(2));
     const taskDir = join(this.d.tasksDir, taskId);
@@ -369,6 +380,7 @@ export class Orchestrator {
       last_report_key: null,
       notified: true,
       error: null,
+      dialogue: newDialogue(dialogueBudget),
     };
     this.d.store.mutate((state) => {
       state.tasks[taskId] = record;
@@ -722,6 +734,8 @@ export class Orchestrator {
     const task = await this.delegate(input, { forkSession: previous ?? undefined, briefRevised: true });
     this.update(task.task_id, (x) => {
       x.relaunched_from = taskId;
+      // keep: o relançamento herda o gasto do diálogo; reiniciar a tarefa não pode zerar o orçamento.
+      if (old.dialogue) x.dialogue = old.dialogue;
     });
     return this.get(task.task_id);
   }
@@ -789,9 +803,33 @@ export class Orchestrator {
     if (t.status !== "running") return;
     const ask = latestAsk(t.task_dir);
     if (!ask || ask.id === t.last_ask_id) return;
+    // keep: pergunta repetida sem evidência nova não gera sequência ilimitada: a primeira oferece uma estratégia, a segunda bloqueia com resumo para decisão humana.
+    const before = t.dialogue ?? newDialogue(DIALOGUE_BUDGET_DEFAULT);
+    const verdict = judgeAsk(before, ask);
+    const after = recordAsk(before, ask, verdict);
+    if (verdict === "progress" || verdict === "redirect") {
+      this.update(taskId, (x) => {
+        x.last_ask_id = ask.id;
+        x.dialogue = after;
+        x.pending_ask = {
+          id: ask.id,
+          question: ask.question,
+          context: ask.context,
+          notified: false,
+          hint: verdict === "redirect" ? redirectHint(after) : null,
+        };
+      });
+      return;
+    }
+    // keep: parada do diálogo usa o caminho de decisão já existente (status blocked); não declara sucesso nem responde ao worker.
     this.update(taskId, (x) => {
       x.last_ask_id = ask.id;
-      x.pending_ask = { id: ask.id, question: ask.question, context: ask.context, notified: false };
+      x.dialogue = after;
+      x.pending_ask = null;
+      x.status = "blocked";
+      x.question = stopSummary(after, ask, verdict);
+      x.notified = false;
+      x.error = null;
     });
   }
 
@@ -826,6 +864,7 @@ export class Orchestrator {
       ask_id: pending.id,
       question: pending.question,
       result: pending.context || null,
+      hint: pending.hint ?? null,
     };
   }
 
@@ -864,6 +903,7 @@ export class Orchestrator {
         ask_id: p.id,
         question: p.question,
         result: p.context || null,
+        hint: p.hint ?? null,
       });
     }
     return out;
