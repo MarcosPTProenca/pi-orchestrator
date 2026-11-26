@@ -15,8 +15,9 @@ poder para afirmar que um contexto é melhor que o outro.
 - **Tarefa de teste:** ler `README.md` (três fatos: versão, licença, banco) e
   escrever `summary.md` com esses fatos. Sucesso = `summary.md` existe e contém
   `2.3`, `MIT` e `postgres`.
-- **Tentativa anterior (sessão A):** dois turnos reais que leem o README, listam
-  os fatos e não escrevem o arquivo. Esse é o "histórico" disponível para o fork.
+- **Tentativa anterior (sessão A):** duas execuções reais (quatro respostas do
+  assistente, contando chamadas de ferramenta) que leem o README, listam os fatos
+  e não escrevem o arquivo. Esse é o "histórico" disponível para o fork.
 - **Relatório da tentativa:** a saída final da sessão A, usada como trecho do
   handoff no braço `fresh`.
 - **Mensagem de relançamento:** gerada por `relaunchNotice()` do código real, com
@@ -61,7 +62,7 @@ Por execução (entrada total / saída):
 
 ## Limites
 
-- **Tarefa trivial e histórico curto:** a sessão A tinha quatro turnos. O fork
+- **Tarefa trivial e histórico curto:** a sessão A tinha quatro respostas do assistente. O fork
   copia pouco contexto, então a vantagem ou desvantagem de custo é pequena por
   construção. Um histórico longo, com decisões não consolidadas, pode mudar o
   resultado. Este cenário não cobre esse caso.
