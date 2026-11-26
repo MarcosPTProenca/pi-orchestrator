@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, s
 import { basename, dirname, join } from "node:path";
 import { toExecutionTicket, validationFromScripts, type ExecutionTicket } from "../shared/execution-ticket.ts";
 import { TICKET_FILE } from "../shared/plan.ts";
-import { latestAsk } from "../shared/ask.ts";
+import { latestAsk, oracleVerdictFor } from "../shared/ask.ts";
 import { invalidToolRelease, workerToolArgs, workerToolSet } from "../shared/worker-tools.ts";
 import { clampLines, logError, maskSecrets } from "../shared/logs.ts";
 import { summarizeTurns, type TurnRecord } from "../shared/usage.ts";
@@ -902,6 +902,7 @@ export class Orchestrator {
         `há pergunta pendente ${t.pending_ask.id}; responda com orch_send ask_id="${t.pending_ask.id}"; nada foi enviado`,
       );
     }
+    const body = askId === undefined ? text : this.oracleAnswerText(t, askId, text);
     const owner = await this.ownership(t);
     if (owner === "missing")
       throw this.sendError(
@@ -915,7 +916,7 @@ export class Orchestrator {
         "o painel trocou de agente; nada foi enviado",
         "confira com orch_status; a resposta não vai para outro agente.",
       );
-    if (t.status === "blocked") return this.answerLocked(taskId, text);
+    if (t.status === "blocked") return this.answerLocked(taskId, body);
     if (t.status === "done") {
       const pane = (await this.d.herdr.panes()).find((p) => p.pane_id === t.pane_id && p.terminal_id === t.terminal_id);
       // keep: o Herdr reporta "done" no painel de quem já terminou a vez; é o mesmo estado de espera por mensagem que "idle".
@@ -932,7 +933,7 @@ export class Orchestrator {
         x.question = null;
       });
       try {
-        await this.d.herdr.prompt(t.pane_id, text);
+        await this.d.herdr.prompt(t.pane_id, body);
       } catch (err) {
         if (existsSync(previous) && !existsSync(report)) renameSync(previous, report);
         this.update(taskId, (x) => {
@@ -946,7 +947,7 @@ export class Orchestrator {
     // keep: a pergunta só sai do pendente depois do envio; falha no painel deixa a retentativa possível.
     const answered = t.pending_ask?.id;
     try {
-      await this.d.herdr.prompt(t.pane_id, text);
+      await this.d.herdr.prompt(t.pane_id, body);
     } catch (err) {
       if (answered === undefined) throw err;
       const detail = err instanceof Error ? err.message : String(err);
@@ -964,6 +965,16 @@ export class Orchestrator {
       });
     }
     return t;
+  }
+
+  // keep: resposta a pergunta do worker só segue com parecer answered gravado; inconclusivo, contraditório ou fora do escopo não vira orientação.
+  private oracleAnswerText(t: TaskRecord, askId: string, text: string): string {
+    const verdict = oracleVerdictFor(t.task_dir, askId);
+    if (verdict !== "answered")
+      throw new Error(
+        `sem parecer do Oracle que autorize a pergunta ${askId} (parecer: ${verdict ?? "nenhum"}); nada foi enviado`,
+      );
+    return `[resposta à pergunta ${askId}] ${text}`;
   }
 
   // keep: com pergunta pendente, a falha grava o motivo e mantém a pergunta para retentativa; sem pergunta, a mensagem é a de sempre.

@@ -32,6 +32,7 @@ export interface OrchestratorToolContext {
   startTask: (input: DelegateInput) => Promise<string>;
   launchReady: (planId: string) => Promise<void>;
   scopeVerdict: (taskId: string, raw: string) => Promise<string>;
+  askVerdict: (taskId: string, askId: string, raw: string) => string;
   usage: () => ReturnType<typeof orchestratorUsage> | null;
 }
 
@@ -324,7 +325,7 @@ export function registerOrchestratorTools(pi: ExtensionAPI, ctx: OrchestratorToo
         ask_id: {
           type: "string",
           description:
-            "ID da pergunta operacional do aviso. Obrigatório quando há pergunta pendente do worker; repetir a mesma resposta é recusada.",
+            "ID da pergunta operacional do aviso. Obrigatório quando há pergunta pendente do worker; só segue com parecer answered do Oracle, e repetir a mesma resposta é recusada.",
         },
       },
       required: ["task_id", "text"],
@@ -503,6 +504,28 @@ export function registerOrchestratorTools(pi: ExtensionAPI, ctx: OrchestratorToo
     async execute(_id: string, params: { task_id: string; raw: string }) {
       assertWritable();
       return asText(await ctx.scopeVerdict(params.task_id, params.raw));
+    },
+  });
+
+  pi.registerTool({
+    name: "orch_ask_verdict",
+    label: "orch ask verdict",
+    description:
+      "Registra o parecer do Oracle (subagent oracle, contexto limpo, somente leitura) sobre uma pergunta operacional de worker. raw é o JSON do subagent. Uma consulta por pergunta: falha ou JSON inválido também a encerram. Só parecer answered autoriza orch_send com ask_id.",
+    parameters: {
+      type: "object",
+      properties: {
+        task_id: { type: "string" },
+        ask_id: { type: "string" },
+        raw: { type: "string", description: "JSON do subagent, sem alterações" },
+      },
+      required: ["task_id", "ask_id", "raw"],
+      additionalProperties: false,
+    },
+    execute(_id: string, params: { task_id: string; ask_id: string; raw: string }) {
+      assertWritable();
+      const next = ctx.askVerdict(params.task_id, params.ask_id, params.raw);
+      return Promise.resolve(asText({ task_id: params.task_id, ask_id: params.ask_id, next }));
     },
   });
 

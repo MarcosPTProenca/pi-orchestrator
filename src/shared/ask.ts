@@ -41,6 +41,35 @@ export function askRefusal(kind: string, previous: number): string | null {
   return null;
 }
 
+const ORACLE_FILE = "oracle.json";
+
+function readOracleVerdicts(dir: string): Record<string, string> {
+  const file = join(dir, ORACLE_FILE);
+  if (!existsSync(file)) return {};
+  try {
+    const parsed = JSON.parse(readFileSync(file, "utf8")) as { verdicts?: unknown };
+    return parsed.verdicts && typeof parsed.verdicts === "object" ? (parsed.verdicts as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function oracleVerdictFor(dir: string, askId: string): string | null {
+  const verdicts = readOracleVerdicts(dir);
+  return Object.hasOwn(verdicts, askId) ? verdicts[askId] : null;
+}
+
+// keep: uma consulta ao Oracle por pergunta; registrar de novo é recusado para não haver ciclo de consultas.
+export function recordOracleVerdict(dir: string, askId: string, verdict: string): boolean {
+  const verdicts = readOracleVerdicts(dir);
+  if (Object.hasOwn(verdicts, askId)) return false;
+  verdicts[askId] = verdict;
+  const file = join(dir, ORACLE_FILE);
+  writeFileSync(`${file}.tmp`, JSON.stringify({ verdicts }, null, 2));
+  renameSync(`${file}.tmp`, file);
+  return true;
+}
+
 export function appendAsk(dir: string, entry: AskEntry): void {
   const file = join(dir, ASK_FILE);
   const asks = [...readAsks(dir), entry];

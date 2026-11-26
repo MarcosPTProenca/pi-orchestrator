@@ -8,26 +8,7 @@ import { toExecutionTicket } from "../src/shared/execution-ticket.ts";
 import { EVIDENCE_FILE, readEvidenceLog } from "../src/shared/execution-evidence.ts";
 import { readPublishState, writePublishState } from "../src/shared/publish.ts";
 import { TICKET_FILE } from "../src/shared/plan.ts";
-import workerExtension from "../src/worker/worker-ext.ts";
-
-type Handler = (event: Record<string, unknown>, ctx?: unknown) => unknown;
-type Tool = { execute: (id: string, params: Record<string, unknown>) => Promise<{ content: { text: string }[] }> };
-
-function loadWorker(): { handlers: Record<string, Handler>; tools: Record<string, Tool> } {
-  const handlers: Record<string, Handler> = {};
-  const tools: Record<string, Tool> = {};
-  workerExtension({
-    on: (name: string, fn: Handler) => {
-      handlers[name] = fn;
-    },
-    registerTool: (t: { name: string } & Tool) => {
-      tools[t.name] = t;
-    },
-    registerEntryRenderer: () => {},
-    appendEntry: () => {},
-  } as never);
-  return { handlers, tools };
-}
+import { loadWorker } from "./worker-harness.ts";
 
 const git = (cwd: string, ...args: string[]): string =>
   execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "core.hooksPath=/dev/null", ...args], {
