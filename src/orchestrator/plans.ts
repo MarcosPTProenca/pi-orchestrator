@@ -7,7 +7,7 @@ export type ItemStatus = (typeof ITEM_STATUSES)[number];
 
 const MODES = ["report", "direct-pr", "design"] as const;
 
-interface PlanDelegate {
+export interface PlanDelegate {
   project_path: string;
   role?: string;
   request: string;
@@ -25,6 +25,15 @@ interface ItemDelivery {
   reason: string | null;
 }
 
+export type ScopeVerdict = "aligned" | "out_of_scope" | "unverified";
+
+// keep: revisão de escopo entre o done do worker e o avanço do plano; pending enquanto o LLM do orquestrador não devolve o parecer.
+export interface ScopeReview {
+  verdict: "pending" | ScopeVerdict;
+  reason: string | null;
+  requested_at: string;
+}
+
 export interface PlanItem {
   id: string;
   title: string;
@@ -35,6 +44,7 @@ export interface PlanItem {
   delegate: PlanDelegate | null;
   error: string | null;
   delivery: ItemDelivery | null;
+  scope: ScopeReview | null;
   updated_at: string;
 }
 
@@ -217,6 +227,7 @@ export class PlanStore {
         delegate: input.delegate ?? null,
         error: null,
         delivery: null,
+        scope: null,
         updated_at: at,
       };
     });
@@ -234,6 +245,7 @@ export class PlanStore {
       item.delegate ??= null;
       item.error ??= null;
       item.delivery ??= null;
+      item.scope ??= null;
     }
     plan.state ??= "draft";
     return plan;
@@ -328,6 +340,44 @@ export class PlanStore {
 
   launched(planId: string, itemId: string, taskId: string): PlanItem {
     return this.update(planId, itemId, { status: "in_progress", task_id: taskId });
+  }
+
+  // keep: só item em execução com a tarefa dada entra na revisão; o avanço do plano depende do parecer gravado aqui.
+  requestScope(planId: string, itemId: string): PlanItem {
+    const plan = this.show(planId);
+    const item = plan.items.find((i) => i.id === itemId);
+    if (!item) throw new Error(`item ${itemId} não existe no plano ${planId}`);
+    if (item.status !== "in_progress" || item.task_id === null)
+      throw new Error(`item ${itemId} não está em execução com tarefa; não há o que revisar`);
+    item.scope = { verdict: "pending", reason: null, requested_at: this.now() };
+    item.updated_at = this.now();
+    this.write(plan);
+    return item;
+  }
+
+  inProgressFor(taskId: string): { plan: string; item: PlanItem }[] {
+    const hits: { plan: string; item: PlanItem }[] = [];
+    for (const planId of this.list()) {
+      for (const item of this.show(planId).items) {
+        if (item.task_id === taskId && item.status === "in_progress") hits.push({ plan: planId, item });
+      }
+    }
+    return hits;
+  }
+
+  recordScope(taskId: string, verdict: ScopeVerdict, reason: string): { plan: string; item: string }[] {
+    const touched: { plan: string; item: string }[] = [];
+    for (const { plan, item } of this.inProgressFor(taskId)) {
+      if (item.scope?.verdict !== "pending") continue;
+      const p = this.show(plan);
+      const target = p.items.find((i) => i.id === item.id);
+      if (!target) continue;
+      target.scope = { verdict, reason, requested_at: item.scope.requested_at };
+      target.updated_at = this.now();
+      this.write(p);
+      touched.push({ plan, item: item.id });
+    }
+    return touched;
   }
 
   blocked(planId: string, itemId: string, error: string): PlanItem {
