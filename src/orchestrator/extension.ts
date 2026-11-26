@@ -49,7 +49,10 @@ import {
   orphanLaunches,
   planOwnedBy,
   trackedItems,
+  type PlanItem,
 } from "./plans.ts";
+import { missingVisionNotice, parseScopeVerdict, scopeReviewText, scopeStep } from "./scope.ts";
+import { readVision } from "../shared/intake.ts";
 import { EVENT_POLICY, UI_ENTRY, emitEvent, statusKind, wakesLlm, type EventSink } from "../policy/event-policy.ts";
 import { orchestratorUsage } from "../shared/usage.ts";
 import { NoticeBatcher } from "./notices.ts";
@@ -330,6 +333,10 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   // keep: lançamentos em curso nesta sessão (planId/itemId); a varredura de órfãos não mexe neles.
   const launching = new Set<string>();
   const ORPHAN_LAUNCH_MS = envPositive(process.env.PI_ORCH_ORPHAN_LAUNCH_MS, 120_000);
+  const visionNote = (projectPath: string): string => {
+    const vn = missingVisionNotice(projectPath, readVision(projectPath));
+    return vn ? ` ${vn}` : "";
+  };
   const launchReady = async (planId: string): Promise<void> => {
     const plan = planStore.show(planId);
     for (const item of launchable(plan).filter((i) => itemOwnedBy(i, (p) => orch.ownsProject(p)))) {
@@ -353,7 +360,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         planStore.launched(planId, item.id, task.task_id);
         emitEvent(eventSink, EVENT_POLICY["plan-launched"], {
           customType: "orch-event",
-          content: `Plano ${planId}, item ${item.id} (${item.title}): lancei a tarefa ${task.task_id} (${projectLabel(task.project_id)}).`,
+          content: `Plano ${planId}, item ${item.id} (${item.title}): lancei a tarefa ${task.task_id} (${projectLabel(task.project_id)}).${visionNote(spec.project_path)}`,
           display: true,
         });
       } catch (err) {
@@ -428,13 +435,9 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
           if (!orch.ownsTask(task)) continue;
           const url = prUrlOf(task);
           const pr = url ? prFromUrl(url) : null;
-          if (task.status === "done" && !url && planStore.markTaskDone(task.task_id).length > 0) {
-            emitEvent(eventSink, EVENT_POLICY["plan-transition"], {
-              customType: "orch-event",
-              content: `Plano ${planId}, item ${item.id}: tarefa ${task.task_id} concluída sem PR. Lançando o próximo passo.`,
-              display: true,
-            });
-            await advancePlans();
+          // keep: item sem PR avança no done; antes disso passa pela revisão de escopo. Item com PR avança no merge, que já é aprovado pelo usuário.
+          if (task.status === "done" && !url) {
+            await gateDoneWithoutPr(task, planId, item);
             continue;
           }
           if (!url || !pr || Date.now() - (prChecked.get(task.task_id) ?? 0) < PR_CHECK_MS) continue;
@@ -459,6 +462,58 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     }
     // keep: item pendente por falta de vaga é lançado quando uma tarefa termina, sem turno de LLM.
     await advancePlans().catch(() => undefined);
+  };
+  const gateDoneWithoutPr = async (task: TaskRecord, planId: string, item: PlanItem): Promise<void> => {
+    const step = scopeStep(item.scope, task.verification);
+    if (step.action === "wait") return;
+    if (step.action === "request") {
+      const delegate = item.delegate;
+      planStore.requestScope(planId, item.id);
+      emitEvent(eventSink, EVENT_POLICY["scope-review"], {
+        customType: "orch-event",
+        content: scopeReviewText({
+          taskId: task.task_id,
+          planId,
+          itemId: item.id,
+          itemTitle: item.title,
+          projectLabel: projectLabel(task.project_id),
+          projectPath: task.project_path,
+          request: delegate?.request ?? item.title,
+          objective: delegate?.objective ?? "(não informado)",
+          source: delegate?.source ?? task.source ?? null,
+          branch: task.branch ?? delegate?.branch ?? null,
+          artifacts: task.artifacts,
+          vision: readVision(task.project_path),
+        }),
+        display: true,
+      });
+      return;
+    }
+    if (step.action === "block") {
+      planStore.blocked(planId, item.id, step.reason);
+      emitEvent(eventSink, EVENT_POLICY["scope-blocked"], {
+        customType: "orch-event",
+        content: `Plano ${planId}, item ${item.id} (${item.title}): tarefa ${task.task_id} ${step.reason}. O plano não avança. Decida: corrigir, ajustar a spec ou seguir manualmente.`,
+        display: true,
+      });
+      return;
+    }
+    if (planStore.markTaskDone(task.task_id).length === 0) return;
+    const scopeLine = item.scope?.verdict === "aligned" ? ` Escopo conferido: ${item.scope.reason}.` : "";
+    emitEvent(eventSink, EVENT_POLICY["plan-transition"], {
+      customType: "orch-event",
+      content: `Plano ${planId}, item ${item.id}: tarefa ${task.task_id} concluída sem PR.${scopeLine} Lançando o próximo passo.`,
+      display: true,
+    });
+    await advancePlans();
+  };
+  // keep: o parecer chega por orch_scope_verdict; reconcilePlans reavalia o item na hora, sem esperar a varredura.
+  const recordScopeVerdict = async (taskId: string, raw: string): Promise<string> => {
+    const v = parseScopeVerdict(raw);
+    const touched = planStore.recordScope(taskId, v.verdict, v.reason);
+    if (touched.length === 0) throw new Error(`nenhum item aguarda revisão de escopo para a tarefa ${taskId}`);
+    await reconcilePlans().catch(() => undefined);
+    return `Parecer de escopo registrado para ${taskId}: ${v.verdict}. ${v.reason}`;
   };
   const requestReview = async (
     t: TaskRecord,
@@ -828,6 +883,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     chooseModel,
     startTask,
     launchReady,
+    scopeVerdict: recordScopeVerdict,
     usage: () => orchUsage,
   });
 }

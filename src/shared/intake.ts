@@ -33,8 +33,14 @@ export interface IntakePack {
   spec: string | null;
   model: string | null;
   project_instructions: { file: string; content: string }[];
+  vision: VisionDoc;
   acceptance: string[];
 }
+
+// keep: a visão é a fonte de escopo do projeto; vai inteira (sem corte) ao brief e à revisão de escopo.
+export const VISION_FILE = "VISION.md";
+export type VisionDoc =
+  { status: "present"; content: string } | { status: "missing" } | { status: "unreadable"; reason: string };
 
 const PROJECT_FILES = ["AGENTS.md", "CLAUDE.md"];
 const MAX_INSTRUCTION_CHARS = 6000;
@@ -87,6 +93,16 @@ function readInstructions(projectPath: string): { file: string; content: string 
   return out;
 }
 
+export function readVision(projectPath: string): VisionDoc {
+  const path = join(projectPath, VISION_FILE);
+  if (!existsSync(path)) return { status: "missing" };
+  try {
+    return { status: "present", content: readFileSync(path, "utf8") };
+  } catch (err) {
+    return { status: "unreadable", reason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export function buildIntake(input: IntakeInput): IntakePack {
   if (
     !input.project_path.startsWith("/") ||
@@ -116,8 +132,25 @@ export function buildIntake(input: IntakeInput): IntakePack {
     spec: input.spec?.trim() ? nonEmpty("spec", input.spec) : null,
     model: input.model ?? null,
     project_instructions: readInstructions(input.project_path),
+    vision: readVision(input.project_path),
     acceptance: acceptanceFor(input.mode, branch),
   };
+}
+
+function visionSection(vision: VisionDoc): string[] {
+  const head = ["## Visão do projeto (VISION.md)"];
+  switch (vision.status) {
+    case "present":
+      return [...head, vision.content, ""];
+    case "missing":
+      return [...head, "(o projeto não tem VISION.md na raiz; use a spec e o pedido como escopo)", ""];
+    case "unreadable":
+      return [
+        ...head,
+        `(o VISION.md existe mas não pôde ser lido: ${vision.reason}; use a spec e o pedido como escopo)`,
+        "",
+      ];
+  }
 }
 
 export function renderBrief(taskId: string, pack: IntakePack, reportPath: string): string {
@@ -148,6 +181,7 @@ export function renderBrief(taskId: string, pack: IntakePack, reportPath: string
     ...(pack.project_instructions.length
       ? pack.project_instructions.flatMap((f) => [`### ${f.file}`, f.content, ""])
       : ["(o projeto não tem AGENTS.md nem CLAUDE.md)", ""]),
+    ...visionSection(pack.vision),
     "## Setup",
     `1. Arrende sua worktree isolada a partir de ${pack.project_path}: \`treehouse get --lease --lease-holder ${taskId}\`. O comando imprime o caminho; entre nele.`,
     `2. Verifique o isolamento com \`pwd -P\` e \`git rev-parse --show-toplevel\`. Os dois devem apontar para a sua worktree, não para ${pack.project_path}. Se não baterem, chame orch_report com status failed e pare.`,
