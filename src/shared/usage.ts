@@ -141,9 +141,11 @@ function sessionUsage(entries: unknown[]): {
   total: Usage;
   turns: TurnRecord[];
   warm: Usage;
+  warmIds: string[];
 } {
   const state = addNewUsage(newUsage(), entriesToMessages(entries), []);
-  return { total: state.total, turns: state.turns ?? [], warm: addCacheWarmUsage({}, entries).warm };
+  const warm = addCacheWarmUsage({}, entries);
+  return { total: state.total, turns: state.turns ?? [], warm: warm.warm, warmIds: warm.warmIds };
 }
 
 export function orchestratorUsage(entries: unknown[]): {
@@ -154,7 +156,7 @@ export function orchestratorUsage(entries: unknown[]): {
   cacheWrite: number;
   totalTokens: number;
   cost: number;
-  cacheWarmCost: number;
+  cacheWarmCost: number | null;
   turns: TurnSummary;
 } {
   const r = sessionUsage(entries);
@@ -166,7 +168,7 @@ export function orchestratorUsage(entries: unknown[]): {
     cacheWrite: r.total.cacheWrite,
     totalTokens: r.total.totalTokens,
     cost: r.total.cost,
-    cacheWarmCost: r.warm.cost,
+    cacheWarmCost: r.warmIds.length > 0 ? r.warm.cost : null,
     turns: summarizeTurns(r.turns),
   };
 }
@@ -295,6 +297,6 @@ export function usageReport(sessions: unknown[][]) {
     },
     cost_usd: total.cost,
     cost_from_provider: total.costFromProvider,
-    cache_warm_cost_usd: warm.warm.cost,
+    cache_warm_cost_usd: warm.warmIds.length > 0 ? warm.warm.cost : null,
   };
 }
