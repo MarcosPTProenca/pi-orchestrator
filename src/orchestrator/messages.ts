@@ -63,12 +63,12 @@ export function askMessageFor(e: WatchEvent): string {
   const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)} [truncado]` : text);
   const lines = [
     `[pergunta de worker] tarefa ${e.task_id} (${projectLabel(e.project_id)}) tem uma dúvida operacional; a tarefa segue em andamento.`,
-    `Pergunta: ${clip(e.question ?? "", 600)}`,
+    `Pergunta (ask_id ${e.ask_id ?? ""}): ${clip(e.question ?? "", 600)}`,
   ];
   if (e.result) lines.push(`Contexto do worker: ${clip(e.result, 600)}`);
   lines.push(
     "",
-    "Se a spec, o VISION.md ou o pedido do usuário autorizam a resposta, responda com orch_send(task_id, text): o worker recebe como mensagem nova e segue a mesma tarefa.",
+    "Se a spec, o VISION.md ou o pedido do usuário autorizam a resposta, responda com orch_send(task_id, text, ask_id): o worker recebe como mensagem nova e segue a mesma tarefa.",
     "Se não houver resposta autorizada, não invente: informe o usuário da pergunta e do task_id. Para encerrar a dúvida sem decidir, oriente o worker com orch_send a registrar a pergunta com orch_report status blocked.",
     "Não use orch_answer: a tarefa não está bloqueada.",
   );
