@@ -251,6 +251,33 @@ test("conclui quando todos os itens estão mergeados ou concluídos, e só se ap
   assert.equal(s.complete("cc").state, "completed");
 });
 
+test("conclusão é reportada só na transição: varreduras seguintes não reemitem o aviso", () => {
+  const s = fresh();
+  s.create("ct", "T", [{ title: "A", delegate: spec }]);
+  s.act("ct", "approve");
+  assert.equal(s.completedNow("ct"), false, "item ainda não concluído");
+  s.launched("ct", "1", "t-eeeeeeee");
+  s.markMerged("t-eeeeeeee");
+  assert.equal(s.completedNow("ct"), true, "transição para concluído");
+  assert.equal(s.completedNow("ct"), false, "plano já concluído não reporta de novo");
+  assert.equal(s.completedNow("ct"), false, "nem em varreduras repetidas");
+});
+
+test("conclusão de outro plano continua sendo reportada", () => {
+  const s = fresh();
+  s.create("c1", "C1", [{ title: "A", delegate: spec }]);
+  s.create("c2", "C2", [{ title: "B", delegate: spec }]);
+  s.act("c1", "approve");
+  s.act("c2", "approve");
+  s.launched("c1", "1", "t-11111111");
+  s.markMerged("t-11111111");
+  assert.equal(s.completedNow("c1"), true);
+  assert.equal(s.completedNow("c2"), false, "c2 ainda em andamento");
+  s.launched("c2", "1", "t-22222222");
+  s.markMerged("t-22222222");
+  assert.equal(s.completedNow("c2"), true, "segundo plano conclui e avisa");
+});
+
 test("plano antigo sem estado vira rascunho: não lança sozinho", () => {
   const dir = mkdtempSync(join(tmpdir(), "plans-"));
   writeFileSync(

@@ -411,13 +411,14 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     for (const planId of planStore.list()) {
       if (!planOwnedBy(planStore.show(planId), (p) => orch.ownsProject(p))) continue;
       await launchReady(planId).catch(() => undefined);
-      const plan = planStore.complete(planId);
-      if (plan.state === "completed")
-        emitEvent(eventSink, EVENT_POLICY["plan-completed"], {
-          customType: "orch-event",
-          content: `Plano ${planId} (${plan.title}) concluído: ${plan.items.map((i) => `${i.id} ${i.title}${i.pr ? ` (${i.pr})` : ""}`).join("; ")}.`,
-          display: true,
-        });
+      // keep: aviso só na transição para concluído; o plano já concluído é varrido de novo a cada ciclo e não pode reemitir.
+      if (!planStore.completedNow(planId)) continue;
+      const plan = planStore.show(planId);
+      emitEvent(eventSink, EVENT_POLICY["plan-completed"], {
+        customType: "orch-event",
+        content: `Plano ${planId} (${plan.title}) concluído: ${plan.items.map((i) => `${i.id} ${i.title}${i.pr ? ` (${i.pr})` : ""}`).join("; ")}.`,
+        display: true,
+      });
     }
   };
   const recordFix = (taskId: string, action: FixAction): void => {
