@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { DeliveryEvent, DeliveryName } from "./delivery.ts";
 
 export const ITEM_STATUSES = ["pending", "in_progress", "pr_open", "merged", "done", "blocked"] as const;
@@ -66,6 +66,51 @@ function actionLabel(action: PlanAction): string {
 }
 export function launchable(plan: Plan): PlanItem[] {
   return plan.state === "approved" ? readyItems(plan) : [];
+}
+
+// keep: reservado (in_progress) sem task_id por mais que o limiar = processo caiu entre reserve() e orch.delegate; inFlight são lançamentos ainda em curso nesta sessão.
+export function orphanLaunches(
+  plan: Plan,
+  nowMs: number,
+  thresholdMs: number,
+  inFlight: ReadonlySet<string>,
+): PlanItem[] {
+  return plan.items.filter(
+    (i) =>
+      i.status === "in_progress" &&
+      i.task_id === null &&
+      i.delegate !== null &&
+      !inFlight.has(i.id) &&
+      nowMs - Date.parse(i.updated_at) >= thresholdMs,
+  );
+}
+
+export interface OwnedLaunch {
+  task_id: string;
+  role: string;
+  project_path: string;
+  created_at: string;
+}
+
+// keep: só adota tarefa criada depois da reserva, com o mesmo papel e projeto; sem match, nada foi lançado (ou não há como provar) e o item não é relançado.
+export function findOwnedLaunch(
+  item: PlanItem,
+  planId: string,
+  tasks: OwnedLaunch[],
+  taken: ReadonlySet<string> = new Set(),
+): string | null {
+  const spec = item.delegate;
+  if (!spec) return null;
+  const role = spec.role ?? `plano-${planId}`;
+  const since = Date.parse(item.updated_at);
+  const hit = tasks.find(
+    (t) =>
+      !taken.has(t.task_id) &&
+      t.role === role &&
+      resolve(t.project_path) === resolve(spec.project_path) &&
+      Date.parse(t.created_at) >= since,
+  );
+  return hit?.task_id ?? null;
 }
 
 export function trackedItems(plan: Plan): PlanItem[] {

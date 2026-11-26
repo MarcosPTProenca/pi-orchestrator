@@ -41,7 +41,15 @@ import type { ReviewResult } from "../shared/review.ts";
 import { ghMergeGithub } from "../shared/merge-gate-github.ts";
 import { IntegrationStore, requestIntegration } from "../shared/merge-gate.ts";
 import { MergePolicyStore, type ReviewAssessment } from "../shared/merge-policy.ts";
-import { PlanStore, itemOwnedBy, launchable, planOwnedBy, trackedItems } from "./plans.ts";
+import {
+  PlanStore,
+  findOwnedLaunch,
+  itemOwnedBy,
+  launchable,
+  orphanLaunches,
+  planOwnedBy,
+  trackedItems,
+} from "./plans.ts";
 import { EVENT_POLICY, UI_ENTRY, emitEvent, statusKind, wakesLlm, type EventSink } from "../policy/event-policy.ts";
 import { orchestratorUsage } from "../shared/usage.ts";
 import { NoticeBatcher } from "./notices.ts";
@@ -319,6 +327,9 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   const mergePolicies = new MergePolicyStore(join(defaultStateDir(), "merge-policy"));
   const integrations = new IntegrationStore(join(defaultStateDir(), "integration"));
   const reviewNoticed = new Set<string>();
+  // keep: lançamentos em curso nesta sessão (planId/itemId); a varredura de órfãos não mexe neles.
+  const launching = new Set<string>();
+  const ORPHAN_LAUNCH_MS = envPositive(process.env.PI_ORCH_ORPHAN_LAUNCH_MS, 120_000);
   const launchReady = async (planId: string): Promise<void> => {
     const plan = planStore.show(planId);
     for (const item of launchable(plan).filter((i) => itemOwnedBy(i, (p) => orch.ownsProject(p)))) {
@@ -331,6 +342,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       } catch {
         continue;
       }
+      const key = `${planId}/${item.id}`;
+      launching.add(key);
       try {
         const task = await orch.delegate({
           ...spec,
@@ -349,6 +362,39 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         emitEvent(eventSink, EVENT_POLICY["launch-failed"], {
           customType: "orch-event",
           content: `Plano ${planId}, item ${item.id} (${item.title}) não foi lançado: ${msg}. Decida: corrigir a especificação ou seguir manualmente.`,
+          display: true,
+        });
+      } finally {
+        launching.delete(key);
+      }
+    }
+  };
+  // keep: reserva órfã (processo caiu entre reserve() e orch.delegate) é adotada se a tarefa existe; sem ela, vira blocked e não é relançada, para não duplicar.
+  const recoverOrphanLaunches = (): void => {
+    for (const planId of planStore.list()) {
+      const plan = planStore.show(planId);
+      if (!planOwnedBy(plan, (p) => orch.ownsProject(p))) continue;
+      const inFlight = new Set(
+        [...launching].filter((k) => k.startsWith(`${planId}/`)).map((k) => k.slice(planId.length + 1)),
+      );
+      for (const item of orphanLaunches(plan, Date.now(), ORPHAN_LAUNCH_MS, inFlight)) {
+        // keep: tarefa já atribuída a outro item do plano (mesmo papel e projeto) não pode ser adotada de novo.
+        const taken = new Set(planStore.show(planId).items.flatMap((i) => (i.task_id ? [i.task_id] : [])));
+        const taskId = findOwnedLaunch(item, planId, orch.owned(), taken);
+        if (taskId) {
+          planStore.launched(planId, item.id, taskId);
+          emitEvent(eventSink, EVENT_POLICY["plan-launched"], {
+            customType: "orch-event",
+            content: `Plano ${planId}, item ${item.id} (${item.title}): reserva interrompida recuperada; tarefa ${taskId} já existia.`,
+            display: true,
+          });
+          continue;
+        }
+        const msg = "lançamento interrompido antes de criar a tarefa";
+        planStore.blocked(planId, item.id, msg);
+        emitEvent(eventSink, EVENT_POLICY["launch-failed"], {
+          customType: "orch-event",
+          content: `Plano ${planId}, item ${item.id} (${item.title}) não foi lançado: ${msg}. Não relancei para evitar duplicata. Decida: relançar ou seguir manualmente.`,
           display: true,
         });
       }
@@ -372,6 +418,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     if (ev) planStore.recordDelivery(ev);
   };
   const reconcilePlans = async (): Promise<void> => {
+    recoverOrphanLaunches();
     for (const planId of planStore.list()) {
       const plan = planStore.show(planId);
       for (const item of trackedItems(plan)) {
