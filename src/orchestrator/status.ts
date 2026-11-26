@@ -15,7 +15,6 @@ export function linksIn(text: string | null): string[] {
 export const COMPACT_TERMINAL_LIMIT = 10;
 // shortcut: teto fixo por projeto; acima disso a saída perde tarefas abertas (omitted_open), upgrade é paginar
 export const COMPACT_OPEN_LIMIT = 50;
-const COMPACT_ATTENTION_LIMIT = 20;
 const ATTENTION_STATUSES = new Set<TaskStatus>(["failed", "timeout", "lost"]);
 
 export function oldHoursFrom(env: string | undefined): number | undefined {
@@ -164,8 +163,10 @@ export function compactStatus(groups: StatusGroup[]): CompactGroup[] {
     const terminal = g.tasks.filter((r) => !isActive(r.status) && r.status !== "blocked");
     const alert = terminal.filter(isAttention).sort(byRecency);
     const recent = terminal.filter((r) => !isAttention(r)).sort(byRecency);
-    const shownTerminal = [...alert.slice(0, COMPACT_ATTENTION_LIMIT), ...recent.slice(0, COMPACT_TERMINAL_LIMIT)];
-    const shown = [...open.slice(0, COMPACT_OPEN_LIMIT), ...shownTerminal];
+    const shownTerminal = [...alert, ...recent.slice(0, COMPACT_TERMINAL_LIMIT)];
+    const blocked = open.filter((r) => r.status === "blocked");
+    const active = open.filter((r) => r.status !== "blocked");
+    const shown = [...blocked, ...active.slice(0, COMPACT_OPEN_LIMIT), ...shownTerminal];
     return {
       project_id: g.project_id,
       counts,
@@ -186,7 +187,7 @@ export function compactStatus(groups: StatusGroup[]): CompactGroup[] {
         turns: r.turns,
         deadline_at: r.deadline_at,
       })),
-      omitted_open: Math.max(0, open.length - COMPACT_OPEN_LIMIT),
+      omitted_open: Math.max(0, active.length - COMPACT_OPEN_LIMIT),
       omitted_terminal: Math.max(0, terminal.length - shownTerminal.length),
     };
   });

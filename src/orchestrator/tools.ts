@@ -221,7 +221,7 @@ export function registerOrchestratorTools(pi: ExtensionAPI, ctx: OrchestratorToo
     name: "orch_status",
     label: "orch status",
     description:
-      "Resumo compacto por projeto: contagem por estado, tarefas abertas (ativas ou bloqueadas, bloqueadas primeiro) até 50 por projeto (omitted_open informa quantas ficaram de fora), até 10 terminais recentes por projeto e até 20 terminais de atenção (falha, prazo, perda ou verificação não aprovada); omitted_terminal informa quantas terminais ficaram de fora. Resultado truncado a 120 caracteres; error traz o motivo (até 300); links traz as URLs do texto completo; para o texto completo, de uma tarefa, use task_id; detail=true devolve todas as linhas completas. Canceladas e terminais antigas (mais de 24 h) ficam de fora; all=true inclui todas. Não consome avisos do orch_inbox.",
+      "Resumo compacto por projeto: contagem por estado, todas as bloqueadas (decisão humana, primeiro) e até 50 ativas por projeto (omitted_open informa quantas ativas ficaram de fora), até 10 terminais recentes por projeto e todas as terminais de atenção (falha, prazo, perda ou verificação não aprovada); omitted_terminal informa quantas terminais recentes ficaram de fora. Resultado truncado a 120 caracteres; error traz o motivo (até 300); links traz as URLs do texto completo; para o texto completo, de uma tarefa, use task_id; detail=true devolve todas as linhas completas. Canceladas e terminais antigas (mais de 24 h) ficam de fora; all=true inclui todas. Não consome avisos do orch_inbox.",
     parameters: {
       type: "object",
       properties: {

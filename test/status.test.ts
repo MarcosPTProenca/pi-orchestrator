@@ -188,9 +188,9 @@ test("compacto: abertas acima do teto ficam de fora com omitted_open; bloqueadas
   );
   const bloqueada = t({ task_id: "t-bq", status: "blocked", question: "?", updated_at: "2026-11-01T00:00:00Z" });
   const [grupo] = compactStatus(buildStatus([...abertas, bloqueada], NOW, {}));
-  assert.equal(grupo.tasks.length, COMPACT_OPEN_LIMIT);
+  assert.equal(grupo.tasks.length, COMPACT_OPEN_LIMIT + 1, "bloqueada conta fora do teto de ativas");
   assert.equal(grupo.tasks[0].task_id, "t-bq", "bloqueada primeiro mesmo sendo a mais antiga");
-  assert.equal(grupo.omitted_open, 8);
+  assert.equal(grupo.omitted_open, 7);
   assert.equal(grupo.counts.running, COMPACT_OPEN_LIMIT + 7, "contagem continua completa");
 });
 
@@ -354,6 +354,39 @@ test("regressão: falhas e verificações não aprovadas não somem atrás de co
     COMPACT_TERMINAL_LIMIT,
   );
   assert.equal(grupo.omitted_terminal, 5);
+});
+
+test("regressão: todas as falhas aparecem na visão compacta, acima de 20 também", () => {
+  const falhas = Array.from({ length: 25 }, (_, i) =>
+    t({ task_id: `t-f${i}`, status: "failed", error: `erro ${i}`, updated_at: "2026-11-16T00:00:00Z" }),
+  );
+  const [grupo] = compactStatus(buildStatus(falhas, NOW, { all: true }));
+  assert.equal(grupo.tasks.length, 25);
+  assert.equal(grupo.omitted_terminal, 0);
+});
+
+test("compacto reduz a saída frente ao detalhe com 200 tarefas de resultado longo", () => {
+  const fixture = Array.from({ length: 200 }, (_, i) =>
+    t({
+      task_id: `t-${i}`,
+      project_id: `p-${i % 4}`,
+      status: "done",
+      result: "Implementado e verificado com testes; PR aberta. ".repeat(12),
+      artifacts: [`https://github.com/o/r/pull/${i}`],
+    }),
+  );
+  const compact = JSON.stringify(compactStatus(buildStatus(fixture, NOW, { all: true }))).length;
+  const detail = JSON.stringify(buildStatus(fixture, NOW, { all: true, fullResult: true })).length;
+  assert.ok(compact < detail * 0.5, `compacto ${compact} vs detalhe ${detail} caracteres`);
+});
+
+test("regressão: pendência humana (bloqueada) nunca é cortada pelo teto de abertas", () => {
+  const bloqueadas = Array.from({ length: COMPACT_OPEN_LIMIT + 10 }, (_, i) =>
+    t({ task_id: `t-b${i}`, status: "blocked", question: "?", updated_at: "2026-11-17T11:00:00Z" }),
+  );
+  const [grupo] = compactStatus(buildStatus(bloqueadas, NOW, {}));
+  assert.equal(grupo.tasks.length, COMPACT_OPEN_LIMIT + 10);
+  assert.equal(grupo.omitted_open, 0);
 });
 
 test("orch_status: aquecimento não observado vira null, não zero", () => {
