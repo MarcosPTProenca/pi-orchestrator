@@ -54,7 +54,14 @@ export interface TaskRecord {
   // keep: pergunta operacional do worker (orch_ask); não muda o status e é respondida por orch_send.
   last_ask_id?: string | null;
   // keep: delivered só vira true após o aviso chegar ao LLM; reinício antes disso reenvia a pergunta.
-  pending_ask?: { id: string; question: string; context: string; notified: boolean; delivered?: boolean } | null;
+  pending_ask?: {
+    id: string;
+    question: string;
+    context: string;
+    notified: boolean;
+    delivered?: boolean;
+    send_error?: string | null;
+  } | null;
   // keep: correlação pergunta–resposta; uma resposta com o mesmo ask_id não é enviada duas vezes.
   last_answered_ask_id?: string | null;
   source?: string | null;

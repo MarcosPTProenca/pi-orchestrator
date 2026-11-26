@@ -269,3 +269,68 @@ test("aviso de pergunta de outra sessão do orquestrador não é entregue nem re
   await assert.rejects(other.send(t.task_id, "resposta", "a1"), /outra sessão do orquestrador/);
   assert.equal(h.herdr.opsOf("prompt").length, 0);
 });
+
+test("pergunta nova coletada durante o envio não é apagada pela confirmação da resposta anterior", async () => {
+  const { h, t } = await startTask();
+  await askAndNotice(h, t, entry("a1"));
+  const real = h.herdr.prompt.bind(h.herdr);
+  h.herdr.prompt = async (target: string, text: string) => {
+    appendAsk(t.task_dir, entry("a2", "Usar o módulo B?"));
+    await h.orch.refresh(t.task_id);
+    await real(target, text);
+  };
+  await h.orch.send(t.task_id, "resposta", "a1");
+  const after = h.orch.get(t.task_id);
+  assert.equal(after.last_answered_ask_id, "a1", "a resposta grava a correlação da pergunta respondida");
+  assert.equal(after.pending_ask?.id, "a2", "a pergunta nova continua pendente");
+  assert.equal((await h.orch.noticeFor(t.task_id))?.question, "Usar o módulo B?", "a nova pergunta é avisada");
+});
+
+test("painel inexistente com pergunta pendente: nada enviado, pergunta segue pendente e o erro diz o que fazer", async () => {
+  const { h, t } = await startTask();
+  await askAndNotice(h, t, entry("a1"));
+  h.herdr.panesList = h.herdr.panesList.filter((p) => p.pane_id !== t.pane_id);
+  await assert.rejects(h.orch.send(t.task_id, "resposta", "a1"), (err: Error) => {
+    assert.match(err.message, /não existe mais; nada foi enviado/);
+    assert.match(err.message, /a1 segue pendente/);
+    assert.match(err.message, /orch_status/);
+    return true;
+  });
+  assert.equal(h.herdr.opsOf("prompt").length, 0);
+  assert.equal(h.orch.get(t.task_id).pending_ask?.id, "a1", "a pergunta não se perde");
+  assert.match(h.orch.get(t.task_id).pending_ask?.send_error ?? "", /não existe mais/, "o motivo fica registrado");
+});
+
+test("painel trocado de agente com pergunta pendente: não envia a outro agente e orienta a conferir o painel", async () => {
+  const { h, t } = await startTask();
+  await askAndNotice(h, t, entry("a1"));
+  h.herdr.panesList = h.herdr.panesList.map((p) => (p.pane_id === t.pane_id ? { ...p, terminal_id: "outro" } : p));
+  await assert.rejects(h.orch.send(t.task_id, "resposta", "a1"), (err: Error) => {
+    assert.match(err.message, /trocou de agente; nada foi enviado/);
+    assert.match(err.message, /a1 segue pendente/);
+    assert.match(err.message, /orch_status/);
+    return true;
+  });
+  assert.equal(h.herdr.opsOf("prompt").length, 0);
+  assert.equal(h.orch.get(t.task_id).pending_ask?.id, "a1");
+  assert.match(h.orch.get(t.task_id).pending_ask?.send_error ?? "", /trocou de agente/);
+});
+
+test("falha do painel ao receber a resposta: pergunta segue pendente, motivo registrado e a retentativa diz como repetir", async () => {
+  const { h, t } = await startTask();
+  await askAndNotice(h, t, entry("a1"));
+  h.herdr.prompt = async () => {
+    throw new Error("painel ocupado");
+  };
+  await assert.rejects(h.orch.send(t.task_id, "resposta", "a1"), (err: Error) => {
+    assert.match(err.message, /painel ocupado/);
+    assert.match(err.message, /a1 segue pendente/);
+    assert.match(err.message, /orch_logs/, "o operador confere se o worker recebeu antes de repetir");
+    assert.match(err.message, /ask_id="a1"/);
+    return true;
+  });
+  const pending = h.orch.get(t.task_id).pending_ask;
+  assert.equal(pending?.id, "a1");
+  assert.match(pending?.send_error ?? "", /painel ocupado/);
+  assert.equal(h.orch.get(t.task_id).last_answered_ask_id ?? null, null, "não marca como respondida");
+});

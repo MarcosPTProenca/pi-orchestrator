@@ -903,8 +903,18 @@ export class Orchestrator {
       );
     }
     const owner = await this.ownership(t);
-    if (owner === "missing") throw new Error("o painel da tarefa não existe mais; nada foi enviado");
-    if (owner === "mismatch") throw new Error("o painel trocou de agente; nada foi enviado");
+    if (owner === "missing")
+      throw this.sendError(
+        t,
+        "o painel da tarefa não existe mais; nada foi enviado",
+        "confira com orch_status antes de qualquer nova tentativa; não reenvie a outro painel.",
+      );
+    if (owner === "mismatch")
+      throw this.sendError(
+        t,
+        "o painel trocou de agente; nada foi enviado",
+        "confira com orch_status; a resposta não vai para outro agente.",
+      );
     if (t.status === "blocked") return this.answerLocked(taskId, text);
     if (t.status === "done") {
       const pane = (await this.d.herdr.panes()).find((p) => p.pane_id === t.pane_id && p.terminal_id === t.terminal_id);
@@ -934,15 +944,36 @@ export class Orchestrator {
       return this.get(taskId);
     }
     // keep: a pergunta só sai do pendente depois do envio; falha no painel deixa a retentativa possível.
-    await this.d.herdr.prompt(t.pane_id, text);
-    if (t.pending_ask) {
-      const answered = t.pending_ask.id;
+    const answered = t.pending_ask?.id;
+    try {
+      await this.d.herdr.prompt(t.pane_id, text);
+    } catch (err) {
+      if (answered === undefined) throw err;
+      const detail = err instanceof Error ? err.message : String(err);
+      throw this.sendError(
+        t,
+        `falha ao enviar ao painel: ${detail}; nada foi confirmado`,
+        `confira com orch_logs se o worker recebeu; se não recebeu, repita orch_send(task_id, text, ask_id="${answered}").`,
+      );
+    }
+    if (answered !== undefined) {
+      // keep: só limpa se a pergunta ainda é a respondida; uma nova coletada durante o envio fica pendente.
       this.update(taskId, (x) => {
-        x.pending_ask = null;
+        if (x.pending_ask?.id === answered) x.pending_ask = null;
         x.last_answered_ask_id = answered;
       });
     }
     return t;
+  }
+
+  // keep: com pergunta pendente, a falha grava o motivo e mantém a pergunta para retentativa; sem pergunta, a mensagem é a de sempre.
+  private sendError(t: TaskRecord, motivo: string, proximo: string): Error {
+    const pending = t.pending_ask;
+    if (!pending) return new Error(motivo);
+    this.update(t.task_id, (x) => {
+      if (x.pending_ask?.id === pending.id) x.pending_ask.send_error = motivo;
+    });
+    return new Error(`${motivo}. A pergunta ${pending.id} segue pendente: ${proximo}`);
   }
 
   async answer(taskId: string, text: string): Promise<TaskRecord> {
