@@ -34,14 +34,12 @@ test("plano com dois itens dependentes: o segundo só é lançado depois do pare
   store.launched(planId, "1", T);
   assert.deepEqual(launchable(store.show(planId)), []);
 
-  // worker reporta done; a revisão é pedida e ainda não há parecer: o segundo continua preso
   const first = store.show(planId).items[0];
   assert.equal(scopeStep(first.scope, { verdict: "approved", reason: "ok" }).action, "request");
   store.requestScope(planId, "1");
   assert.equal(scopeStep(store.show(planId).items[0].scope, { verdict: "approved", reason: "ok" }).action, "wait");
   assert.deepEqual(launchable(store.show(planId)), [], "sem parecer, o segundo não é lançado");
 
-  // parecer alinhado: o primeiro vira done e o segundo fica pronto
   assert.equal(store.recordScope(T, "aligned", "entrega bate com a spec").length, 1);
   const aligned = store.show(planId).items[0];
   assert.equal(scopeStep(aligned.scope, { verdict: "approved", reason: "ok" }).action, "advance");
