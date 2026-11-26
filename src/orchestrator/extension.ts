@@ -47,7 +47,7 @@ import { orchestratorUsage } from "../shared/usage.ts";
 import { NoticeBatcher } from "./notices.ts";
 import { notificationFor, notifyArgs, notifyEnabled } from "../policy/notify.ts";
 import { chainDepth, classifyFailure, failureHintFor, MAX_AUTO_RELAUNCH, nextModelFor } from "../policy/failure.ts";
-import { maxActiveFrom } from "../policy/cap.ts";
+import { launchRoom, maxActiveFrom } from "../policy/cap.ts";
 import { isActive, type TaskRecord } from "../shared/contract.ts";
 import { orphanLeases, releaseLease, treehouseOps } from "../shared/worktrees.ts";
 import { deadTabTaskIds, IdleWatch, idleSurfaces } from "./idle.ts";
@@ -322,6 +322,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   const launchReady = async (planId: string): Promise<void> => {
     const plan = planStore.show(planId);
     for (const item of launchable(plan).filter((i) => itemOwnedBy(i, (p) => orch.ownsProject(p)))) {
+      // keep: o teto PI_ORCH_MAX_ACTIVE também vale para o avanço automático; sem vaga o item fica pendente e a próxima varredura tenta de novo.
+      if (launchRoom(maxActive, orch.activeCount()) === 0) break;
       const spec = item.delegate;
       if (!spec) continue;
       try {
@@ -408,6 +410,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         }
       }
     }
+    // keep: item pendente por falta de vaga é lançado quando uma tarefa termina, sem turno de LLM.
+    await advancePlans().catch(() => undefined);
   };
   const requestReview = async (
     t: TaskRecord,

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { capError, maxActiveFrom } from "../src/policy/cap.ts";
+import { capError, launchRoom, maxActiveFrom } from "../src/policy/cap.ts";
 import { FixQueue } from "../src/orchestrator/queue.ts";
 import { makeHarness } from "./fakes.ts";
 
@@ -19,6 +19,16 @@ test("capError recusa quando o lote estoura, dizendo ativos, teto e o que fazer"
   assert.match(msg, /5 ativos/);
   assert.match(msg, /teto é 6/);
   assert.match(msg, /[Aa]guarde|cancele|PI_ORCH_MAX_ACTIVE/);
+});
+
+test("avanço automático de plano respeita o teto: sem vaga, nada é lançado; com vaga, só a folga", async () => {
+  const h = makeHarness();
+  const project = h.project;
+  await h.orch.delegate({ project_path: project, role: "a", request: "x", objective: "y", mode: "report" });
+  await h.orch.delegate({ project_path: project, role: "b", request: "x", objective: "y", mode: "report" });
+  assert.equal(launchRoom(2, h.orch.activeCount()), 0, "teto 2 com 2 ativos: sem vaga");
+  assert.equal(launchRoom(3, h.orch.activeCount()), 1, "teto 3 com 2 ativos: uma vaga");
+  assert.equal(launchRoom(1, h.orch.activeCount()), 0, "ativos acima do teto nunca dão vaga negativa");
 });
 
 test("orchestrator conta só tarefas ativas (starting, running, blocked)", async () => {
