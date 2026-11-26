@@ -51,6 +51,9 @@ export interface TaskRecord {
   deadline_notified?: boolean;
   // keep: status pego para aviso e ainda não entregue ao LLM/tela; sobrevive a queda do processo e é reenviado no início.
   delivery_pending?: string | null;
+  // keep: pergunta operacional do worker (orch_ask); não muda o status e é respondida por orch_send.
+  last_ask_id?: string | null;
+  pending_ask?: { id: string; question: string; context: string; notified: boolean } | null;
   source?: string | null;
   branch?: string | null;
   verification?: { verdict: "approved" | "rejected" | "not_applicable" | "unverified"; reason: string } | null;

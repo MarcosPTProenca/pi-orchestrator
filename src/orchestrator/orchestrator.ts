@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, s
 import { basename, dirname, join } from "node:path";
 import { toExecutionTicket, validationFromScripts, type ExecutionTicket } from "../shared/execution-ticket.ts";
 import { TICKET_FILE } from "../shared/plan.ts";
+import { latestAsk } from "../shared/ask.ts";
 import { invalidToolRelease, workerToolArgs, workerToolSet } from "../shared/worker-tools.ts";
 import { clampLines, logError, maskSecrets } from "../shared/logs.ts";
 import { summarizeTurns, type TurnRecord } from "../shared/usage.ts";
@@ -493,6 +494,7 @@ export class Orchestrator {
       x.status = report.status;
       x.result = report.result;
       x.question = report.question;
+      x.pending_ask = null;
       x.artifacts = report.artifacts;
       x.last_report_key = key;
       x.notified = samePendingQuestion ? t.notified : false;
@@ -544,6 +546,7 @@ export class Orchestrator {
 
   async refresh(taskId: string): Promise<WatchEvent | null> {
     this.syncUsage(taskId);
+    this.collectAsk(taskId);
     const t = this.get(taskId);
     if (t.status !== "cancelled" && t.status !== "planned" && this.collect(taskId))
       return this.toEvent(this.get(taskId));
@@ -780,10 +783,40 @@ export class Orchestrator {
     });
   }
 
+  // keep: pergunta operacional não muda o status; só vira pendente de aviso, nunca blocked nem decisão do usuário.
+  private collectAsk(taskId: string): void {
+    const t = this.get(taskId);
+    if (t.status !== "running") return;
+    const ask = latestAsk(t.task_dir);
+    if (!ask || ask.id === t.last_ask_id) return;
+    this.update(taskId, (x) => {
+      x.last_ask_id = ask.id;
+      x.pending_ask = { id: ask.id, question: ask.question, context: ask.context, notified: false };
+    });
+  }
+
+  private takeAsk(taskId: string): WatchEvent | null {
+    const pending = this.d.store.mutate((state) => {
+      const t = state.tasks[taskId];
+      if (!t) throw new Error(`tarefa desconhecida: ${taskId}`);
+      if (!t.pending_ask || t.pending_ask.notified) return null;
+      t.pending_ask.notified = true;
+      t.updated_at = this.iso();
+      return { ...t.pending_ask };
+    });
+    if (!pending) return null;
+    return {
+      ...this.toEvent(this.get(taskId)),
+      kind: "ask",
+      question: pending.question,
+      result: pending.context || null,
+    };
+  }
+
   async noticeFor(taskId: string): Promise<WatchEvent | null> {
     if (!this.mine(this.get(taskId))) return null;
     await this.refresh(taskId).catch(() => null);
-    return this.takePending(taskId);
+    return this.takeAsk(taskId) ?? this.takePending(taskId);
   }
 
   async sweep(): Promise<WatchEvent[]> {
@@ -861,6 +894,11 @@ export class Orchestrator {
       return this.get(taskId);
     }
     await this.d.herdr.prompt(t.pane_id, text);
+    if (t.pending_ask) {
+      this.update(taskId, (x) => {
+        x.pending_ask = null;
+      });
+    }
     return t;
   }
 
@@ -907,11 +945,11 @@ export class Orchestrator {
     if (now - since < IDLE_NO_REPORT_MS) return null;
     this.idleSince.delete(taskId);
     const min = Math.round(IDLE_NO_REPORT_MS / 60_000);
-    return this.setTerminal(
-      taskId,
-      "failed",
-      `worker ficou ocioso por ${min} min sem chamar orch_report; a tarefa não entregou relatório. Veja orch_logs e relance se necessário.`,
-    );
+    const ask = this.get(taskId).pending_ask;
+    const error = ask
+      ? `worker ficou ocioso por ${min} min aguardando resposta à pergunta "${ask.question.slice(0, 160)}"; a resposta não chegou. Responda com orch_send ou relance se necessário.`
+      : `worker ficou ocioso por ${min} min sem chamar orch_report; a tarefa não entregou relatório. Veja orch_logs e relance se necessário.`;
+    return this.setTerminal(taskId, "failed", error);
   }
 
   async cancel(taskId: string): Promise<TaskRecord> {

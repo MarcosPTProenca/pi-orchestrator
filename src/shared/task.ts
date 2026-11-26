@@ -27,4 +27,6 @@ export interface WatchEvent {
   artifacts: string[];
   error: string | null;
   correction?: string | null;
+  // keep: aviso de pergunta operacional do worker; a tarefa segue running e não entra no inbox de decisão.
+  kind?: "ask";
 }
