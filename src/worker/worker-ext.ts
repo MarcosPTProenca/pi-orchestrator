@@ -286,11 +286,12 @@ function briefInHistory(ctx: unknown, sha256: string): boolean {
 export default function workerExtension(pi: ExtensionAPI): void {
   if (process.env.PI_ORCH_ROLE !== "worker") return;
   pi.on("tool_call", (event) => {
-    const toolReason = toolGateReason(event.toolName);
-    if (toolReason) return { block: true, reason: toolReason };
+    // keep: motivos específicos vêm antes do gate genérico de ferramentas, que daria só a lista de permitidas.
     if (event.toolName === "AskUserQuestion") return { block: true, reason: ASK_BLOCK_REASON };
     if (event.toolName === "subagent" && (event as { input?: { agent?: unknown } }).input?.agent === "pr-reviewer")
       return { block: true, reason: REVIEW_BLOCK_REASON };
+    const toolReason = toolGateReason(event.toolName);
+    if (toolReason) return { block: true, reason: toolReason };
     if (event.toolName === "bash") {
       // keep: sem limite, um comando que espera entrada (ex.: poll interativo) prende o worker para sempre.
       const input = (event as { input?: { command?: unknown; timeout?: unknown } }).input;
