@@ -1,5 +1,4 @@
-// gh falso do eval de triagem: lê um tracker em memória e não publica nada.
-// O código é gravado em disco pelo runner e chamado pelo wrapper `gh` no PATH.
+// keep: gh falso do eval de triagem; lê um tracker em memória, não publica nada, e o runner o grava em disco para o wrapper gh.
 export const GH_FAKE_SOURCE = `const repo = "https://github.com/exemplo/herdr";
 const issues = {
   224: { number: 224, title: "Visual do painel de tarefas", state: "OPEN",

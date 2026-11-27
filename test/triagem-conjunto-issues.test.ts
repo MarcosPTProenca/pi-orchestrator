@@ -1,15 +1,11 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import orchestratorExtension from "../src/orchestrator/extension.ts";
 import { PlanStore } from "../src/orchestrator/plans.ts";
-
-// Integração com fakes: tracker em memória, Pi falso que captura as ferramentas
-// da extensão real, e Herdr/worker em dry-run. A escolha das issues é do LLM e
-// fica no eval (evals/scenarios.ts); aqui a entrada é a seleção já feita.
 
 const MODEL = "claude-bridge/claude-haiku-5-5";
 const REPO = "https://github.com/exemplo/herdr";
@@ -51,7 +47,6 @@ function fakePi() {
       tools.set(t.name, t);
     },
   };
-  // Pi falso: métodos não usados pela extensão viram no-op; só registerTool é capturado.
   const pi = new Proxy(registry, {
     get(target, prop: string) {
       return prop in target ? target[prop] : () => undefined;
@@ -69,18 +64,48 @@ function fakePi() {
   };
 }
 
+// keep: fakes de pi --list-models e quota-axi; sem eles o resultado depende da configuração de quem roda (ex.: CI sem provedores).
+function fakeCliBin(): string {
+  const bin = mkdtempSync(join(tmpdir(), "triagem-bin-"));
+  const pi = [
+    "#!/bin/sh",
+    'if [ "$1" = "--list-models" ]; then',
+    "  printf 'provider model context\\nclaude-bridge claude-haiku-5-5 200K\\nopenai-codex gpt-6-luna 272K\\n'",
+    "  exit 0",
+    "fi",
+    'echo "fake pi: comando não simulado: $*" >&2',
+    "exit 1",
+    "",
+  ].join("\n");
+  const quota = [
+    "#!/bin/sh",
+    'printf \'%s\\n\' \'{"providers":[{"provider":"claude","quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","effectivePercentRemaining":90}]},"state":{"stale":false}},{"provider":"codex","quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","effectivePercentRemaining":90}]},"state":{"stale":false}}]}\'',
+    "",
+  ].join("\n");
+  for (const [name, body] of [
+    ["pi", pi],
+    ["quota-axi", quota],
+  ] as const) {
+    writeFileSync(join(bin, name), body);
+    chmodSync(join(bin, name), 0o755);
+  }
+  return bin;
+}
+
 function setup() {
   const stateDir = mkdtempSync(join(tmpdir(), "triagem-state-"));
   const project = mkdtempSync(join(tmpdir(), "triagem-proj-"));
   mkdirSync(join(project, ".git"));
-  const saved = { dry: process.env.PI_ORCH_DRY_RUN, dir: process.env.PI_ORCH_STATE_DIR };
+  const saved = { dry: process.env.PI_ORCH_DRY_RUN, dir: process.env.PI_ORCH_STATE_DIR, path: process.env.PATH };
   process.env.PI_ORCH_DRY_RUN = "1";
   process.env.PI_ORCH_STATE_DIR = stateDir;
+  process.env.PATH = `${fakeCliBin()}:${saved.path ?? ""}`;
   const restore = () => {
     if (saved.dry === undefined) delete process.env.PI_ORCH_DRY_RUN;
     else process.env.PI_ORCH_DRY_RUN = saved.dry;
     if (saved.dir === undefined) delete process.env.PI_ORCH_STATE_DIR;
     else process.env.PI_ORCH_STATE_DIR = saved.dir;
+    process.env.PATH = saved.path ?? "";
   };
   const f = fakePi();
   orchestratorExtension(f.pi);
@@ -120,7 +145,6 @@ test("#239 integração: seleção → plano com uma unidade por issue → deleg
   try {
     const items = plannedItems([224, 225, 226], h.project);
 
-    // seleção: cada source precisa existir no tracker, aberto, e o distrator 229 não entra
     for (const it of items) {
       const src = it.delegate.source ?? "";
       const issue = issueOf(src);
@@ -137,14 +161,12 @@ test("#239 integração: seleção → plano com uma unidade por issue → deleg
       "uma unidade por issue, na ordem das dependências",
     );
 
-    // primeiro lançamento: só #224
     await h.f.call("orch_plan_approve", { id: "visuais-herdr" });
     assert.equal(h.tasks().length, 1, "só o item sem dependência é lançado");
     const first = readFileSync(h.tasks()[0].brief_path, "utf8");
     assert.match(first, /#224/);
     assert.doesNotMatch(first, /#225|#226|#229/, "o brief leva só a sua issue");
 
-    // dependência: #225 só depois que #224 é mergeada; #226 continua esperando
     const taskId = h.tasks()[0].task_id;
     store.markMerged(taskId);
     await h.f.call("orch_plan_pause", { id: "visuais-herdr" });
