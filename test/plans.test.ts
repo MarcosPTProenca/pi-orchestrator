@@ -117,6 +117,48 @@ test("item com especificação é lançável só depois que as dependências sã
   );
 });
 
+test("#239: issues visuais em cadeia lançam uma por vez, sem o distrator, e cada item leva só a sua issue", () => {
+  const s = fresh();
+  const repo = "/tmp/projeto-herdr";
+  const item = (n: number, depends: string[]) => ({
+    title: `#${n}`,
+    depends_on: depends,
+    delegate: {
+      project_path: repo,
+      mode: "direct-pr",
+      request: `Implemente a issue #${n}.`,
+      objective: `Critérios da issue #${n} atendidos.`,
+      source: `https://github.com/exemplo/herdr/issues/${n}`,
+    },
+  });
+  s.create("visual-herdr", "Visual Herdr", [item(224, []), item(225, ["1"]), item(226, ["2"])]);
+  s.act("visual-herdr", "approve");
+  let plan = s.show("visual-herdr");
+  assert.deepEqual(
+    plan.items.map((i) => i.title),
+    ["#224", "#225", "#226"],
+    "somente as issues selecionadas entram no plano, na ordem das dependências",
+  );
+  assert.deepEqual(
+    s.ready(plan).map((i) => i.title),
+    ["#224"],
+    "só a primeira issue é elegível no início",
+  );
+  s.launched("visual-herdr", "1", "t-aaaaaaaa");
+  plan = s.show("visual-herdr");
+  assert.deepEqual(s.ready(plan), [], "enquanto #224 está em andamento, #225 e #226 esperam");
+  s.markMerged("t-aaaaaaaa");
+  plan = s.show("visual-herdr");
+  assert.deepEqual(
+    s.ready(plan).map((i) => i.title),
+    ["#225"],
+    "#226 não libera antes de #225",
+  );
+  const brief = plan.items[1].delegate;
+  assert.equal(brief?.request, "Implemente a issue #225.");
+  assert.doesNotMatch(brief?.request ?? "", /procure|escolha|coordene|issues relevantes/i);
+});
+
 test("item só de título nunca é lançável automaticamente", () => {
   const s = fresh();
   s.create("manual", "Manual", ["fazer à mão"]);
