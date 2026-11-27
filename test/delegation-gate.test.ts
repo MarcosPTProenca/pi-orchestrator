@@ -226,3 +226,45 @@ test("proibição real de abrir PR ou publicar continua recusada (#244)", () => 
     assert.ok(publicationConflict(implementation({ constraints: [constraint] })), constraint);
   }
 });
+
+test("proibição de PR sem verbo de abrir continua recusada (review de #251, #244)", () => {
+  for (const constraint of [
+    "Sem PR.",
+    "Não faça PR.",
+    "Não suba PR.",
+    "Não envie pull request.",
+    "Não gere PR.",
+    "Não abra nova PR.",
+  ]) {
+    assert.ok(publicationConflict(implementation({ constraints: [constraint] })), constraint);
+  }
+});
+
+test("exceções de fechar, merge e outro PR continuam passando (review de #251, #244)", () => {
+  for (const constraint of [
+    "Não abra outro PR.",
+    "Não feche PR e não faça merge.",
+    "Não faça merge do PR.",
+    "Não mescle o PR.",
+    "Não feche o PR existente.",
+    "não force-push na base",
+  ]) {
+    assert.equal(publicationConflict(implementation({ constraints: [constraint] })), null, constraint);
+  }
+});
+
+test("proibição de abrir PR após merge ou fechar na mesma cláusula continua recusada (review de #253, #244)", () => {
+  for (const constraint of [
+    "Não faça merge ou abra PR.",
+    "Não feche a issue ou abra PR.",
+    "Não mescle a branch ou crie pull request.",
+  ]) {
+    assert.ok(publicationConflict(implementation({ constraints: [constraint] })), constraint);
+  }
+});
+
+test("não faça force push na base é exceção legítima, com ou sem espaço (review de #253, #244)", () => {
+  for (const constraint of ["não faça force push na base", "não force-push na base"]) {
+    assert.equal(publicationConflict(implementation({ constraints: [constraint] })), null, constraint);
+  }
+});
