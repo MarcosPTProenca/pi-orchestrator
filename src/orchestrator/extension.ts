@@ -255,6 +255,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     if (event.status === "done") {
       const task = orch.get(event.task_id);
       const env: VerifyEnv = {
+        taskDir: task.task_dir,
         prCheck: async (url) => {
           const pr = prFromUrl(url);
           if (!pr) return { ok: false, line: `${url} não é PR` };
