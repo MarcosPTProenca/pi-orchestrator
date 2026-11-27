@@ -7,8 +7,6 @@ import { join } from "node:path";
 import { registerOrchestratorTools, type OrchestratorToolContext } from "../src/orchestrator/tools.ts";
 import { makeHarness, type Harness } from "./fakes.ts";
 
-// E2E: orch_delegate e orch_send reais (tools registradas), Herdr simulado (FakeHerdr) e tracker de issues
-// simulado pelas URLs canônicas do repositório com origin do GitHub.
 const MODEL = "claude-bridge/claude-haiku-5-5";
 const REPO = "https://github.com/exemplo/herdr";
 
@@ -44,7 +42,6 @@ function toolsFor(h: Harness) {
   };
 }
 
-// Repositório real com origin do GitHub, para o gate conferir a identidade da fonte.
 function withRepo(h: Harness): void {
   rmSync(join(h.project, ".git"), { recursive: true, force: true });
   writeFileSync(join(h.project, "package.json"), JSON.stringify({ scripts: { test: "node --test" } }));

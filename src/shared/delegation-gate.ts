@@ -21,7 +21,6 @@ function repoOfIssue(source: string): string | null {
   return m ? `${m[1]}/${m[2]}`.toLowerCase() : null;
 }
 
-// Números de issue citados no texto: URL /issues/N e "#N"; referências a PR são ignoradas.
 function issueRefs(text: string): Set<number> {
   const clean = text.replace(NOT_ISSUE, " ");
   const found = new Set<number>();
@@ -30,19 +29,16 @@ function issueRefs(text: string): Set<number> {
   return found;
 }
 
-// Dono/repo de uma URL de remote (https ou ssh) do GitHub, em minúsculas.
 export function repoFromRemote(url: string): string | null {
   const m = /^(?:https:\/\/github\.com\/|git@github\.com:)([^/]+)\/([^/]+?)(?:\.git)?\/?$/i.exec(url.trim());
   return m ? `${m[1]}/${m[2]}`.toLowerCase() : null;
 }
 
-// Trabalho de implementação por issue: mode direct-pr e fonte de issue ou pedido que fala de issue.
 export function isIssueWork(input: Pick<DelegateInput, "mode" | "source" | "request" | "objective">): boolean {
   if (input.mode !== "direct-pr") return false;
   return issueNumberOf(input.source) !== null || ISSUE_WORD.test(`${input.request}\n${input.objective ?? ""}`);
 }
 
-// Retorna o motivo da recusa (com todos os campos ausentes ou conflitos) ou null quando o contrato está completo.
 export function checkIssueDelegation(input: DelegateInput, originRepo: string | null): string | null {
   if (!isIssueWork(input)) return null;
   const problems: string[] = [];
@@ -74,7 +70,6 @@ export function checkIssueDelegation(input: DelegateInput, originRepo: string | 
   return `delegação de implementação por issue recusada antes do lançamento: ${problems.join("; ")}.`;
 }
 
-// Troca de escopo por orch_send: texto que cita outra issue numa tarefa ligada à issue de origem.
 export function issueSendScope(
   task: { source: string | null | undefined; mode: string | null | undefined },
   text: string,
