@@ -52,7 +52,7 @@ test("commit local sem push na worktree: nível partial, cita o commit e a workt
         pushed_sha: null,
         pr_url: null,
       },
-      worktree: { state: "encontrada", path: "/wt/a", head: HEAD, dirty: false, pushed: false },
+      worktree: { state: "encontrada", path: "/wt/a", head: HEAD, dirty: false, pushed: false, unpushed: 1 },
     }),
   );
   assert.equal(d.level, "partial");
@@ -63,7 +63,7 @@ test("commit local sem push na worktree: nível partial, cita o commit e a workt
 
 test("worktree com alterações não commitadas conta como evidência parcial", () => {
   const d = diagnoseLostTask(
-    facts({ worktree: { state: "encontrada", path: "/wt/a", head: BASE, dirty: true, pushed: true } }),
+    facts({ worktree: { state: "encontrada", path: "/wt/a", head: BASE, dirty: true, pushed: true, unpushed: 0 } }),
   );
   assert.equal(d.level, "partial");
   assert.ok(d.evidence.includes("alterações não commitadas em /wt/a"));
@@ -111,4 +111,13 @@ test("resumo traz nível, evidências, pendências e ação segura", () => {
   assert.match(s, /PR https:\/\/github\.com\/o\/r\/pull\/3/);
   assert.match(s, /Pendências:/);
   assert.match(s, /Ação segura:/);
+});
+
+test("commit local não publicado sem publish-state: nível partial, cita o commit", () => {
+  const d = diagnoseLostTask(
+    facts({ worktree: { state: "encontrada", path: "/wt/a", head: HEAD, dirty: false, pushed: false, unpushed: 1 } }),
+  );
+  assert.equal(d.level, "partial");
+  assert.ok(d.evidence.includes(`commit ${HEAD.slice(0, 12)} criado na worktree, não publicado`));
+  assert.match(d.recovery, /inspecione a worktree \/wt\/a/);
 });

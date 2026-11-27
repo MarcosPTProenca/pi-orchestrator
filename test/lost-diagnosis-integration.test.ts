@@ -120,22 +120,24 @@ test("1. pane sumido sem trabalho: nível none, com a worktree conferida e sem l
   assert.equal(s.h.herdr.opsOf("readRecent").length, 0);
 });
 
-test("2. commit local sem push: nível partial, cita o commit e preserva a worktree", async () => {
-  const s = setup();
-  const w = await delegateWithWorktree(s, "a");
-  const head = commitWork(w.clone);
-  recordPublish(w, { head_sha: head });
-  paneGone(s.h, w.t.pane_id);
-  await s.h.orch.reconcile();
+for (const withPublish of [true, false]) {
+  test(`2. commit local sem push (publish-state ${withPublish ? "presente" : "ausente"}): nível partial, cita o commit e preserva a worktree`, async () => {
+    const s = setup();
+    const w = await delegateWithWorktree(s, "a");
+    const head = commitWork(w.clone);
+    if (withPublish) recordPublish(w, { head_sha: head });
+    paneGone(s.h, w.t.pane_id);
+    await s.h.orch.reconcile();
 
-  const rec = s.h.orch.get(w.t.task_id);
-  assert.equal(rec.status, "lost");
-  assert.equal(rec.diagnosis?.level, "partial");
-  assert.ok(rec.diagnosis?.evidence.includes(`commit ${head.slice(0, 12)} criado na worktree, não publicado`));
-  assert.ok(rec.error?.includes(`inspecione a worktree ${w.clone}`));
-  assert.deepEqual(s.returned, [], "worktree com commit sem push não é devolvida");
-  assert.ok(existsSync(w.clone));
-});
+    const rec = s.h.orch.get(w.t.task_id);
+    assert.equal(rec.status, "lost");
+    assert.equal(rec.diagnosis?.level, "partial");
+    assert.ok(rec.diagnosis?.evidence.includes(`commit ${head.slice(0, 12)} criado na worktree, não publicado`));
+    assert.ok(rec.error?.includes(`inspecione a worktree ${w.clone}`));
+    assert.deepEqual(s.returned, [], "worktree com commit sem push não é devolvida");
+    assert.ok(existsSync(w.clone));
+  });
+}
 
 test("3. PR registrada: nível partial, checks pendentes, tarefa segue lost e não vira done", async () => {
   const s = setup();

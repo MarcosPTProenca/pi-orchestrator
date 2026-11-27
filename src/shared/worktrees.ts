@@ -69,6 +69,8 @@ export interface LeaseFacts {
   head: string | null;
   dirty: boolean;
   pushed: boolean;
+  // keep: commits alcançáveis pelo HEAD e por nenhuma referência remota; não depende de publish-state.json.
+  unpushed: number;
 }
 
 // keep: só lê a worktree arrendada pela própria tarefa (holder = task_id); nunca toca em lease de outra tarefa. Erro propaga para o chamador registrar como indisponível.
@@ -83,7 +85,8 @@ export function inspectLease(
   const dirty = ops.git(lease.path, ["status", "--porcelain"]).trim() !== "";
   const head = ops.git(lease.path, ["rev-parse", "HEAD"]).trim() || null;
   const pushed = head !== null && ops.git(lease.path, ["branch", "-r", "--contains", "HEAD"]).trim() !== "";
-  return { path: lease.path, head, dirty, pushed };
+  const unpushed = Number(ops.git(lease.path, ["rev-list", "--count", "HEAD", "--not", "--remotes"]).trim());
+  return { path: lease.path, head, dirty, pushed, unpushed };
 }
 
 export function orphanLeases(
