@@ -130,6 +130,13 @@ test("lista vazia não avisa e zera a chave, para avisar de novo se a tarefa rea
   assert.deepEqual(idleAnnouncement("", [a]), { announce: true, key: "t-a" });
 });
 
+test("tarefa planejada (ainda não iniciada) não é 'terminou': não é candidata e não sugere relançar", () => {
+  const planned = task({ task_id: "t-planned", status: "planned", notified: false, tab_id: "" });
+  const reason = whyNotIdle(planned, liveFor()) ?? "";
+  assert.match(reason, /ainda não iniciada/);
+  assert.doesNotMatch(reason, /terminou|relançada/);
+});
+
 test("whyNotIdle explica cada inelegibilidade e é null para candidata", () => {
   const ok = task({ task_id: "t-ok" });
   const live = liveFor(ok);

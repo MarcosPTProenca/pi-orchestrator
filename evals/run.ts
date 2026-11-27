@@ -1,9 +1,10 @@
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { scenarios, type Scenario, type Run, type Check } from "./scenarios.ts";
+import { GH_FAKE_SOURCE } from "./gh-fake.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const EXCLUDED = "";
@@ -34,6 +35,16 @@ function makeFixtures(): Record<string, string> {
     }
     out[name] = dir;
   }
+  // keep: gh falso só entra no PATH de cenários com fakeGh; os demais continuam usando o gh real.
+  const ghBin = join(base, "gh-bin");
+  mkdirSync(ghBin);
+  writeFileSync(join(ghBin, "gh.mjs"), GH_FAKE_SOURCE);
+  writeFileSync(
+    join(ghBin, "gh"),
+    `#!/bin/sh\necho "gh $*" >> "$FAKE_GH_LOG"\nexec "${process.execPath}" "${join(ghBin, "gh.mjs")}" "$@"\n`,
+  );
+  chmodSync(join(ghBin, "gh"), 0o755);
+  out._gh = ghBin;
   return out;
 }
 
@@ -147,6 +158,7 @@ async function main(): Promise<void> {
       PI_ORCH_DRY_RUN: "1",
       PI_ORCH_STATE_DIR: stateDir,
       HOME: process.env.HOME ?? homedir(),
+      ...(sc.fakeGh ? { PATH: `${fx._gh}:${process.env.PATH ?? ""}`, FAKE_GH_LOG: join(fx._base, "gh.log") } : {}),
     });
     const run = parseStream(stream);
     const tasks = taskRecords(stateDir);

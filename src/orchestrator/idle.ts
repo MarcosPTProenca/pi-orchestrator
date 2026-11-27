@@ -39,6 +39,7 @@ const STALE_SURFACE_REASON = "tab ou pane não confere mais com a tarefa no Herd
 export function whyNotIdle(t: TaskRecord, live: LiveSurfaces): string | null {
   if (t.status === "blocked") return "aguarda decisão";
   if (isActive(t.status)) return `ainda em andamento (${t.status})`;
+  if (t.status === "planned") return "ainda não iniciada";
   if (t.status === "cancelled") return "cancelada (a tab já foi fechada pelo cancelamento)";
   if (t.status !== "done") return `terminou como ${t.status}; pode ser relançada ou inspecionada`;
   if (!t.notified) return "resultado ainda não entregue ao usuário";

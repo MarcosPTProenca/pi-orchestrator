@@ -115,6 +115,21 @@ test("papel proíbe recomendar ação pública que o usuário não pediu", () =>
   assert.match(ORCHESTRATOR_ROLE, /quando um worker reportar uma decisão nova/);
 });
 
+test("papel não proíbe dividir quando o usuário pede um conjunto de issues", () => {
+  assert.doesNotMatch(ORCHESTRATOR_ROLE, /Não divida trabalho por iniciativa própria\./);
+  assert.match(ORCHESTRATOR_ROLE, /conjunto de issues/);
+  assert.match(ORCHESTRATOR_ROLE, /uma unidade de delegação por issue/);
+  assert.match(ORCHESTRATOR_ROLE, /`source` com a URL da issue/);
+  assert.match(ORCHESTRATOR_ROLE, /leia o título e o corpo de cada issue/);
+  assert.match(ORCHESTRATOR_ROLE, /issue de gate, teste ou CI sobre a interface fica de fora/);
+  assert.match(ORCHESTRATOR_ROLE, /depends_on usa os ids dos itens/);
+  assert.match(ORCHESTRATOR_ROLE, /[Ii]tens de plano aprovado são lançados pelo plano/);
+  assert.match(ORCHESTRATOR_ROLE, /não use orch_delegate nem orch_relaunch para eles/);
+  assert.match(ORCHESTRATOR_ROLE, /[Nn]ão aprove um plano que contenha item excluído/);
+  assert.match(ORCHESTRATOR_ROLE, /com o motivo e a URL/);
+  assert.match(ORCHESTRATOR_ROLE, /orch_plan_create/);
+});
+
 test("papel aciona subagents para pesquisa e levantamento, sem pesquisar sozinho", () => {
   assert.match(ORCHESTRATOR_ROLE, /Pesquisa e levantamento não são seus/);
   assert.match(ORCHESTRATOR_ROLE, /`researcher`/);
