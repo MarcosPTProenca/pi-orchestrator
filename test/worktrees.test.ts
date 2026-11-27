@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseLeases, releaseLease, type WorktreeOps } from "../src/shared/worktrees.ts";
+import { leaseTreehouse, parseLeases, releaseLease, type WorktreeOps } from "../src/shared/worktrees.ts";
 
 const STATUS = `A new version of treehouse is available
 1     leased       ~/.treehouse/al-0802e3/1/al  (held by t-e19b2fae)
@@ -78,4 +78,25 @@ test("titular que não é a tarefa não é tocado", () => {
   const note = releaseLease(ops, "/repo", "t-nao-existe", "/home/u");
   assert.equal(note.released, false);
   assert.deepEqual(ops.returned, []);
+});
+
+test("leaseTreehouse arrenda com o holder da tarefa e devolve o caminho impresso", () => {
+  const calls: { repo: string; args: string[] }[] = [];
+  const path = leaseTreehouse("/repo", "t-1", (repo, args) => {
+    calls.push({ repo, args });
+    return "\u{1F333} Setting up worktree...\n/home/u/.treehouse/p/5/repo\n";
+  });
+  assert.equal(path, "/home/u/.treehouse/p/5/repo");
+  assert.deepEqual(calls, [{ repo: "/repo", args: ["get", "--lease", "--lease-holder", "t-1"] }]);
+});
+
+test("leaseTreehouse propaga falha do treehouse e recusa saída sem caminho absoluto", () => {
+  assert.throws(
+    () =>
+      leaseTreehouse("/repo", "t-1", () => {
+        throw new Error("no pool");
+      }),
+    /no pool/,
+  );
+  assert.throws(() => leaseTreehouse("/repo", "t-1", () => "sem caminho\n"), /caminho absoluto/);
 });

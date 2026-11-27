@@ -61,7 +61,7 @@ import { notificationFor, notifyArgs, notifyEnabled } from "../policy/notify.ts"
 import { chainDepth, classifyFailure, failureHintFor, MAX_AUTO_RELAUNCH, nextModelFor } from "../policy/failure.ts";
 import { launchRoom, maxActiveFrom } from "../policy/cap.ts";
 import { isActive, type TaskRecord } from "../shared/contract.ts";
-import { inspectLease, orphanLeases, releaseLease, treehouseOps } from "../shared/worktrees.ts";
+import { inspectLease, leaseTreehouse, orphanLeases, releaseLease, treehouseOps } from "../shared/worktrees.ts";
 import { deadTabTaskIds, IdleWatch, idleSurfaces } from "./idle.ts";
 import { StallWatch, stallNoticeFor } from "./stall.ts";
 import {
@@ -152,6 +152,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 
   const queue: { fix?: FixQueue<DelegateInput> } = {};
   const orch = new Orchestrator({
+    leaseWorktree: (projectPath, taskId) => leaseTreehouse(projectPath, taskId),
     releaseWorktree: (t) => releaseLease(treehouseOps, t.project_path, t.task_id).message,
     inspectWorktree: (t) => inspectLease(treehouseOps, t.project_path, t.task_id),
     herdr: new HerdrCli(),

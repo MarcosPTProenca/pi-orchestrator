@@ -3,7 +3,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { parseExecutionTicket } from "../src/shared/execution-ticket.ts";
+import { TICKET_FILE } from "../src/shared/plan.ts";
 import { writeManifest } from "./fakes.ts";
 import orchestratorExtension from "../src/orchestrator/extension.ts";
 import { PlanStore } from "../src/orchestrator/plans.ts";
@@ -43,9 +45,9 @@ function delegateFor(n: number, source: string | undefined = sourceOf(n)) {
 type Exec = (id: string, raw: Record<string, unknown>) => unknown;
 
 function fakePi() {
-  const tools = new Map<string, { execute: Exec }>();
+  const tools = new Map<string, { execute: Exec; parameters: Record<string, unknown> }>();
   const registry: Record<string, unknown> = {
-    registerTool(t: { name: string; execute: Exec }) {
+    registerTool(t: { name: string; execute: Exec; parameters: Record<string, unknown> }) {
       tools.set(t.name, t);
     },
   };
@@ -56,6 +58,12 @@ function fakePi() {
   });
   return {
     pi: pi as unknown as ExtensionAPI,
+    // keep: schema real da ferramenta, para testar o que o Pi valida antes do execute.
+    schemaOf: (name: string): Record<string, unknown> => {
+      const t = tools.get(name);
+      if (!t) throw new Error(`ferramenta ausente: ${name}`);
+      return t.parameters;
+    },
     // keep: a chamada vira Promise mesmo quando a ferramenta lança síncrono, como o Pi faz com o await
     call: (name: string, raw: Record<string, unknown>): Promise<unknown> =>
       new Promise((resolve) => {
@@ -184,6 +192,115 @@ test("#239 integração: seleção → plano com uma unidade por issue → deleg
       readdirSync(join(h.stateDir, "plans")).some((f) => f === "visuais-herdr.json"),
       "plano persistido",
     );
+  } finally {
+    h.restore();
+  }
+});
+
+// keep: #255 — o fluxo plano -> aprovação -> launchReady -> delegate precisa passar no assertContract e gravar ticket.json válido.
+const ACC_SOURCE = "https://github.com/exemplo/herdr/issues/224";
+const ACC_CRITERIA = ["Teste de regressão do bug X passa", "npm test verde"];
+
+const acceptanceDelegate = (project: string, overrides: Record<string, unknown> = {}) => ({
+  project_path: project,
+  role: "impl",
+  request: "Implemente a issue #224.",
+  objective: "Critérios da issue #224 atendidos.",
+  mode: "direct-pr",
+  model: MODEL,
+  source: ACC_SOURCE,
+  acceptance: ACC_CRITERIA,
+  ...overrides,
+});
+
+test("schema de orch_plan_create declara acceptance em delegate (todas as chaves aceitas estão no schema)", () => {
+  const h = setup();
+  try {
+    const itemSchema = h.f.schemaOf("orch_plan_create") as {
+      properties: {
+        items: { items: { anyOf: { properties?: Record<string, { properties?: Record<string, unknown> }> }[] } };
+      };
+    };
+    const objectItem = itemSchema.properties.items.items.anyOf.find((s) => s.properties?.delegate);
+    assert.ok(objectItem, "item com delegate no schema");
+    const delegateSchema = objectItem.properties?.delegate as { properties: Record<string, unknown> };
+    const accepted = Object.keys(acceptanceDelegate(h.project));
+    const missing = accepted.filter((k) => !(k in delegateSchema.properties));
+    assert.deepEqual(missing, [], "chaves de delegate ausentes no schema seriam rejeitadas pelo Pi");
+    assert.ok("acceptance" in delegateSchema.properties);
+  } finally {
+    h.restore();
+  }
+});
+
+test("direct-pr sem acceptance é recusado ao criar o plano, sem gravar", async () => {
+  const h = setup();
+  try {
+    const items = [{ title: "#224", delegate: acceptanceDelegate(h.project, { acceptance: undefined }) }];
+    await assert.rejects(h.f.call("orch_plan_create", { id: "sem-criterio", title: "x", items }), /acceptance/);
+    assert.equal(existsSync(join(h.stateDir, "plans", "sem-criterio.json")), false, "nada é gravado");
+  } finally {
+    h.restore();
+  }
+});
+
+test("direct-pr com critério em branco é recusado ao criar o plano", async () => {
+  const h = setup();
+  try {
+    const items = [
+      { title: "#224", delegate: acceptanceDelegate(h.project, { acceptance: ["npm test verde", "  "] }) },
+    ];
+    await assert.rejects(h.f.call("orch_plan_create", { id: "criterio-vazio", title: "x", items }), /acceptance\[1\]/);
+    assert.equal(existsSync(join(h.stateDir, "plans", "criterio-vazio.json")), false);
+  } finally {
+    h.restore();
+  }
+});
+
+test("integração: create → approve → launchReady → delegate grava ticket.json válido com os critérios do item", async () => {
+  const h = setup();
+  try {
+    const items = [{ title: "#224", delegate: acceptanceDelegate(h.project) }];
+    await h.f.call("orch_plan_create", { id: "com-criterio", title: "Com critério", items });
+    await h.f.call("orch_plan_approve", { id: "com-criterio" });
+
+    assert.equal(h.tasks().length, 1, "o item é lançado ao aprovar");
+    const task = h.tasks()[0];
+    const file = join(dirname(task.brief_path), TICKET_FILE);
+    assert.ok(existsSync(file), "ticket.json gravado na pasta da tarefa");
+    const ticket = parseExecutionTicket(JSON.parse(readFileSync(file, "utf8")));
+    assert.equal(ticket.task_id, task.task_id);
+    assert.equal(ticket.status, "ready");
+    assert.equal(ticket.mode, "direct-pr");
+    assert.deepEqual(
+      ticket.acceptance.map((a) => a.text),
+      ACC_CRITERIA,
+    );
+    assert.equal(ticket.origin.source, ACC_SOURCE);
+    assert.equal(new PlanStore(join(h.stateDir, "plans")).show("com-criterio").items[0].status, "in_progress");
+  } finally {
+    h.restore();
+  }
+});
+
+test("report sem acceptance é aceito e lança sem ticket.json (legado de relatório preservado)", async () => {
+  const h = setup();
+  try {
+    const items = [
+      {
+        title: "#224 pesquisa",
+        delegate: acceptanceDelegate(h.project, {
+          mode: "report",
+          acceptance: undefined,
+          request: "Pesquise a issue #224.",
+        }),
+      },
+    ];
+    await h.f.call("orch_plan_create", { id: "relatorio", title: "Relatório", items });
+    await h.f.call("orch_plan_approve", { id: "relatorio" });
+
+    assert.equal(h.tasks().length, 1, "item report é lançado sem critérios");
+    assert.equal(existsSync(join(dirname(h.tasks()[0].brief_path), TICKET_FILE)), false);
   } finally {
     h.restore();
   }

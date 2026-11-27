@@ -68,7 +68,11 @@ test("delegate cria workspace do projeto, tab da tarefa e inicia o worker na tab
     cwd: string;
     env: Record<string, string>;
   };
-  assert.equal(tabArgs.cwd, h.project, "tab abre no checkout do projeto; o worker arrenda a worktree dele");
+  assert.equal(
+    tabArgs.cwd,
+    join(h.stateDir, "worktrees", t.task_id),
+    "tab abre na worktree arrendada pelo orquestrador (#254)",
+  );
   assert.equal(tabArgs.env.PI_ORCH_ROLE, "worker");
   assert.equal(tabArgs.env.PI_PR_REVIEW_CHILD, "1", "worker não dispara o hook pessoal de PR review");
   assert.equal(tabArgs.env.PI_ORCH_TASK_ID, t.task_id);
@@ -81,6 +85,52 @@ test("delegate cria workspace do projeto, tab da tarefa e inicia o worker na tab
   assert.match(readFileSync(t.brief_path, "utf8"), /Analise o login/);
   assert.match(readFileSync(t.brief_path, "utf8"), /orch_report/);
   assert.equal(h.herdr.opsOf("prompt").length, 0, "brief vai como argumento inicial, não como prompt");
+});
+
+test("delegate arrenda a worktree antes do pane e o worker inicia nela, não no checkout principal (#254)", async () => {
+  const leased: string[] = [];
+  const h = makeHarness({
+    extra: {
+      leaseWorktree: (projectPath, taskId) => {
+        leased.push(`${projectPath}|${taskId}`);
+        return `/wt/${taskId}`;
+      },
+    },
+  });
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report" });
+  assert.deepEqual(leased, [`${h.project}|${t.task_id}`]);
+  const tabArgs = h.herdr.opsOf("createTab")[0].args as { cwd: string };
+  assert.equal(tabArgs.cwd, `/wt/${t.task_id}`, "o pane abre na worktree, não no checkout principal");
+  const brief = readFileSync(t.brief_path, "utf8");
+  assert.ok(brief.includes(`/wt/${t.task_id}`), "brief aponta a worktree arrendada");
+  assert.ok(!brief.includes("treehouse get --lease"), "worker não arrenda de novo");
+});
+
+test("com espaços por tarefa, o workspace abre na worktree arrendada (#254)", async () => {
+  const h = makeHarness({
+    presentationSpaces: true,
+    extra: { leaseWorktree: (_p, taskId) => `/wt/${taskId}` },
+  });
+  const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report" });
+  const wsArgs = h.herdr.opsOf("createWorkspace")[0].args as { cwd: string };
+  assert.equal(wsArgs.cwd, `/wt/${t.task_id}`);
+});
+
+test("delegate aborta antes de pane e tarefa quando o arrendamento falha (#254)", async () => {
+  const h = makeHarness({
+    extra: {
+      leaseWorktree: () => {
+        throw new Error("treehouse: nenhuma worktree livre");
+      },
+    },
+  });
+  await assert.rejects(
+    h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report" }),
+    /nenhuma worktree livre[\s\S]*Nada foi lançado/,
+  );
+  assert.equal(h.herdr.opsOf("createWorkspace").length, 0);
+  assert.equal(h.herdr.opsOf("createTab").length, 0);
+  assert.equal(h.orch.list().length, 0, "nenhuma tarefa registrada");
 });
 
 test("a tab seed fica como âncora do projeto: nenhuma tab é fechada ao criar tarefa", async () => {
@@ -161,17 +211,15 @@ test("answer rejeita tarefa que não está bloqueada", async () => {
   await assert.rejects(h.orch.answer(t.task_id, "oi"), /não está bloqueada/);
 });
 
-test("brief manda o worker arrendar a própria worktree; o orquestrador não arrenda", async () => {
+test("brief diz que a worktree já foi arrendada pelo orquestrador e o worker confere o isolamento nela (#254)", async () => {
   const h = makeHarness();
   const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report" });
+  const wt = join(h.stateDir, "worktrees", t.task_id);
   const brief = readFileSync(t.brief_path, "utf8");
-  assert.match(brief, /treehouse get --lease --lease-holder t-/);
-  assert.match(brief, new RegExp(`--lease-holder ${t.task_id}`));
+  assert.match(brief, /já foi arrendada pelo orquestrador/);
   assert.match(brief, /pwd -P/, "verificação de isolamento no setup");
-  assert.equal(
-    h.herdr.opsOf("createTab")[0].args && (h.herdr.opsOf("createTab")[0].args as { cwd: string }).cwd,
-    h.project,
-  );
+  assert.ok(brief.includes(`não para ${h.project}`), "verificação compara com a worktree, não com o checkout");
+  assert.equal((h.herdr.opsOf("createTab")[0].args as { cwd: string }).cwd, wt);
 });
 
 test("delegate passa o modelo pedido ao pi e registra na tarefa", async () => {
@@ -268,6 +316,7 @@ test("estado persiste entre instâncias do orquestrador (reinício)", async () =
   const h = makeHarness();
   const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report" });
   const again = new Orchestrator({
+    leaseWorktree: (_p, id) => `/wt/${id}`,
     herdr: h.herdr,
     store: new Store(join(h.stateDir, "state.json")),
     tasksDir: join(h.stateDir, "tasks"),
@@ -377,6 +426,7 @@ test("modelo pedido disponível vai para o pi e fica registrado", async () => {
 test("modo simulação (dryRun): valida, monta o brief e não toca no Herdr", async () => {
   const h = makeHarness();
   const planned = new Orchestrator({
+    leaseWorktree: (_p, id) => `/wt/${id}`,
     herdr: h.herdr,
     store: new Store(join(h.stateDir, "dry.json")),
     tasksDir: join(h.stateDir, "dry-tasks"),
@@ -551,6 +601,7 @@ test("onTerminal avisa a fila quando a tarefa termina", async () => {
   const h = makeHarness();
   const seen: string[] = [];
   const orch = new Orchestrator({
+    leaseWorktree: (_p, id) => `/wt/${id}`,
     herdr: h.herdr,
     store: new Store(join(h.stateDir, "ot.json")),
     tasksDir: join(h.stateDir, "ot-tasks"),
@@ -599,6 +650,7 @@ test("enrichSource lê o estado da PR no lançamento (não na listagem)", async 
   const { Orchestrator } = await import("../src/orchestrator/orchestrator.ts");
   const { Store } = await import("../src/shared/store.ts");
   const orch = new Orchestrator({
+    leaseWorktree: (_p, id) => `/wt/${id}`,
     herdr: h.herdr,
     store: new Store(join(h.stateDir, "e.json")),
     tasksDir: join(h.stateDir, "e-tasks"),
@@ -816,6 +868,7 @@ test("cancelar registra a nota de devolução da worktree; perder o pane também
   const h = makeHarness();
   const notes: string[] = [];
   const orch = new Orchestrator({
+    leaseWorktree: (_p, id) => `/wt/${id}`,
     herdr: h.herdr,
     store: new Store(join(h.stateDir, "wt.json")),
     tasksDir: join(h.stateDir, "wt-tasks"),
@@ -869,6 +922,7 @@ test("registro de tarefa não tem campos mortos; estado antigo com eles carrega 
   old.tasks[t.task_id].prompt_attempts = 1;
   writeFileSync(file, JSON.stringify(old));
   const reopened = new Orchestrator({
+    leaseWorktree: (_p, id) => `/wt/${id}`,
     herdr: h.herdr,
     store: new Store(file),
     tasksDir: join(h.stateDir, "tasks"),
@@ -913,6 +967,7 @@ test("release s\u00f3 devolve worktree de tarefa terminal e recusa tarefa ativa"
   const h = makeHarness();
   const released: string[] = [];
   const orch = new Orchestrator({
+    leaseWorktree: (_p, id) => `/wt/${id}`,
     herdr: h.herdr,
     store: new Store(join(h.stateDir, "rel.json")),
     tasksDir: join(h.stateDir, "rel-tasks"),
@@ -938,6 +993,7 @@ test("release s\u00f3 devolve worktree de tarefa terminal e recusa tarefa ativa"
 test("forgetDeadTab limpa só a aba de tarefa concluída, sem tocar na worktree nem na pane (ruído de ociosas)", async () => {
   const h = makeHarness();
   const orch = new Orchestrator({
+    leaseWorktree: (_p, id) => `/wt/${id}`,
     herdr: h.herdr,
     store: new Store(join(h.stateDir, "dead.json")),
     tasksDir: join(h.stateDir, "dead-tasks"),
