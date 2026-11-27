@@ -36,6 +36,8 @@ export function deliveryFromFix(action: FixAction, taskId: string): DeliveryEven
     case "send_findings":
     case "send_ci_fix":
       return { name: "changes_required", task_id: taskId, head_sha: action.head_sha };
+    case "ci_infra":
+      return null;
     case "approved":
       return { name: "merge_eligible", task_id: taskId, head_sha: action.head_sha };
     case "blocked":

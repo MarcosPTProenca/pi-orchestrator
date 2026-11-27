@@ -45,6 +45,22 @@ export function isPrWatched(
 
 export type PrAction = "conflict" | "ci";
 
+export function classifyCiFailure(log: string | null): { kind: "code" | "infra" | "flaky"; reason: string } {
+  if (!log?.trim())
+    return { kind: "infra", reason: "log de falha indisponível ou vazio; sem evidência para atribuir ao código" };
+  if (
+    /runner (?:was )?offline|no available runner|timed? ?out|network (?:error|failure)|connection reset|502|503|504|service unavailable|internal server error|rate limit|resource not accessible/i.test(
+      log,
+    )
+  ) {
+    return { kind: "infra", reason: "log indica falha de infraestrutura externa ou timeout" };
+  }
+  if (/flaky|intermittent|passed on retry|retry succeeded/i.test(log)) {
+    return { kind: "flaky", reason: "log indica falha flaky/intermitente" };
+  }
+  return { kind: "code", reason: "log contém falha sem marcador conhecido de infraestrutura ou flaky" };
+}
+
 export function failingChecks(s: PrState): string[] {
   return [
     ...new Set(
