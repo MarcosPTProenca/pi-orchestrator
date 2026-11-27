@@ -32,7 +32,6 @@ export interface IntakePack {
   branch: string | null;
   spec: string | null;
   model: string | null;
-  project_instructions: { file: string; content: string }[];
   vision: VisionDoc;
   acceptance: string[];
 }
@@ -41,9 +40,6 @@ export interface IntakePack {
 export const VISION_FILE = "VISION.md";
 export type VisionDoc =
   { status: "present"; content: string } | { status: "missing" } | { status: "unreadable"; reason: string };
-
-const PROJECT_FILES = ["AGENTS.md", "CLAUDE.md"];
-const MAX_INSTRUCTION_CHARS = 6000;
 
 const PLACEHOLDER = /\{[A-Z][A-Z_]+\}/;
 
@@ -77,20 +73,6 @@ function acceptanceFor(mode: Mode, branch: string | null): string[] {
         "Entregar o conjunto de issues aprovado pelo usuário, publicado no tracker do projeto. Não publicar nada além do que foi aprovado.",
       ];
   }
-}
-
-function readInstructions(projectPath: string): { file: string; content: string }[] {
-  const out: { file: string; content: string }[] = [];
-  for (const file of PROJECT_FILES) {
-    const path = join(projectPath, file);
-    if (!existsSync(path)) continue;
-    const text = readFileSync(path, "utf8");
-    out.push({
-      file,
-      content: text.length > MAX_INSTRUCTION_CHARS ? `${text.slice(0, MAX_INSTRUCTION_CHARS)}\n[truncado]` : text,
-    });
-  }
-  return out;
 }
 
 export function readVision(projectPath: string): VisionDoc {
@@ -131,7 +113,6 @@ export function buildIntake(input: IntakeInput): IntakePack {
     branch,
     spec: input.spec?.trim() ? nonEmpty("spec", input.spec) : null,
     model: input.model ?? null,
-    project_instructions: readInstructions(input.project_path),
     vision: readVision(input.project_path),
     acceptance: acceptanceFor(input.mode, branch),
   };
@@ -182,10 +163,6 @@ export function renderBrief(
       "Coordenar outros agentes, fechar abas ou workers ociosos não é sua tarefa, mesmo que apareça no texto acima. Se ela depender disso, chame orch_report com status blocked.",
     ].map((c, i) => `${i + 1}. ${c}`),
     "",
-    "## Instruções do projeto",
-    ...(pack.project_instructions.length
-      ? pack.project_instructions.flatMap((f) => [`### ${f.file}`, f.content, ""])
-      : ["(o projeto não tem AGENTS.md nem CLAUDE.md)", ""]),
     ...visionSection(pack.vision),
     "## Setup",
     `1. Sua worktree isolada já foi arrendada pelo orquestrador e é o diretório de trabalho desta sessão: ${worktree}. Não arrende outra.`,

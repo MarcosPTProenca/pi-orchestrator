@@ -156,9 +156,9 @@ export const scenarios: Scenario[] = [
         detail: "ver brief",
       }),
       (_r, t) => ({
-        name: "brief leva instruções do projeto (AGENTS.md)",
-        ok: t.briefs.every((b) => /Commits em português/.test(b)),
-        detail: "AGENTS.md ausente no brief",
+        name: "brief não duplica instruções carregadas nativamente pelo Pi",
+        ok: t.briefs.every((b) => !/Commits em português/.test(b)),
+        detail: "instrução de AGENTS.md duplicada no brief",
       }),
       (run) => ({
         name: "sem pesquisa nem ferramentas proibidas",
