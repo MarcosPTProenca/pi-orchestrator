@@ -10,7 +10,14 @@ export type ReportFact =
 export type WorktreeFact =
   | { state: "ausente" }
   | { state: "indisponivel"; detail: string }
-  | { state: "encontrada"; path: string; head: string | null; dirty: boolean; pushed: boolean };
+  | {
+      state: "encontrada";
+      path: string;
+      head: string | null;
+      dirty: boolean;
+      pushed: boolean;
+      unpushed: number;
+    };
 
 export interface DiagnosisFacts {
   now: string;
@@ -83,13 +90,15 @@ export function diagnoseLostTask(f: DiagnosisFacts): LostDiagnosis {
     sources.push({
       source: "worktree",
       state: "verificada",
-      detail: `${w.path}; HEAD ${w.head ? short(w.head) : "desconhecido"}; alterações não commitadas: ${w.dirty ? "sim" : "não"}; commit em remoto: ${w.pushed ? "sim" : "não"}`,
+      detail: `${w.path}; HEAD ${w.head ? short(w.head) : "desconhecido"}; alterações não commitadas: ${w.dirty ? "sim" : "não"}; commits não publicados: ${w.unpushed}`,
     });
     if (w.dirty) evidence.push(`alterações não commitadas em ${w.path}`);
-    const head = w.head;
-    if (head && base && head !== base) {
-      evidence.push(`commit ${short(head)} criado na worktree, ${w.pushed ? "publicado" : "não publicado"}`);
-      if (!w.pushed) commitUnpushed = { sha: head, path: w.path };
+    // keep: commit não publicado vem do git (sem remoto que o contenha), não de publish-state.json; sem ele o diagnóstico cairia em none.
+    if (w.head && w.unpushed > 0) {
+      evidence.push(`commit ${short(w.head)} criado na worktree, não publicado`);
+      commitUnpushed = { sha: w.head, path: w.path };
+    } else if (w.head && base && w.head !== base && w.pushed) {
+      evidence.push(`commit ${short(w.head)} criado na worktree, publicado`);
     }
   } else if (f.worktree.state === "indisponivel") {
     sources.push({ source: "worktree", state: "indisponivel", detail: f.worktree.detail });
