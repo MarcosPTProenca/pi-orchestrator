@@ -54,6 +54,21 @@ test("worker empurra B: review novo só para B; aprovação antiga de A não aut
   assert.equal(rec.state, "REVIEW_APPROVED");
 });
 
+test("CI infra/flaky é sinalizado sem consumir tentativas nem enviar fix", () => {
+  const { rec, actions } = run(
+    [
+      { type: "head", head_sha: A },
+      { type: "ci_infra", head_sha: A, checks: ["test"], reason: "runner offline" },
+      { type: "ci_infra", head_sha: A, checks: ["test"], reason: "runner offline" },
+    ],
+    1,
+  );
+  assert.equal(rec.attempts, 0);
+  assert.notEqual(rec.state, "BLOCKED");
+  assert.deepEqual(actions[1], { kind: "ci_infra", head_sha: A, checks: ["test"], reason: "runner offline" });
+  assert.deepEqual(actions[2], actions[1]);
+});
+
 test("CI vermelho com código envia correção; mesmo head não repete a instrução", () => {
   const ci: FixEvent = { type: "ci_red", head_sha: A, checks: ["test"] };
   const { actions } = run([{ type: "head", head_sha: A }, ci, ci]);

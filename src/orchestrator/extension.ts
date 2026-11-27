@@ -10,12 +10,13 @@ import { HerdrCli } from "../shared/herdr.ts";
 import { availableModels, resolveModel } from "../shared/models.ts";
 import { cacheWarmingOverride } from "./cache-warming.ts";
 import { Orchestrator, type DelegateInput, type WatchEvent } from "./orchestrator.ts";
-import { prFromUrl, fetchPrState, verificationLine, verifyPr, prStateLine } from "../shared/prs.ts";
+import { prFromUrl, fetchPrState, verificationLine, verifyPr, prStateLine, ghEnvFor } from "../shared/prs.ts";
 import {
   NoticeClaims,
   PrActionWatch,
   mergedNoticeKey,
   ciInstruction,
+  classifyCiFailure,
   conflictInstruction,
   failingChecks,
   isPrWatched,
@@ -109,6 +110,20 @@ const here = dirname(fileURLToPath(import.meta.url));
 const TERMINAL = new Set(["done", "failed", "timeout", "lost"]);
 // keep: no escopo do módulo, não da instância: o mesmo arquivo pode ser carregado 2x no processo (-e + .pi/extensions), e cada instância tem estado próprio.
 const mergeNotices = new NoticeClaims();
+
+function readFailedCheckLog(runId: number | undefined, cwd: string, remote: string): Promise<string | null> {
+  if (!runId) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    execFile(
+      "gh",
+      ["run", "view", String(runId), "--log-failed"],
+      { cwd, env: ghEnvFor(remote, process.env), timeout: 90_000 },
+      (err, stdout) => {
+        resolve(err ? null : stdout);
+      },
+    );
+  });
+}
 
 export default function orchestratorExtension(pi: ExtensionAPI): void {
   const eventSink: EventSink = {
@@ -731,6 +746,21 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     if (kind === null || !prWatch.shouldAct(t.task_id, s.headRefOid, true, kind)) return;
     let fix: { action: FixAction; previous: FixRecord | null } | null = null;
     if (kind === "ci") {
+      const failed = s.checks.filter((c) => red.includes(c.name));
+      const logs = await Promise.all(failed.map((c) => readFailedCheckLog(c.run_id, t.project_path, remote)));
+      const classifications = logs.map(classifyCiFailure);
+      const external = classifications.find((c) => c.kind !== "code");
+      if (external) {
+        prWatch.markActed(t.task_id, s.headRefOid, "ci");
+        const reason = classifications.map((c) => c.reason).join("; ");
+        fix = fixLoop.apply(t.task_id, { type: "ci_infra", head_sha: s.headRefOid, checks: red, reason });
+        emitEvent(eventSink, EVENT_POLICY["fix-blocked"], {
+          customType: "orch-event",
+          content: `${taskHeadline(t, source, `PR #${pr.number} com falha de CI infra/flaky`)} Checks: ${red.join(", ")}. ${reason}. Não acionei o worker nem consumi tentativa; aguardando novo resultado do CI.`,
+          display: true,
+        });
+        return;
+      }
       fix = fixLoop.apply(t.task_id, { type: "ci_red", head_sha: s.headRefOid, checks: red });
       recordFix(t.task_id, fix.action);
       if (fix.action.kind === "blocked") {

@@ -80,11 +80,17 @@ test("CI vermelho por bug: worker corrige e a PR é mergeada só no head corrigi
   assert.equal(mergeHead(r.github.mergeCalls[0]), sha(2));
 });
 
-test("CI vermelho por infraestrutura: loop limitado pelo máximo de tentativas, sem merge", async () => {
+test("CI infra/flaky é sinalizado sem acionar worker nem consumir tentativas", async () => {
   const r = await run(S.CI_INFRA_BOUNDED);
-  assert.equal(r.rework, 2);
-  assert.equal(r.ci.length, 3);
-  assert.equal(r.terminal, "blocked");
+  assert.equal(r.rework, 0);
+  assert.equal(r.fix_attempts, 0);
+  assert.equal(r.ci.length, 1);
+  assert.equal(r.terminal, "stalled");
+  assert.match(r.reason ?? "", /infra/);
+  assert.equal(
+    r.transitions.some((t) => t.startsWith("changes_required")),
+    false,
+  );
   assert.equal(r.github.mergeCalls.length, 0);
 });
 
