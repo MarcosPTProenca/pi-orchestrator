@@ -219,6 +219,45 @@ test("plano aprovado libera só o primeiro item; worker fica bloqueado sem PLAN_
   assert.equal(editBlockReason("PLAN_READY"), null, "PLAN_READY libera edição");
 });
 
+test("criação de plano recusa spec não aprovada com código e status", () => {
+  const store = new PlanStore(tmp("plans-unapproved"), () => CLOCK);
+  assert.throws(
+    () => createPlanFromTickets(store, "unapproved", "Plano", DRAFT, TICKETS, TARGET),
+    /spec_not_approved.*draft/,
+  );
+  assert.deepEqual(store.list(), []);
+});
+
+test("criação de plano recusa fatia horizontal com código e ticket", () => {
+  const store = new PlanStore(tmp("plans-horizontal"), () => CLOCK);
+  const horizontal = TICKETS.map((t, i) => (i === 0 ? { ...t, title: "Criar tabela de tickets" } : t));
+  assert.throws(
+    () => createPlanFromTickets(store, "horizontal", "Plano", APPROVED, horizontal, TARGET),
+    /horizontal_slice.*fluxo-minimo/,
+  );
+  assert.deepEqual(store.list(), []);
+});
+
+test("criação de plano recusa ciclo no DAG com código e caminho", () => {
+  const store = new PlanStore(tmp("plans-cycle"), () => CLOCK);
+  const cyclic = TICKETS.map((t, i) => (i === 0 ? { ...t, blocked_by: ["merge-autorizado"] } : t));
+  assert.throws(
+    () => createPlanFromTickets(store, "cycle", "Plano", APPROVED, cyclic, TARGET),
+    /dependency_cycle.*fluxo-minimo.*merge-autorizado/,
+  );
+  assert.deepEqual(store.list(), []);
+});
+
+test("criação de plano recusa requisito sem cobertura com código e requisito", () => {
+  const store = new PlanStore(tmp("plans-uncovered"), () => CLOCK);
+  const uncovered = TICKETS.map((t, i) => (i === 0 ? { ...t, requirements: ["R99"] } : t));
+  assert.throws(
+    () => createPlanFromTickets(store, "uncovered", "Plano", APPROVED, uncovered, TARGET),
+    /uncovered_requirement.*R1/,
+  );
+  assert.deepEqual(store.list(), []);
+});
+
 const byId = (id: string): Scenario => S.ALL_SCENARIOS.find((s) => s.id === id) as Scenario;
 const run = (sc: Scenario): Promise<RunResult> => runDelivery(sc, tmp("delivery"));
 
