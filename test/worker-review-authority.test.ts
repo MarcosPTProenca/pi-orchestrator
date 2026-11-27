@@ -7,8 +7,7 @@ async function toolCall(input: Record<string, unknown>): Promise<{ block?: boole
   return (await loadWorker().handlers.tool_call(input)) as { block?: boolean; reason?: string } | undefined;
 }
 
-// Limite aceito (VISION §1 e §3): mesmo usuário de SO. Estes testes provam o que a Factory controla:
-// o worker não tem ferramenta que grave veredito, e o bash dele não cita o store de review.
+// keep: limite aceito (VISION §1 e §3, mesmo usuário de SO); prova o que a Factory controla, sem tool de veredito e sem bash no store.
 
 test("nenhum modo expõe ferramenta de veredito de review ao worker", () => {
   for (const mode of ["report", "design", "direct-pr"] as const) {

@@ -6,9 +6,7 @@ import { READ_ONLY_TOOLS, ReviewCoordinator, type ReviewRequest, type ReviewRunI
 import { writeReviewResult, type PrRef } from "../shared/review-verdict.ts";
 import { defaultStateDir } from "../shared/store.ts";
 
-// Hook pr-review da Factory: versionado no repo e carregado por -e só nas sessões de worker.
-// Dispara ao abrir PR (gh pr create) e ao atualizar (git push com PR aberta). O revisor roda headless,
-// somente leitura, e o veredito é gravado fora do taskDir (ver shared/review-verdict.ts para o limite aceito).
+// keep: hook pr-review versionado, carregado por -e só no worker; dispara em PR aberta e atualizada, veredito fora do taskDir (limite em shared/review-verdict.ts).
 
 const PR_URL = /https:\/\/github\.com\/([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)\/pull\/(\d+)/g;
 const GH_PR_CREATE = /\bgh(?:-axi)?\s+pr\s+create\b/;
@@ -52,7 +50,7 @@ export function prUrlsFromCreate(command: string, output: string): string[] {
 }
 
 export function createReviewHook(deps: ReviewHookDeps) {
-  // Dedup por url@head: um review por PR e SHA; push novo tem SHA novo e reabre o review.
+  // keep: dedup por url@head; push novo tem SHA novo e reabre o review.
   const started = new Set<string>();
 
   async function reviewPr(url: string, cwd: string, taskDir: string | undefined): Promise<void> {
@@ -103,7 +101,7 @@ export function createReviewHook(deps: ReviewHookDeps) {
       let urls: string[] = [];
       if (GH_PR_CREATE.test(command)) urls = prUrlsFromCreate(command, output);
       else if (GIT_PUSH.test(command)) {
-        // Update: a PR aberta da branch atual, se houver (gh pr view sem argumento usa a branch atual).
+        // keep: update usa a PR aberta da branch atual; gh pr view sem argumento a identifica.
         const current = await deps.gh(["pr", "view", "--json", "url"], ctx.cwd).catch(() => "");
         const url = current ? (JSON.parse(current) as { url?: string }).url : undefined;
         if (url) urls = [url];

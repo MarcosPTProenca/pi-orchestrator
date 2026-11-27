@@ -29,7 +29,7 @@ const verdictJson = (reviewed: string, verdict = "approve") =>
 const CREATE = "gh pr create --title t --body b";
 const PUSH = "git push origin feat/x";
 
-// Fake do gh e do revisor: nenhum processo real, nenhuma rede.
+// keep: fake do gh e do revisor; nenhum processo real e nenhuma rede.
 function setup(opts: { runner: (prompt: string) => string | Promise<string>; state?: string }) {
   const state = { head: H1, state: opts.state ?? "OPEN" };
   const runs: string[] = [];
