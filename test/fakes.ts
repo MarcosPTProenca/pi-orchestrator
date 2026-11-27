@@ -137,6 +137,7 @@ function orchestratorFor(
     store: new Store(join(stateDir, "state.json")),
     tasksDir: join(stateDir, "tasks"),
     workerExtPath: "/fake/worker-ext.ts",
+    prReviewHookPath: "/fake/pr-review/hook.ts",
     now: () => clock.ms,
     newHex: () => (++counter).toString(16).padStart(8, "a"),
     availableModels: () => ["claude-bridge/claude-haiku-5-5", "openai-codex/gpt-6.1-sol"],

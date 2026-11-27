@@ -1,4 +1,4 @@
-import { OUTPUT_CONTRACT, type ReviewResult } from "../shared/review.ts";
+import type { ReviewResult } from "../shared/review.ts";
 import type { ReviewAssessment } from "../shared/merge-policy.ts";
 import type { FixEvent } from "./fix-loop.ts";
 
@@ -22,18 +22,6 @@ export function reviewAssessment(r: ReviewResult): ReviewAssessment | null {
     requires_human_judgment: r.requires_human_judgment,
     scope_drift: r.scope_drift,
   };
-}
-
-export function reviewRequestText(prUrl: string, headSha: string): string {
-  return [
-    `Review fresh da PR ${prUrl} no head ${headSha}.`,
-    "1. Rode um subagent de review com contexto limpo (não passe a sua conversa), com ferramentas somente leitura: read, grep, find, ls.",
-    `2. Diff autoritativo: git diff <base>...${headSha}. Se o diff tiver mais de 120000 caracteres, diff_truncated=true (nunca aprova).`,
-    "3. Objetivo e critérios de aceite: os do seu brief (brief.md).",
-    "4. Envie o JSON que o subagent devolver com orch_review_verdict (head_sha, raw, diff_truncated).",
-    "O review não corrige nada: só aprova ou aponta achados.",
-    OUTPUT_CONTRACT,
-  ].join("\n");
 }
 
 export function integrationFixText(prUrl: string, headSha: string, reasons: string[]): string {

@@ -40,7 +40,7 @@ function fakeProbe(f: Fixture = {}): Probe {
     [`${ROOT}/src/worker-ext.ts`]: "",
     [`${HOME}/.pi/agent/skills/implement/SKILL.md`]: "",
     [`${HOME}/.pi/agent/skills/tdd/SKILL.md`]: "",
-    [`${HOME}/.pi/agent/extensions/pr-review-hook/index.ts`]: "",
+    [`${ROOT}/src/pr-review/hook.ts`]: "",
     ...f.files,
   };
   const hidden = new Set(f.hide ?? []);

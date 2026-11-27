@@ -86,11 +86,11 @@
     },
     {
       "id": "reviewer-pr",
-      "label": "extensão de review de PR (pr-review-hook)",
-      "check": { "type": "file", "path": ".pi/agent/extensions/pr-review-hook/index.ts" },
+      "label": "hook de review de PR (pr-review, versionado no repo)",
+      "check": { "type": "file", "path": "src/pr-review/hook.ts" },
       "requiredIn": ["complete"],
-      "origin": "extensão pessoal global (fora do repo); ownership com a Factory ainda em #173",
-      "fix": "mantenha a extensão pr-review-hook no seu ~/.pi/agent/extensions (fora do repo); o repo não a instala"
+      "origin": "versionado no repo (#257); carregado pela Factory por -e nos workers",
+      "fix": "o hook vem do repo; restaure src/pr-review/hook.ts (git checkout) se o arquivo sumir"
     },
     {
       "id": "local-install",

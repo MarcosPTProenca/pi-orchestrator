@@ -1,13 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FixLoopStore } from "../src/orchestrator/fix-loop.ts";
 import { findingsText, reviewEvent } from "../src/orchestrator/review-verdict.ts";
 import { prVerdict } from "../src/orchestrator/pr-watch.ts";
 import type { PrState } from "../src/shared/prs.ts";
-import { readReview, recordReviewVerdict } from "../src/shared/review-verdict.ts";
+import { readReview, recordReviewVerdict, reviewFile, type PrRef } from "../src/shared/review-verdict.ts";
 import { PlanStore, launchable } from "../src/orchestrator/plans.ts";
 import { integrationRoute, repoPolicyFor, ticketFacts, ticketFor } from "../src/orchestrator/delivery.ts";
 import type { TaskRecord } from "../src/shared/contract.ts";
@@ -36,6 +36,7 @@ const T_A = "t-aaaaaaaa";
 const HEAD = "a".repeat(40);
 const OLD = "b".repeat(40);
 const dir = () => mkdtempSync(join(tmpdir(), "t118-"));
+const PR: PrRef = { owner: "MarcosPTProenca", name: "pi-orchestrator", number: 200 };
 const delegate = { project_path: "/tmp/repo", request: "faça", objective: "obj", mode: "direct-pr" };
 
 const approveJson = (head: string, over: Record<string, unknown> = {}) =>
@@ -76,35 +77,43 @@ const fixStore = () =>
 
 test("veredito de approve válido é gravado e vira evento de review sem bloqueante", () => {
   const d = dir();
-  recordReviewVerdict(d, approveJson(HEAD), HEAD, false);
-  const r = readReview(d, HEAD);
+  recordReviewVerdict(d, PR, approveJson(HEAD), HEAD, false);
+  const r = readReview(d, PR, HEAD);
   assert.ok(r);
   assert.deepEqual(reviewEvent(r), { type: "review", head_sha: HEAD, verdict: "approve", blocking: 0 });
 });
 
 test("approve com diff truncado vira unverified e não aprova", () => {
   const d = dir();
-  recordReviewVerdict(d, approveJson(HEAD), HEAD, true);
-  assert.equal(readReview(d, HEAD)?.verdict, "unverified");
+  recordReviewVerdict(d, PR, approveJson(HEAD), HEAD, true);
+  assert.equal(readReview(d, PR, HEAD)?.verdict, "unverified");
 });
 
 test("veredito de head antigo é ignorado; head inválido é recusado", () => {
   const d = dir();
-  recordReviewVerdict(d, approveJson(OLD), OLD, false);
-  assert.equal(readReview(d, HEAD), null, "review de outro head não vale");
-  assert.equal(readReview(dir(), HEAD), null, "sem arquivo, sem veredito");
+  recordReviewVerdict(d, PR, approveJson(OLD), OLD, false);
+  assert.equal(readReview(d, PR, HEAD), null, "review de outro head não vale");
+  assert.equal(readReview(dir(), PR, HEAD), null, "sem arquivo, sem veredito");
   const antigo = dir();
-  writeFileSync(join(antigo, "review.json"), JSON.stringify({ ...JSON.parse(approveJson(HEAD)), schema_version: 1 }));
-  assert.equal(readReview(antigo, HEAD), null, "review no schema antigo não autoriza nada");
-  assert.throws(() => recordReviewVerdict(d, approveJson("abc"), "abc", false), /40 hex/);
+  mkdirSync(join(reviewFile(antigo, PR, HEAD), ".."), { recursive: true });
+  writeFileSync(reviewFile(antigo, PR, HEAD), JSON.stringify({ ...JSON.parse(approveJson(HEAD)), schema_version: 1 }));
+  assert.equal(readReview(antigo, PR, HEAD), null, "review no schema antigo não autoriza nada");
+  assert.throws(() => recordReviewVerdict(d, PR, approveJson("abc"), "abc", false), /40 hex/);
+  assert.throws(() => reviewFile(d, { ...PR, owner: "../x" }, HEAD), /inválid/);
+});
+
+test("approve escrito no taskDir do worker não autoriza nada: só o store do hook vale", () => {
+  const task = dir();
+  writeFileSync(join(task, "review.json"), approveJson(HEAD));
+  assert.equal(readReview(dir(), PR, HEAD), null);
 });
 
 test("saída inválida do subagent vira unverified e não avança o fix loop", () => {
   const d = dir();
-  recordReviewVerdict(d, "não é json", HEAD, false);
+  recordReviewVerdict(d, PR, "não é json", HEAD, false);
   const fix = fixStore();
   fix.apply(T_A, { type: "head", head_sha: HEAD });
-  const out = fix.apply(T_A, reviewEvent(readReview(d, HEAD)!));
+  const out = fix.apply(T_A, reviewEvent(readReview(d, PR, HEAD)!));
   assert.deepEqual(out.action, { kind: "none" });
 });
 
@@ -113,8 +122,8 @@ test("review reprovado manda achados ao worker uma vez; repetição não reenvia
   const fix = fixStore();
   const head = fix.apply(T_A, { type: "head", head_sha: HEAD });
   assert.equal(head.action.kind, "request_review");
-  recordReviewVerdict(d, rejectJson(HEAD), HEAD, false);
-  const review = readReview(d, HEAD)!;
+  recordReviewVerdict(d, PR, rejectJson(HEAD), HEAD, false);
+  const review = readReview(d, PR, HEAD)!;
   const first = fix.apply(T_A, reviewEvent(review)).action;
   assert.equal(first.kind, "send_findings");
   assert.match(findingsText(PR_URL, HEAD, review), /src\/x\.ts:9 \(bloqueante\) falta teste/);
@@ -125,9 +134,9 @@ test("novo head reabre o review; veredito antigo não vale no novo head", () => 
   const d = dir();
   const fix = fixStore();
   fix.apply(T_A, { type: "head", head_sha: OLD });
-  recordReviewVerdict(d, approveJson(OLD), OLD, false);
-  assert.equal(fix.apply(T_A, reviewEvent(readReview(d, OLD)!)).action.kind, "approved");
-  assert.equal(readReview(d, HEAD), null, "approve do head antigo não serve ao novo");
+  recordReviewVerdict(d, PR, approveJson(OLD), OLD, false);
+  assert.equal(fix.apply(T_A, reviewEvent(readReview(d, PR, OLD)!)).action.kind, "approved");
+  assert.equal(readReview(d, PR, HEAD), null, "approve do head antigo não serve ao novo");
   assert.equal(fix.apply(T_A, { type: "head", head_sha: HEAD }).action.kind, "request_review");
 });
 
@@ -313,8 +322,8 @@ test("encadeamento do checkPr: PR aberta -> review -> merge_eligible -> merged -
     "mesmo head não pede review de novo",
   );
 
-  recordReviewVerdict(d, approveJson(HEAD), HEAD, false);
-  const review = readReview(d, HEAD)!;
+  recordReviewVerdict(d, PR, approveJson(HEAD), HEAD, false);
+  const review = readReview(d, PR, HEAD)!;
   assert.equal(fix.apply(T_A, reviewEvent(review)).action.kind, "approved");
   const result = await requestIntegration(
     {

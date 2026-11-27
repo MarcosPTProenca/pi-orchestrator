@@ -99,7 +99,7 @@ function truncateDiff(diff: string): { text: string; truncated: boolean } {
   return { text: `${cut}\n[diff truncado em ${MAX_DIFF_CHARS} caracteres]`, truncated: true };
 }
 
-export const OUTPUT_CONTRACT = [
+const OUTPUT_CONTRACT = [
   "Responda somente com um objeto JSON, sem texto fora dele, neste formato:",
   '{"schema_version":2,"verdict":"approve|request_changes|reject|unverified","reviewed_sha":"<head_sha>",',
   ' "risk_assessment":{"level":"L0|L1|L2|L3","category":"texto curto","reason":"justificativa",',
