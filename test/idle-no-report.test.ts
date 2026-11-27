@@ -48,6 +48,27 @@ test("pane trabalhando nunca falha por ociosidade", async () => {
   assert.equal(h.orch.get(t.task_id).status, "running");
 });
 
+// keep: reproduz #231 — o relógio antigo (já com 10+ min) não pode sobreviver a done → orch_send → running.
+test("reenvio a tarefa concluída recomeça o relógio ocioso do zero (#231)", async () => {
+  const h = makeHarness();
+  const t = await delegated(h);
+  await tick(h, t.task_id, t.pane_id, "idle", 0);
+  await tick(h, t.task_id, t.pane_id, "idle", 9);
+  writeReport(t.task_dir, t.task_id, { status: "done", result: "primeiro" }, "1");
+  await h.orch.refresh(t.task_id);
+  assert.equal(h.orch.get(t.task_id).status, "done");
+
+  await h.orch.send(t.task_id, "corrija");
+  assert.equal(h.orch.get(t.task_id).status, "running");
+
+  await tick(h, t.task_id, t.pane_id, "idle", 2);
+  assert.equal(h.orch.get(t.task_id).status, "running", "o relógio antigo não pode marcar falha logo após o envio");
+  await tick(h, t.task_id, t.pane_id, "idle", 9);
+  assert.equal(h.orch.get(t.task_id).status, "running", "9 min desde o envio ainda não atingem o limite");
+  await tick(h, t.task_id, t.pane_id, "idle", 2);
+  assert.equal(h.orch.get(t.task_id).status, "failed", "11 min desde o envio atingem o limite");
+});
+
 test("relatório que chega depois da falha por ociosidade reabre a tarefa", async () => {
   const h = makeHarness();
   const t = await delegated(h);

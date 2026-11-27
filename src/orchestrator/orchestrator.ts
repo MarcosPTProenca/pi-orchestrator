@@ -486,6 +486,8 @@ export class Orchestrator {
       });
       return false;
     }
+    // keep: o relógio ocioso só vale para running; relatório aplicado tira a tarefa de running (#231).
+    this.idleSince.delete(taskId);
     const previous = report.status === "failed" && isFallbackRaw(raw) ? this.lastArchivedDone(t) : null;
     if (previous) {
       this.update(taskId, (x) => {
@@ -1038,6 +1040,8 @@ export class Orchestrator {
       const report = this.reportPath(t);
       const previous = join(t.task_dir, `report-${this.d.newHex()}.json`);
       if (existsSync(report)) renameSync(report, previous);
+      // keep: o relógio do ciclo anterior não pode sobreviver ao reenvio; começa do zero em running (#231).
+      this.idleSince.delete(taskId);
       this.update(taskId, (x) => {
         x.status = "running";
         x.notified = true;
