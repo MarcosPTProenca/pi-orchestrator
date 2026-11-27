@@ -29,3 +29,36 @@ test("o prompt do orquestrador não manda copiar o pedido completo para a retoma
   assert.doesNotMatch(ORCHESTRATOR_ROLE, /preserve o pedido completo/);
   assert.match(ORCHESTRATOR_ROLE, /instrução concreta/);
 });
+
+test("direct-pr autorizado gera brief coerente: commit, push e PR nos critérios, sem proibição de publicação (#244)", () => {
+  const pack = buildIntake({
+    project_path: project(),
+    role: "impl-224",
+    request: "Implementar a issue #224.",
+    objective: "Issue #224 concluída com PR.",
+    mode: "direct-pr",
+    constraints: ["Não tocar em outros arquivos."],
+    source: "https://github.com/exemplo/herdr/issues/224",
+    branch: "feat/issue-224",
+  });
+  const brief = renderBrief("t-x", pack, "/r.json");
+  assert.match(brief, /Commit na branch `feat\/issue-224`, push e PR aberto ou atualizado com gh\./);
+  assert.match(brief, /^## Restrições\n1\. Não tocar em outros arquivos\./m);
+  assert.doesNotMatch(brief, /Não faça commit/i);
+  assert.doesNotMatch(brief, /Nenhum push e nenhum PR/);
+});
+
+test("pesquisa que proíbe publicação mantém a restrição e o critério de não publicar (#244)", () => {
+  const pack = buildIntake({
+    project_path: project(),
+    role: "pesquisa",
+    request: "Investigar a issue #224.",
+    objective: "Relatório.",
+    mode: "report",
+    constraints: ["Não faça commit, push ou abra PR."],
+  });
+  const brief = renderBrief("t-y", pack, "/r.json");
+  assert.match(brief, /^## Restrições\n1\. Não faça commit, push ou abra PR\./m);
+  assert.match(brief, /Nenhum push e nenhum PR\./);
+  assert.doesNotMatch(brief, /Commit na branch/);
+});

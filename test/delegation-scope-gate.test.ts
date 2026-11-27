@@ -148,3 +148,41 @@ test("pesquisa com várias issues continua lançando e pode investigar por send"
   await call("orch_send", { task_id: taskId, text: "Compare a #225 com a #224 e reporte a diferença." });
   assert.equal(h.herdr.opsOf("prompt").length, 1);
 });
+
+test("direct-pr que proíbe publicação é recusado antes do lançamento: sem pane, sem worktree, sem tarefa (#244)", async () => {
+  const h = makeHarness();
+  withRepo(h);
+  const call = toolsFor(h);
+  await assert.rejects(
+    call("orch_delegate", {
+      tasks: [
+        { ...implementation(h.project, 224), constraints: ["Não faça commit, push ou abra PR sem pedido explícito."] },
+      ],
+    }),
+    /recusada antes do lançamento: .*restrição.*modo report/,
+  );
+  assert.equal(h.herdr.opsOf("createTab").length, 0);
+  assert.equal(h.herdr.opsOf("createWorkspace").length, 0);
+  assert.equal(h.orch.list().length, 0);
+});
+
+test("pesquisa que proíbe publicação continua lançando (caminho sem publicação, #244)", async () => {
+  const h = makeHarness();
+  withRepo(h);
+  const call = toolsFor(h);
+  await call("orch_delegate", {
+    tasks: [
+      {
+        project_path: h.project,
+        role: "pesquisa-sem-pr",
+        request: "Investigar a issue #224 e reportar o que falta.",
+        objective: "Relatório sem publicação.",
+        mode: "report",
+        source: `${REPO}/issues/224`,
+        constraints: ["Não faça commit, push ou abra PR."],
+      },
+    ],
+  });
+  assert.equal(h.herdr.opsOf("createTab").length, 1);
+  assert.equal(h.orch.list().length, 1);
+});

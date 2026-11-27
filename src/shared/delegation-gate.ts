@@ -11,6 +11,18 @@ const IMPLEMENT_CUE =
 // keep: "PR #46" e URLs de pull não são issue; sem isso o fix de PR vermelha virava trabalho de issue.
 const NOT_ISSUE = /\bPRs?\s*#?\d+\b|https?:\/\/github\.com\/[^\s/]+\/[^\s/]+\/pull\/\d+/gi;
 
+// keep: direct-pr concede commit, push e PR (GRANTS/acceptance); restrição do usuário que proíbe isso é conflito explícito, recusado antes do lançamento (#244).
+// shortcut: detecção por palavras-chave com negação próxima; uma restrição que cita commit sem proibir publicação pode ser recusada por engano. Subir para parser semântico se isso aparecer.
+const PUBLICATION_PROHIBITION =
+  /\b(n(ã|a)o|nem|sem|proibid\w*)\b[^.;\n]{0,40}?\b(commit\w*|push\w*|PRs?|pull requests?|publica\w*)\b/i;
+
+export function publicationConflict(input: Pick<DelegateInput, "mode" | "constraints">): string | null {
+  if (input.mode !== "direct-pr") return null;
+  const blocking = (input.constraints ?? []).filter((c) => PUBLICATION_PROHIBITION.test(c));
+  if (blocking.length === 0) return null;
+  return `delegação recusada antes do lançamento: a restrição "${blocking.join('", "')}" proíbe commit, push ou PR, mas o modo direct-pr exige publicação. Para manter a restrição, delegue em modo report (pesquisa, sem publicação); para publicar, remova a restrição. Nada foi lançado.`;
+}
+
 export function issueNumberOf(source: string | null | undefined): number | null {
   const m = ISSUE_URL.exec((source ?? "").trim());
   return m ? Number(m[3]) : null;

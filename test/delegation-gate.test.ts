@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkIssueDelegation, issueNumberOf, issueSendScope, repoFromRemote } from "../src/shared/delegation-gate.ts";
+import {
+  checkIssueDelegation,
+  issueNumberOf,
+  issueSendScope,
+  publicationConflict,
+  repoFromRemote,
+} from "../src/shared/delegation-gate.ts";
 import type { DelegateInput } from "../src/shared/task.ts";
 
 const REPO = "https://github.com/exemplo/herdr";
@@ -149,4 +155,31 @@ test("repoFromRemote lê dono/repo de URL https e ssh", () => {
   assert.equal(repoFromRemote("https://github.com/Exemplo/Herdr.git"), "exemplo/herdr");
   assert.equal(repoFromRemote("git@github.com:exemplo/herdr.git"), "exemplo/herdr");
   assert.equal(repoFromRemote("/caminho/local"), null);
+});
+
+const PROIBE_PUBLICAR = "Não faça commit, push ou abra PR sem pedido explícito.";
+
+test("direct-pr com restrição que proíbe commit/push/PR é recusado antes do lançamento (t-33ccf6d1)", () => {
+  const msg = publicationConflict(implementation({ constraints: [PROIBE_PUBLICAR] }));
+  assert.ok(msg, "deve recusar");
+  assert.match(msg, /recusada antes do lançamento/);
+  assert.match(msg, /direct-pr/);
+  assert.match(msg, /restrição/);
+  assert.match(msg, /modo report/);
+  assert.ok(msg.includes(PROIBE_PUBLICAR), "a restrição do usuário aparece no erro, sem ser removida");
+});
+
+test("direct-pr sem restrição de publicação passa o gate de publicação", () => {
+  assert.equal(publicationConflict(implementation({ constraints: ["Não tocar em outros arquivos."] })), null);
+  assert.equal(publicationConflict(implementation({ constraints: undefined })), null);
+});
+
+test("pesquisa (report) com proibição de publicação é coerente e passa", () => {
+  const research = implementation({ mode: "report", constraints: [PROIBE_PUBLICAR], acceptance: undefined });
+  assert.equal(publicationConflict(research), null);
+});
+
+test("design com proibição de publicação continua fora do gate de publicação", () => {
+  const design = implementation({ mode: "design", constraints: [PROIBE_PUBLICAR], acceptance: undefined });
+  assert.equal(publicationConflict(design), null);
 });
