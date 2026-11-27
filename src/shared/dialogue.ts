@@ -77,7 +77,7 @@ export function recordAsk(
 }
 
 export function redirectHint(d: DialogueRecord): string {
-  return `Pergunta repetida sem evidência nova. Você pode oferecer UMA estratégia nova, baseada em evidência verificável (orch_send com ask_id só depois de parecer answered do Oracle). Se a próxima pergunta vier igual, a tarefa será bloqueada para decisão humana. Gasto do diálogo: ${d.spent}/${d.budget}.`;
+  return `Pergunta repetida sem evidência nova. Você pode oferecer UMA estratégia nova, baseada em evidência verificável (orch_send com ask_id só com orientação que a spec, a VISION ou o pedido sustentem). Se a próxima pergunta vier igual, a tarefa será bloqueada para decisão humana. Gasto do diálogo: ${d.spent}/${d.budget}.`;
 }
 
 // keep: o resumo do bloqueio precisa bastar para a decisão humana: tentativas, saldo e a pergunta concreta; nunca declara sucesso.

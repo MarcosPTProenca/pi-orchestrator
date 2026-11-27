@@ -52,9 +52,8 @@ import {
   type PlanItem,
 } from "./plans.ts";
 import { missingVisionNotice, parseScopeVerdict, scopeReviewText, scopeStep } from "./scope.ts";
-import { readVision, VISION_FILE } from "../shared/intake.ts";
-import { oracleContract, settleOracleVerdict } from "./oracle-ask.ts";
-import { consultToken, oracleCallGate, OracleCaptures } from "./oracle-guard.ts";
+import { readVision } from "../shared/intake.ts";
+import { oracleCallGate } from "./oracle-guard.ts";
 import { EVENT_POLICY, UI_ENTRY, emitEvent, statusKind, wakesLlm, type EventSink } from "../policy/event-policy.ts";
 import { orchestratorUsage } from "../shared/usage.ts";
 import { NoticeBatcher } from "./notices.ts";
@@ -228,23 +227,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     },
   );
 
-  // keep: o aviso de pergunta leva o contrato do Oracle; o replay de pergunta pendente usa o mesmo texto.
-  const askTextFor = (event: WatchEvent): string => {
-    const task = orch.get(event.task_id);
-    const delegate = task.delegate_input as unknown as DelegateInput | null;
-    const contract = oracleContract({
-      taskId: event.task_id,
-      askId: event.ask_id ?? "",
-      question: event.question ?? "",
-      askContext: event.result ?? "",
-      projectLabel: projectLabel(task.project_id),
-      projectPath: task.project_path,
-      objective: delegate?.objective ?? "",
-      source: delegate?.source ?? task.source ?? null,
-      visionPath: join(task.project_path, VISION_FILE),
-    });
-    return askMessageFor(event, contract);
-  };
+  // keep: o aviso de pergunta vai ao orquestrador, que responde ou escala; o replay de pergunta pendente usa o mesmo texto.
+  const askTextFor = (event: WatchEvent): string => askMessageFor(event);
 
   const announce = async (event: WatchEvent): Promise<void> => {
     if (event.kind === "ask") {
@@ -537,13 +521,6 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       display: true,
     });
     await advancePlans();
-  };
-  // keep: a captura vem dos hooks do subagent (tool_call/tool_result) e nunca do texto que o orquestrador repassa.
-  const oracleCaptures = new OracleCaptures();
-  const recordAskVerdict = (taskId: string, askId: string, raw: string): string => {
-    const task = orch.get(taskId);
-    const capture = oracleCaptures.get(consultToken(taskId, askId));
-    return settleOracleVerdict({ taskId, taskDir: task.task_dir, askId, raw, capture });
   };
   // keep: o parecer chega por orch_scope_verdict; reconcilePlans reavalia o item na hora, sem esperar a varredura.
   const recordScopeVerdict = async (taskId: string, raw: string): Promise<string> => {
@@ -899,13 +876,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     if (event.toolName !== "subagent") return undefined;
     const reason = oracleCallGate({ agent: event.input.agent, cwd: ctx.cwd });
     if (reason) return { block: true, reason };
-    oracleCaptures.noteCall(event.toolCallId, event.input);
     return undefined;
-  });
-  pi.on("tool_result", (event) => {
-    if (event.toolName !== "subagent") return;
-    const output = event.content.map((c) => (c.type === "text" ? c.text : "")).join("\n");
-    oracleCaptures.noteResult(event.toolCallId, output, event.isError);
   });
 
   pi.on("before_agent_start", (event) => {
@@ -937,7 +908,6 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     startTask,
     launchReady,
     scopeVerdict: recordScopeVerdict,
-    askVerdict: recordAskVerdict,
     usage: () => orchUsage,
   });
 }

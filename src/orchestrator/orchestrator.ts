@@ -13,7 +13,7 @@ import {
   repoFromRemote,
 } from "../shared/delegation-gate.ts";
 import { TICKET_FILE } from "../shared/plan.ts";
-import { latestAsk, oracleVerdictFor } from "../shared/ask.ts";
+import { latestAsk } from "../shared/ask.ts";
 import {
   DIALOGUE_BUDGET_DEFAULT,
   judgeAsk,
@@ -1120,7 +1120,8 @@ export class Orchestrator {
         `há pergunta pendente ${t.pending_ask.id}; responda com orch_send ask_id="${t.pending_ask.id}"; nada foi enviado`,
       );
     }
-    const body = askId === undefined ? text : this.oracleAnswerText(t, askId, text);
+    // keep: a orientação sai do orquestrador, que já a validou contra a spec, a VISION ou o pedido (#256).
+    const body = askId === undefined ? text : `[resposta à pergunta ${askId}] ${text}`;
     const owner = await this.ownership(t);
     if (owner === "missing")
       throw this.sendError(
@@ -1189,16 +1190,6 @@ export class Orchestrator {
       });
     }
     return t;
-  }
-
-  // keep: resposta a pergunta do worker só segue com parecer answered gravado; inconclusivo, contraditório ou fora do escopo não vira orientação.
-  private oracleAnswerText(t: TaskRecord, askId: string, text: string): string {
-    const verdict = oracleVerdictFor(t.task_dir, askId);
-    if (verdict !== "answered")
-      throw new Error(
-        `sem parecer do Oracle que autorize a pergunta ${askId} (parecer: ${verdict ?? "nenhum"}); nada foi enviado`,
-      );
-    return `[resposta à pergunta ${askId}] ${text}`;
   }
 
   // keep: com pergunta pendente, a falha grava o motivo e mantém a pergunta para retentativa; sem pergunta, a mensagem é a de sempre.

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { parseStream } from "./run.ts";
 import type { Run } from "./scenarios.ts";
 
-// keep: eval de regressão do issue #243: pedido operacional de issues já definidas não aciona o Oracle; pedido de spec/tickets aciona a revisão prevista. A escolha do LLM é o que se mede, não o conteúdo do plano.
+// keep: eval de regressão do issue #243: pedido operacional de issues já definidas não aciona o Oracle; pedido de spec/tickets aciona a revisão prevista. Issue #256: o Oracle só atua em spec e tickets; a dúvida de worker e a revisão de escopo são do orquestrador. A escolha do LLM é o que se mede, não o conteúdo do plano.
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);

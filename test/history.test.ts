@@ -6,7 +6,6 @@ import { join } from "node:path";
 import { makeHarness, reopenHarness, writeReport } from "./fakes.ts";
 import { appendAsk } from "../src/shared/ask.ts";
 import { appendHistory, readHistory, HISTORY_FILE } from "../src/shared/history.ts";
-import { recordOracleVerdict } from "../src/shared/ask.ts";
 
 type Started = Awaited<ReturnType<typeof startTask>>;
 
@@ -117,7 +116,6 @@ test("cronologia da tarefa: pergunta, entrega e resposta correlacionadas pelo as
   const started = await startTask();
   const ev = await askNotice(started, "a1");
   started.h.orch.markEventDelivered(ev);
-  recordOracleVerdict(started.t.task_dir, "a1", "answered");
   await started.h.orch.send(started.t.task_id, "use o helper de src/shared/x.ts", "a1");
 
   assert.deepEqual(
@@ -143,7 +141,6 @@ test("falha ao enviar ao painel fica registrada como falhou", async () => {
   const started = await startTask();
   const { h, t } = started;
   await askNotice(started, "a1");
-  recordOracleVerdict(t.task_dir, "a1", "answered");
   const real = h.herdr.prompt.bind(h.herdr);
   h.herdr.prompt = () => Promise.reject(new Error("painel indisponível"));
   await assert.rejects(h.orch.send(t.task_id, "resposta", "a1"));

@@ -83,19 +83,17 @@ Antes de um item de plano sem PR avançar no `done`, o orquestrador confere o re
 
 1. **Visão lida do projeto.** O orquestrador lê `VISION.md` da raiz do projeto, inteiro e sem corte. O conteúdo entra no brief do worker (seção `## Visão do projeto (VISION.md)`) e no contrato da revisão.
 2. **Sem `VISION.md`.** O orquestrador avisa uma vez por projeto, sugerindo criar o arquivo com a skill `vision`. O fluxo segue, e a revisão confere só contra a spec.
-3. **Verificação e revisão.** Quando o worker reporta `done` e a verificação determinística aprova (ou não se aplica), o LLM do orquestrador roda o subagent `oracle` com contexto limpo, somente leitura, e entrega a spec ou ticket de origem, o pedido, a branch ou artefatos e o `VISION.md`. O revisor responde um JSON `{"verdict": "aligned" | "out_of_scope" | "unverified", "reason": "..."}`, que é gravado com `orch_scope_verdict`.
+3. **Verificação e revisão.** Quando o worker reporta `done` e a verificação determinística aprova (ou não se aplica), o próprio orquestrador confere o resultado contra a spec ou ticket de origem, o pedido, a branch ou artefatos e o `VISION.md`, sem subagent. Essa avaliação complementa a verificação determinística e não a substitui. Ele registra um JSON `{"verdict": "aligned" | "out_of_scope" | "unverified", "reason": "..."}` com `orch_scope_verdict`.
 4. **Parecer.** `aligned`: o plano avança como antes, e o aviso traz a razão. `out_of_scope` ou `unverified`: o item fica `blocked` com a razão, o próximo item não é lançado e você decide. Verificação rejeitada ou não conferida segue como antes, sem revisão.
 
 Formato esperado do `VISION.md`: Markdown livre na raiz do repositório. Recomendado: um `# Título` com o nome do projeto e seções curtas com o propósito, o que está dentro do escopo, o que está fora e os princípios que decidem conflitos. Como o arquivo é lido inteiro, mantenha-o enxuto: ele é enviado a cada tarefa e a cada revisão.
 
 ## Quando o Oracle é acionado
 
-O subagent `oracle-ro` (somente leitura, contexto limpo) tem quatro pontos de acionamento. Coordenar issues já definidas não é um deles.
+O subagent `oracle-ro` (somente leitura, contexto limpo) tem um único ponto de acionamento: a revisão de spec e tickets.
 
 1. **Spec e tickets.** Nas etapas `grill-with-docs`, `to-spec` e `to-tickets`, o orquestrador roda o Oracle antes de apresentar a spec ou os tickets.
-2. **Pergunta operacional de worker.** Antes de responder a um worker, com `orch_ask_verdict`.
-3. **Revisão de escopo.** Quando um item de plano reporta `done`, com `orch_scope_verdict` (ver "Revisão de escopo").
-4. **Não aciona:** triagem, `orch_plan_*`, `orch_send`, `orch_status` e lançamento de workers para issues que você citou. A confirmação da triagem na conversa basta.
+2. **Não aciona:** pergunta operacional de worker e revisão de escopo. O próprio orquestrador responde à dúvida com `orch_send` quando a spec, o `VISION.md` ou o seu pedido sustentam a orientação, e avalia a entrega contra o `VISION.md` e a spec (ver "Revisão de escopo"). Também não aciona: triagem, `orch_plan_*`, `orch_send`, `orch_status` e lançamento de workers para issues que você citou. A confirmação da triagem na conversa basta.
 
 Reproduzir a regressão do #243 (live, usa o modelo do `--model`, padrão `openai-codex/gpt-6.1-sol`, e pode gastar tokens):
 
@@ -186,7 +184,7 @@ Demais tools do orquestrador:
 
 - `orch_locate_project`: localiza o projeto antes de perguntar ao usuário.
 - `orch_plan_create`, `orch_plan_show`, `orch_plan_update`, `orch_plan_approve`, `orch_plan_pause`, `orch_plan_cancel`: registram um plano entregue por você (em rascunho), mostram ou atualizam itens e lançam, pausam ou cancelam a execução. Nada é lançado antes de `orch_plan_approve`. Cancelar não toca nas tarefas em andamento.
-- `orch_scope_verdict(task_id, raw)`: grava o parecer da revisão de escopo de um item cujo worker reportou `done` (ver [Revisão de escopo](#revisão-de-escopo)). Recusa JSON fora do contrato e pede correção.
+- `orch_scope_verdict(task_id, raw)`: grava o parecer do próprio orquestrador sobre a revisão de escopo de um item cujo worker reportou `done` (ver [Revisão de escopo](#revisão-de-escopo)). Recusa JSON fora do contrato e pede correção.
 - `orch_idle`: lista tarefas concluídas com a aba ainda aberta, para decidir o que fechar.
 - `orch_close(task_id)`: fecha a aba de tarefa já concluída, falha ou expirada, depois que você validou o resultado. Não apaga relatórios.
 - `orch_release(task_id)`: devolve ao pool a worktree de tarefa terminal, só sem alterações não commitadas e com HEAD já em remoto. Nunca força.
