@@ -46,10 +46,11 @@ export const CI_BUG_FIXED: Scenario = {
 
 export const CI_INFRA_BOUNDED: Scenario = {
   id: "ci-infra-bounded",
-  title: "CI vermelho por infraestrutura; loop limitado sem merge",
+  title: "CI vermelho por infraestrutura; não consome ciclos nem aciona worker",
   expectMerge: false,
   files: L1,
   ci: ["TIMED_OUT"],
+  ciFailureLogs: ["GitHub Actions runner offline; network timeout"],
   reviews: [OK],
   maxAttempts: 2,
 };

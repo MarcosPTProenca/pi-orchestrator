@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   PrActionWatch,
+  classifyCiFailure,
   ciInstruction,
   conflictInstruction,
   failingChecks,
@@ -10,6 +11,13 @@ import {
   prVerdict,
 } from "../src/orchestrator/pr-watch.ts";
 import type { PrState } from "../src/shared/prs.ts";
+
+test("classifica logs code, infra/flaky e log ausente de forma conservadora", () => {
+  assert.equal(classifyCiFailure("AssertionError: expected 1, got 2").kind, "code");
+  assert.equal(classifyCiFailure("runner offline; job timed out").kind, "infra");
+  assert.equal(classifyCiFailure("test was flaky; passed on retry").kind, "flaky");
+  assert.equal(classifyCiFailure(null).kind, "infra");
+});
 
 const pr = (over: Partial<PrState>): PrState => ({
   number: 171,
