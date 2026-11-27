@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { FakeHerdr } from "../../test/fakes.ts";
 import { deliveryFromFix, type DeliveryEvent } from "../../src/orchestrator/delivery.ts";
+import { classifyCiFailure } from "../../src/orchestrator/pr-watch.ts";
 import { FixLoopStore, type FixAction, type FixEvent } from "../../src/orchestrator/fix-loop.ts";
 import { PlanStore } from "../../src/orchestrator/plans.ts";
 import { IntegrationStore, requestIntegration, type IntegrationResult } from "../../src/shared/merge-gate.ts";
@@ -50,6 +51,7 @@ export interface Scenario {
   allowedPaths?: string[];
   policy?: MergePolicy | null;
   maxAttempts?: number;
+  ciFailureLogs?: (string | null)[];
   mergeDelayTicks?: number;
   duplicateEvent?: boolean;
   failMerge?: boolean;
@@ -67,6 +69,7 @@ export interface RunResult {
   reviews: { head: string; verdict: string }[];
   ci: { head: string; conclusion: CiConclusion }[];
   rework: number;
+  fix_attempts: number;
   prompt_targets: string[];
   redeliveries: string[];
   integrations: { decision: string; codes: string[] }[];
@@ -248,6 +251,11 @@ export async function runDelivery(sc: Scenario, stateDir: string): Promise<RunRe
       plans.recordDelivery(ev);
       transitions.push(eventLabel(ev));
     }
+    if (action.kind === "ci_infra") {
+      terminal = "stalled";
+      reason = `${action.kind}: ${action.reason}`;
+      break;
+    }
     if (action.kind === "none") {
       terminal = "stalled";
       reason = "revisão sem veredito conclusivo: nenhuma ação, nada avança";
@@ -263,7 +271,13 @@ export async function runDelivery(sc: Scenario, stateDir: string): Promise<RunRe
       ci.push({ head, conclusion });
       github.setCheck({ name: "test", app_slug: "github-actions", head_sha: head, status: "COMPLETED", conclusion });
       if (conclusion !== "SUCCESS") {
-        action = fix.apply(TASK, { type: "ci_red", head_sha: head, checks: ["test"] }).action;
+        const log = sc.ciFailureLogs?.[ciRound - 1] ?? "AssertionError: test failed";
+        const classification = classifyCiFailure(log);
+        action =
+          classification.kind === "code"
+            ? fix.apply(TASK, { type: "ci_red", head_sha: head, checks: ["test"] }).action
+            : fix.apply(TASK, { type: "ci_infra", head_sha: head, checks: ["test"], reason: classification.reason })
+                .action;
         continue;
       }
       const script = at(sc.reviews, reviewRound++);
@@ -342,6 +356,7 @@ export async function runDelivery(sc: Scenario, stateDir: string): Promise<RunRe
     reviews,
     ci,
     rework: fixes,
+    fix_attempts: fix.get(TASK)?.attempts ?? 0,
     prompt_targets: herdr.opsOf("prompt").map((c) => (c.args as { target: string }).target),
     redeliveries,
     integrations,

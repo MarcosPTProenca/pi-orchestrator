@@ -9,6 +9,7 @@ export type FixEvent =
   | { type: "head"; head_sha: string }
   | { type: "review"; head_sha: string; verdict: ReviewVerdict; blocking: number }
   | { type: "ci_red"; head_sha: string; checks: string[] }
+  | { type: "ci_infra"; head_sha: string; checks: string[]; reason: string }
   | { type: "revoke"; reason: string };
 
 export type FixAction =
@@ -16,6 +17,7 @@ export type FixAction =
   | { kind: "request_review"; head_sha: string }
   | { kind: "send_findings"; head_sha: string; key: string }
   | { kind: "send_ci_fix"; head_sha: string; key: string }
+  | { kind: "ci_infra"; head_sha: string; checks: string[]; reason: string }
   | { kind: "approved"; head_sha: string }
   | { kind: "blocked"; reason: string };
 
@@ -55,6 +57,12 @@ export function step(rec: FixRecord, event: FixEvent, maxAttempts: number, now: 
   }
 
   if (event.head_sha !== rec.head_sha) return keep();
+  if (event.type === "ci_infra") {
+    return {
+      record: next({ reason: `CI infra/flaky em ${event.checks.join(", ")}: ${event.reason}` }),
+      action: { kind: "ci_infra", head_sha: event.head_sha, checks: event.checks, reason: event.reason },
+    };
+  }
 
   if (event.type === "review") {
     if (event.verdict === "approve") {

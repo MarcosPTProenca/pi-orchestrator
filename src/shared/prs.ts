@@ -149,7 +149,7 @@ export interface PrState {
   mergeable: string;
   mergeStateStatus: string;
   headRefOid: string;
-  checks: { name: string; conclusion: string | null; status: string | null }[];
+  checks: { name: string; conclusion: string | null; status: string | null; run_id?: number }[];
 }
 
 export function fetchPrState(
@@ -161,7 +161,7 @@ export function fetchPrState(
 ): Promise<PrState> {
   const env = ghEnvFor(remoteUrl, process.env);
   const q =
-    "query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){number state mergeable mergeStateStatus headRefOid commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{__typename ... on CheckRun{name conclusion status} ... on StatusContext{context state}}}}}}}}}}";
+    "query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){number state mergeable mergeStateStatus headRefOid commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{__typename ... on CheckRun{name conclusion status checkSuite{databaseId}} ... on StatusContext{context state}}}}}}}}}}";
   return new Promise((resolve, reject) => {
     execFile(
       "gh",
@@ -188,6 +188,10 @@ export function fetchPrState(
               name: String(c.name ?? c.context ?? "check"),
               conclusion: c.conclusion ? String(c.conclusion) : c.state ? String(c.state) : null,
               status: c.status ? String(c.status) : null,
+              run_id:
+                typeof (c.checkSuite as { databaseId?: unknown } | undefined)?.databaseId === "number"
+                  ? (c.checkSuite as { databaseId: number }).databaseId
+                  : undefined,
             })),
           });
         } catch (e) {
