@@ -63,7 +63,7 @@ test("delegate report: lança com --no-mcp e política de ferramentas no ambient
     mode: "report",
   });
   const cmd = (h.herdr.opsOf("runInPane")[0].args as { command: string }).command;
-  assert.match(cmd, /^pi -e \/fake\/worker-ext\.ts --no-mcp --tools /);
+  assert.match(cmd, /^pi -e \/fake\/worker-ext\.ts -e \/fake\/pr-review\/hook\.ts --no-mcp --tools /);
   assert.ok(!cmd.includes("mcp__"));
   assert.deepEqual(t.released_tools, []);
   const env = (h.herdr.opsOf("createTab")[0].args as { env: Record<string, string> }).env;
@@ -117,7 +117,10 @@ test("regressão direct-pr: continua lançando com ferramentas de publicação e
   });
   assert.equal(t.status, "running");
   const cmd = (h.herdr.opsOf("runInPane")[0].args as { command: string }).command;
-  assert.match(cmd, /^pi -e \/fake\/worker-ext\.ts --no-mcp --tools 'read,bash,edit,write,/);
+  assert.match(
+    cmd,
+    /^pi -e \/fake\/worker-ext\.ts -e \/fake\/pr-review\/hook\.ts --no-mcp --tools 'read,bash,edit,write,/,
+  );
   assert.equal(readFileSync(t.brief_path, "utf8").includes("modo: direct-pr"), true);
 });
 

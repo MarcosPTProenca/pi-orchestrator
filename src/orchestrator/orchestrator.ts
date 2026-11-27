@@ -46,6 +46,8 @@ import { prUrlOf } from "./pr-watch.ts";
 import { belowFloor, PRESENTATION_FLOOR, type HerdrPort, type PaneInfo, type TabResult } from "../shared/herdr.ts";
 import type { Store } from "../shared/store.ts";
 
+const hookArgs = (path: string | undefined): string[] => (path ? ["-e", path] : []);
+
 export interface OrchDeps {
   // keep: #254 o orquestrador arrenda a worktree; o worker só inicia nela. Lança erro se o treehouse falhar.
   leaseWorktree: (projectPath: string, taskId: string) => string;
@@ -56,6 +58,7 @@ export interface OrchDeps {
   store: Store;
   tasksDir: string;
   workerExtPath: string;
+  prReviewHookPath?: string;
   now: () => number;
   newHex: () => string;
   availableModels: () => string[];
@@ -464,8 +467,6 @@ export class Orchestrator {
           label: workerTabName(input.role, taskId.slice(2)),
           env: {
             PI_ORCH_ROLE: "worker",
-            // keep: desliga o hook pessoal de PR review nesta sessão; a revisão da Factory é o orch_review_verdict (um review por PR/SHA).
-            PI_PR_REVIEW_CHILD: "1",
             PI_ORCH_TASK_ID: taskId,
             PI_ORCH_TASK_DIR: taskDir,
             PI_ORCH_TOOL_POLICY: toolPolicy,
@@ -484,7 +485,13 @@ export class Orchestrator {
       });
       // keep: o Herdr recusa texto multilinha em argumento; o brief completo chega pela extensão do worker.
       // keep: --tools é lista de permissão; sem ela o worker herdaria todas as ferramentas e servidores MCP do usuário.
-      const piArgs = ["-e", this.d.workerExtPath, ...workerToolArgs(intake.mode, releases)];
+      // keep: o hook pr-review da Factory roda no worker e é o único disparador de review (um por PR/head).
+      const piArgs = [
+        "-e",
+        this.d.workerExtPath,
+        ...hookArgs(this.d.prReviewHookPath),
+        ...workerToolArgs(intake.mode, releases),
+      ];
       if (opts.forkSession) piArgs.push("--fork", opts.forkSession);
       if (model) piArgs.push("--model", model);
       piArgs.push(
@@ -501,7 +508,6 @@ export class Orchestrator {
         launch.unshift(
           "env",
           "PI_ORCH_ROLE=worker",
-          "PI_PR_REVIEW_CHILD=1",
           `PI_ORCH_TASK_ID=${taskId}`,
           `PI_ORCH_TASK_DIR=${taskDir}`,
           `PI_ORCH_TOOL_POLICY=${toolPolicy}`,

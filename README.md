@@ -71,7 +71,7 @@ O fluxo é `PLAN → IMPLEMENT/TDD → PR → FRESH REVIEW → FIX → MERGE`. C
 1. **PLAN.** O worker registra o plano com `orch_submit_plan` antes de editar; plano sem critério ou diagnóstico verificável é recusado. Você também pode entregar um plano pronto (`orch_plan_create`, em rascunho) e aprová-lo com `orch_plan_approve`. _Implementado e testado._
 2. **IMPLEMENT/TDD.** Para cada test seam, o worker roda o teste antes e depois da correção e registra `orch_mark_tdd` como `red` e `green`; o exit code é medido pela ferramenta. _Implementado; o harness do pipeline confere a evidência._
 3. **PR.** No modo `direct-pr`, o worker cria a branch, commita, faz push e abre a PR. O `orch_report` `done` precisa trazer a PR em `artifacts`, e o orquestrador confere no GitHub se ela é mergeável e está com checks verdes. _Implementado e testado._
-4. **FRESH REVIEW.** Revisão somente leitura do head_sha atual por um subagent de contexto limpo, na mesma credencial do repo (`src/shared/review.ts`). O worker envia o veredito com `orch_review_verdict`, e `checkPr` o aplica ao fix loop e ao merge gate. _Implementado e testado por partes; o loop `checkPr` não foi exercitado com GitHub e worker reais._
+4. **FRESH REVIEW.** O hook `pr-review` (`src/pr-review/hook.ts`, carregado por `-e` nos workers) dispara ao abrir ou atualizar a PR. Ele roda o revisor headless, somente leitura (`pi -p`, `src/shared/review.ts`), e grava o veredito em `<estado>/reviews/<pr>/<sha>.json`, fora do alcance das ferramentas do worker. `checkPr` lê só o veredito do head atual, e o fix loop e o merge gate o consomem. _Limite aceito: o worker roda como o mesmo usuário de SO e tem bash; a proteção é por ferramenta e por gate de comando, não criptográfica (ver `src/shared/review-verdict.ts`). Testado com fakes; o revisor real com modelos e GitHub não foi exercitado (NOT RUN)._
 5. **FIX.** CI vermelho reabre a correção no mesmo branch (`orch_fix_red_prs` e o fix loop). _Implementado e testado._
 6. **MERGE.** Só com a política de auto-merge descrita abaixo. _Gate implementado e testado com fakes; nenhuma tool do runtime o chama, então nenhum merge automático acontece hoje._
 
@@ -115,7 +115,7 @@ O worker não herda as ferramentas nem os servidores MCP do usuário. O lançame
 
 - `report` e `design`: `read`, `bash`, `grep`, `find`, `ls`.
 - `direct-pr`: as acima mais `edit` e `write`.
-- Em todos os modos, os contratos `orch_report`, `orch_mark_tdd`, `orch_review_verdict` e `orch_submit_plan`.
+- Em todos os modos, os contratos `orch_report`, `orch_mark_tdd` e `orch_submit_plan`.
 - Nenhum servidor MCP. Sem liberação, o lançamento usa `--no-mcp`. `codemode` e `subagent` ficam fora da lista de ferramentas. As skills globais continuam carregadas: esta política não as restringe (`--no-skills` não foi aplicado).
 
 A barreira é dupla: o `--tools` impede a declaração das ferramentas ao modelo, e o worker bloqueia qualquer chamada fora da política com o motivo (`ferramenta mcp__plane__workitem não liberada para o modo report ...`). Uma política ilegível bloqueia a chamada (fail-closed).

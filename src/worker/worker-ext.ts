@@ -1,4 +1,3 @@
-import { recordReviewVerdict } from "../shared/review-verdict.ts";
 import { toolCallBlockReason, type ToolPolicy } from "../shared/worker-tools.ts";
 import { execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
@@ -146,7 +145,12 @@ function submitPlan(dir: string, raw: unknown, root: string): string {
 
 const PR_URL_RE = /https:\/\/github\.com\/[^\s/]+\/[^\s/]+\/pull\/\d+/;
 const PUBLISH_NOTE_MARK = "Publicação desta tarefa:";
-const REVIEW_BLOCK_REASON = "O hook de review dispara sozinho quando a PR é aberta: não acione o subagent pr-reviewer.";
+const REVIEW_BLOCK_REASON =
+  "O hook de review dispara sozinho quando a PR é aberta ou atualizada: não acione o subagent pr-reviewer.";
+// keep: mitigação, não prova (limite aceito em shared/review-verdict.ts): o bash do worker não cita o store de review.
+const REVIEW_STORE_RE = /orchestrator\/reviews\b|PI_ORCH_STATE_DIR\}?\/reviews\b|pr\d+\/[0-9a-f]{40}\.json/;
+const REVIEW_STORE_BLOCK_REASON =
+  "O veredito de review fica fora do alcance do worker: o diretório reviews do orquestrador não é acessível por bash.";
 const TDD_NOTE =
   "Para cada test seam do plano: rode o teste antes da correção e chame orch_mark_tdd com phase red; depois da correção, rode de novo e marque green. O exit code vem da ferramenta.";
 
@@ -295,6 +299,9 @@ export default function workerExtension(pi: ExtensionAPI): void {
     const toolReason = toolGateReason(event.toolName);
     if (toolReason) return { block: true, reason: toolReason };
     if (event.toolName === "bash") {
+      const cmd = (event as { input?: { command?: unknown } }).input?.command;
+      if (typeof cmd === "string" && REVIEW_STORE_RE.test(cmd))
+        return { block: true, reason: REVIEW_STORE_BLOCK_REASON };
       // keep: sem limite, um comando que espera entrada (ex.: poll interativo) prende o worker para sempre.
       const input = (event as { input?: { command?: unknown; timeout?: unknown } }).input;
       if (input && input.timeout === undefined) input.timeout = WORKER_BASH_TIMEOUT_S;
@@ -522,44 +529,6 @@ export default function workerExtension(pi: ExtensionAPI): void {
         ],
         details: {},
       });
-    },
-  });
-
-  pi.registerTool({
-    name: "orch_review_verdict",
-    label: "orch review verdict",
-    description:
-      "Envia o JSON do subagent de review fresh (contexto limpo, somente leitura) para o head atual da PR. O veredito é validado pela ferramenta; JSON inválido ou de outro head vira unverified.",
-    parameters: {
-      type: "object",
-      properties: {
-        head_sha: { type: "string", description: "SHA completo (40 hex) do head revisado" },
-        raw: { type: "string", description: "saída JSON do subagent, sem alterações" },
-        diff_truncated: { type: "boolean", description: "true se o diff passou de 120000 caracteres" },
-      },
-      required: ["head_sha", "raw", "diff_truncated"],
-      additionalProperties: false,
-    },
-    execute(_toolCallId: string, params: Record<string, unknown>) {
-      try {
-        const r = recordReviewVerdict(
-          taskDir,
-          String(params.raw),
-          String(params.head_sha),
-          params.diff_truncated === true,
-        );
-        return Promise.resolve({
-          content: [{ type: "text" as const, text: `Review registrado: ${r.verdict} no head ${r.reviewed_sha}.` }],
-          details: {},
-        });
-      } catch (err) {
-        return Promise.resolve({
-          content: [
-            { type: "text" as const, text: `Review recusado: ${err instanceof Error ? err.message : String(err)}` },
-          ],
-          details: {},
-        });
-      }
     },
   });
 

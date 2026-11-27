@@ -66,7 +66,7 @@ export interface IntegrationInput {
   pr: PrSnapshot | null;
   repo: RepoFacts | null;
   protection: Protection;
-  reviewer: TrustedReviewer | null;
+  reviewer?: TrustedReviewer | null;
   review?: ReviewVerdictInput | null;
   expected_head_sha: string;
 }
@@ -182,7 +182,7 @@ export function decideIntegration(input: IntegrationInput): IntegrationResult {
     hard.push(reason("not_mergeable", `mergeable ${pr.mergeable}, mergeStateStatus ${pr.merge_state_status}`));
   }
   hard.push(...checkReasons(pr));
-  const review = input.review !== undefined ? verdictState(input.review, pr) : reviewState(pr, reviewer);
+  const review = input.review !== undefined ? verdictState(input.review, pr) : reviewState(pr, reviewer ?? null);
   if (review.kind === "rejected") hard.push(reason("review_rejected", review.message));
   if (hard.length > 0) return fail("blocked", hard);
 
@@ -316,7 +316,7 @@ export interface RequestParams {
   expected_head_sha: string;
   policy: MergePolicy | null;
   ticket: TicketFacts | null;
-  reviewer: TrustedReviewer | null;
+  reviewer?: TrustedReviewer | null;
   review?: ReviewVerdictInput | null;
 }
 

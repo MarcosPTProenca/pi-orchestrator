@@ -74,12 +74,16 @@ test("delegate cria workspace do projeto, tab da tarefa e inicia o worker na tab
     "tab abre na worktree arrendada pelo orquestrador (#254)",
   );
   assert.equal(tabArgs.env.PI_ORCH_ROLE, "worker");
-  assert.equal(tabArgs.env.PI_PR_REVIEW_CHILD, "1", "worker não dispara o hook pessoal de PR review");
+  assert.equal(
+    tabArgs.env.PI_PR_REVIEW_CHILD,
+    undefined,
+    "worker não recebe PI_PR_REVIEW_CHILD: o hook da Factory roda nele",
+  );
   assert.equal(tabArgs.env.PI_ORCH_TASK_ID, t.task_id);
   assert.equal(t.tab_id.startsWith(`${t.workspace_id}:`), true);
   const run = h.herdr.opsOf("runInPane")[0].args as { paneId: string; command: string };
   assert.equal(run.paneId, t.pane_id);
-  assert.match(run.command, /^pi -e \/fake\/worker-ext\.ts /);
+  assert.match(run.command, /^pi -e \/fake\/worker-ext\.ts -e \S*pr-review\/hook\.ts /);
   assert.match(run.command, /chame orch_report\.'?$/);
   assert.match(readFileSync(t.brief_path, "utf8"), /## O que fazer/);
   assert.match(readFileSync(t.brief_path, "utf8"), /Analise o login/);
@@ -1119,23 +1123,21 @@ test("bloqueio com pergunta avisa uma vez; repetir noticeFor não reabre o aviso
   assert.equal(await h.orch.noticeFor(t.task_id), null, "não repete a pergunta");
 });
 
-// keep: espelho do gate do hook pessoal global (fora do repo, não importável aqui); prova que o env real do launch o desliga.
-function personalHookFires(env: Record<string, string | undefined>): boolean {
-  return !(env.PI_PR_REVIEW_CHILD || env.PI_ORCH_ROLE === "orchestrator");
-}
-
-test("hook pessoal de PR review fica desligado no worker da Factory: um único review (orch_review_verdict)", async () => {
+test("worker recebe o hook pr-review da Factory por -e, sem PI_PR_REVIEW_CHILD nem disparo manual do orquestrador", async () => {
   const h = makeHarness();
   await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report" });
   const env = (h.herdr.opsOf("createTab")[0].args as { env: Record<string, string> }).env;
-  assert.equal(personalHookFires(env), false, "worker não deve disparar o review pessoal em paralelo");
-  assert.equal(personalHookFires({ PI_ORCH_ROLE: "worker" }), true, "controle: sem PI_PR_REVIEW_CHILD o hook dispara");
+  assert.equal(env.PI_PR_REVIEW_CHILD, undefined);
+  const run = h.herdr.opsOf("runInPane")[0].args as { command: string };
+  assert.match(run.command, /-e \S*pr-review\/hook\.ts/, "hook carregado pela própria Factory");
 });
 
-test("launch com pane projetado também leva PI_PR_REVIEW_CHILD=1 ao worker", async () => {
+test("launch com pane projetado também carrega o hook e não leva PI_PR_REVIEW_CHILD", async () => {
   const h = makeHarness({ presentationSpaces: true });
   const t = await h.orch.delegate({ project_path: h.project, role: "a", request: "x", objective: "x", mode: "report" });
   const run = h.herdr.opsOf("runInPane")[0].args as { paneId: string; command: string };
   assert.equal(run.paneId, t.pane_id);
-  assert.match(run.command, /^env PI_ORCH_ROLE=worker PI_PR_REVIEW_CHILD=1 /);
+  assert.match(run.command, /^env PI_ORCH_ROLE=worker PI_ORCH_TASK_ID=/);
+  assert.doesNotMatch(run.command, /PI_PR_REVIEW_CHILD/);
+  assert.match(run.command, /-e \S*pr-review\/hook\.ts/);
 });

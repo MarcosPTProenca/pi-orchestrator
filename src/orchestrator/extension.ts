@@ -30,13 +30,7 @@ import { FixQueue } from "./queue.ts";
 import { ORCHESTRATOR_PANE_LABEL, orchestratorAgentName } from "../shared/label.ts";
 import { Store, defaultStateDir } from "../shared/store.ts";
 import { deliveryFromFix, integrationRoute, repoPolicyFor, ticketFacts } from "./delivery.ts";
-import {
-  findingsText,
-  integrationFixText,
-  reviewAssessment,
-  reviewEvent,
-  reviewRequestText,
-} from "./review-verdict.ts";
+import { findingsText, integrationFixText, reviewAssessment, reviewEvent } from "./review-verdict.ts";
 import { readReview } from "../shared/review-verdict.ts";
 import type { ReviewResult } from "../shared/review.ts";
 import { ghMergeGithub } from "../shared/merge-gate-github.ts";
@@ -171,6 +165,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     store,
     tasksDir: join(stateDir, "tasks"),
     workerExtPath: process.env.PI_ORCH_WORKER_EXT ?? resolve(here, "../worker/worker-ext.ts"),
+    prReviewHookPath: process.env.PI_ORCH_PR_REVIEW_EXT ?? resolve(here, "../pr-review/hook.ts"),
     now: () => Date.now(),
     newHex: () => randomBytes(4).toString("hex"),
     availableModels,
@@ -593,23 +588,6 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     await reconcilePlans();
     return `Parecer de escopo registrado para ${taskId}: ${v.verdict}. ${v.reason}`;
   };
-  const requestReview = async (
-    t: TaskRecord,
-    source: string,
-    head: string,
-    previous: FixRecord | null,
-  ): Promise<void> => {
-    try {
-      await orch.send(t.task_id, reviewRequestText(source, head));
-    } catch (err) {
-      fixLoop.restore(t.task_id, previous);
-      emitEvent(eventSink, EVENT_POLICY["send-failed"], {
-        customType: "orch-event",
-        content: `${taskHeadline(t, source, "PR pede review fresh")} Não consegui acionar o worker: ${err instanceof Error ? err.message : String(err)}. Decida: orch_send manual.`,
-        display: true,
-      });
-    }
-  };
   const mergeApproved = async (
     t: TaskRecord,
     source: string,
@@ -625,7 +603,6 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         expected_head_sha: head,
         policy: repoPolicyFor(mergePolicies, `${pr.owner}/${pr.name}`, t.task_id),
         ticket: ticketFacts(t),
-        reviewer: null,
         review: { head_sha: head, approved: true, assessment },
       },
       { github: ghMergeGithub(remote, t.project_path), store: integrations },
@@ -735,8 +712,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     if (verdict === "pending" || planStore.pausedFor(t.task_id)) return;
     const head = fixLoop.apply(t.task_id, { type: "head", head_sha: s.headRefOid });
     recordFix(t.task_id, head.action);
-    if (head.action.kind === "request_review") await requestReview(t, source, s.headRefOid, head.previous);
-    const review = readReview(t.task_dir, s.headRefOid);
+    // keep: o review é disparado pelo hook pr-review no worker (abrir/atualizar PR); aqui só se consome o veredito do head.
+    const review = readReview(stateDir, pr, s.headRefOid);
     if (review) await applyReview(t, source, pr, remote, s.headRefOid, review);
     const conflict = verdict === "conflict";
     const red = conflict ? [] : failingChecks(s);
