@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { isAbsolute, join, normalize } from "node:path";
 import type { TaskRecord } from "../shared/contract.ts";
 import type { IntegrationResult } from "../shared/merge-gate.ts";
 import type { FixAction } from "./fix-loop.ts";
@@ -54,7 +56,33 @@ export function ticketFor(taskId: string): TicketFacts {
 
 export function ticketFacts(t: TaskRecord): TicketFacts {
   const state: TicketFacts["state"] = t.status === "cancelled" ? "cancelled" : t.status === "done" ? "done" : "running";
-  return { id: t.task_id, state, branch: t.branch ?? null, allowed_paths: [] };
+  let allowed_paths: string[] = [];
+  try {
+    const plan: unknown = JSON.parse(readFileSync(join(t.task_dir, "implementation-plan.json"), "utf8"));
+    if (
+      typeof plan === "object" &&
+      plan !== null &&
+      "task_id" in plan &&
+      plan.task_id === t.task_id &&
+      "steps" in plan &&
+      Array.isArray(plan.steps)
+    ) {
+      allowed_paths = [
+        ...new Set(
+          plan.steps.flatMap((step: unknown) => {
+            if (typeof step !== "object" || step === null || !("files" in step) || !Array.isArray(step.files))
+              return [];
+            return step.files.flatMap((file: unknown) => {
+              if (typeof file !== "string" || file.trim() === "" || isAbsolute(file)) return [];
+              const path = normalize(file.trim());
+              return path === "." || path === ".." || path.startsWith("../") ? [] : [path];
+            });
+          }),
+        ),
+      ];
+    }
+  } catch {}
+  return { id: t.task_id, state, branch: t.branch ?? null, allowed_paths };
 }
 
 const WORKER_FIXABLE = new Set(["draft", "pr_without_issue"]);
