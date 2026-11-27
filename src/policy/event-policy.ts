@@ -5,6 +5,8 @@ export const EVENT_POLICY = {
   "worker-failed": "decision",
   "worker-lost": "decision",
   "launch-failed": "decision",
+  // keep: falha no avanço ou reconciliação de plano; o aviso sai uma vez por episódio (PlanFailureWatch), não a cada ciclo.
+  "plan-failed": "decision",
   "send-failed": "decision",
   "fix-blocked": "decision",
   "review-approved": "decision",
