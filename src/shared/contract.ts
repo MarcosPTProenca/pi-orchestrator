@@ -23,6 +23,26 @@ export interface Report {
   reported_at: string;
 }
 
+// keep: ausência de evidência, evidência parcial e conclusão verificada são coisas diferentes; 'none' não prova que nada foi feito.
+export type EvidenceLevel = "none" | "partial" | "verified";
+
+export interface DiagnosisSource {
+  source: "estado" | "relatorio" | "logs" | "worktree" | "pr";
+  state: "verificada" | "ausente" | "indisponivel";
+  detail: string;
+}
+
+export interface LostDiagnosis {
+  level: EvidenceLevel;
+  last_status: TaskStatus;
+  last_seen_at: string;
+  sources: DiagnosisSource[];
+  evidence: string[];
+  pending: string[];
+  recovery: string;
+  diagnosed_at: string;
+}
+
 export interface TaskRecord {
   task_id: string;
   project_id: string;
@@ -87,6 +107,8 @@ export interface TaskRecord {
   delegate_input?: Record<string, unknown> | null;
   released_tools?: string[];
   relaunched_from?: string | null;
+  // keep: diagnóstico de pane perdido; gravado na mesma escrita que muda o status para lost, e nunca altera status.
+  diagnosis?: LostDiagnosis | null;
 }
 
 export function validateReport(input: unknown, taskId: string): Report {
