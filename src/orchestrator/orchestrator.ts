@@ -237,7 +237,7 @@ export class Orchestrator {
   }
 
   get(taskId: string): TaskRecord {
-    const t = this.d.store.load().tasks[taskId];
+    const t = this.d.store.loadAll().tasks[taskId];
     if (!t) throw new Error(`tarefa desconhecida: ${taskId}`);
     return t;
   }
@@ -247,7 +247,7 @@ export class Orchestrator {
   }
 
   list(): TaskRecord[] {
-    return Object.values(this.d.store.load().tasks).sort((a, b) => a.created_at.localeCompare(b.created_at));
+    return Object.values(this.d.store.loadAll().tasks).sort((a, b) => a.created_at.localeCompare(b.created_at));
   }
 
   private iso(ms = this.d.now()): string {
