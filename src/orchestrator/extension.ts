@@ -135,6 +135,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     return { render: () => text.split("\n"), invalidate: () => {} };
   });
   const stateDir = defaultStateDir();
+  const store = new Store(join(stateDir, "state.json"));
   const dryRun = process.env.PI_ORCH_DRY_RUN === "1";
   const maxActive = maxActiveFrom(process.env.PI_ORCH_MAX_ACTIVE);
   let owner = dryRun;
@@ -167,7 +168,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     inspectWorktree: (t) => inspectLease(treehouseOps, t.project_path, t.task_id),
     herdr: new HerdrCli(),
     presentationSpaces: process.env.PI_ORCH_PRESENTATION_SPACES === "1",
-    store: new Store(join(stateDir, "state.json")),
+    store,
     tasksDir: join(stateDir, "tasks"),
     workerExtPath: process.env.PI_ORCH_WORKER_EXT ?? resolve(here, "../worker/worker-ext.ts"),
     now: () => Date.now(),
@@ -887,6 +888,13 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         display: true,
       });
       return;
+    }
+    try {
+      store.archiveOldTasks(Date.now());
+    } catch (error) {
+      console.error(
+        `pi-orch: falha ao arquivar tarefas antigas: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
     orch.setScope(key, (projectPath) => ownsByRepo(projectPath, key, ctx.cwd));
     orch.adoptUnowned(legacyAdopter({ key, cwd: ctx.cwd, stateDir }));
