@@ -16,6 +16,7 @@ export interface PlanDelegate {
   model?: string;
   source?: string;
   branch?: string;
+  acceptance?: string[];
 }
 
 interface ItemDelivery {
@@ -170,6 +171,12 @@ function checkDelegate(d: PlanDelegate, where: string): void {
     if (typeof d[key] !== "string" || d[key].trim() === "") throw new Error(`${where}: delegate.${key} obrigatório`);
   }
   if (!(MODES as readonly string[]).includes(d.mode)) throw new Error(`${where}: delegate.mode inválido: ${d.mode}`);
+  if (d.acceptance === undefined) return;
+  if (!Array.isArray(d.acceptance)) throw new Error(`${where}: delegate.acceptance precisa ser lista de textos`);
+  d.acceptance.forEach((a, i) => {
+    if (typeof a !== "string" || a.trim() === "")
+      throw new Error(`${where}: delegate.acceptance[${i}] vazio ou inválido`);
+  });
 }
 
 function normalize(input: string | ItemInput, index: number): ItemInput {
@@ -193,6 +200,10 @@ export function requireIssueSources(items: (string | ItemInput)[]): void {
     const src = raw.delegate.source;
     if (typeof src !== "string" || !ISSUE_URL.test(src))
       throw new Error(`item ${i + 1}: delegate.source obrigatório, URL de issue do GitHub (.../issues/N)`);
+    // keep: direct-pr gera ticket.json e o gate de contrato exige critérios; report segue sem eles (#255).
+    const criteria = raw.delegate.acceptance;
+    if (raw.delegate.mode === "direct-pr" && (!criteria || criteria.length === 0))
+      throw new Error(`item ${i + 1}: delegate.acceptance obrigatório em direct-pr: critérios verificáveis da issue`);
   });
 }
 

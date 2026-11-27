@@ -417,7 +417,7 @@ export function registerOrchestratorTools(pi: ExtensionAPI, ctx: OrchestratorToo
     name: "orch_plan_create",
     label: "orch plan create",
     description:
-      "Registra um plano entregue pelo usuário, fora dos repositórios, em rascunho: não lança nada até orch_plan_approve. Cada item é um título (manual) ou um objeto com `depends_on` (ids de itens anteriores) e `delegate` (especificação de lançamento: project_path, request, objective, mode, source, e opcionalmente role, model, branch). `source` é a URL da issue de origem e é obrigatório em cada delegate. Itens com `delegate` são lançados sozinhos quando as dependências são concluídas; o orquestrador não precisa ser lembrado.",
+      "Registra um plano entregue pelo usuário, fora dos repositórios, em rascunho: não lança nada até orch_plan_approve. Cada item é um título (manual) ou um objeto com `depends_on` (ids de itens anteriores) e `delegate` (especificação de lançamento: project_path, request, objective, mode, source, e opcionalmente role, model, branch, acceptance). `source` é a URL da issue de origem e é obrigatório em cada delegate. `acceptance` (critérios verificáveis) é obrigatório em delegate com mode direct-pr e grava o ticket.json do worker. Itens com `delegate` são lançados sozinhos quando as dependências são concluídas; o orquestrador não precisa ser lembrado.",
     parameters: {
       type: "object",
       properties: {
@@ -444,6 +444,11 @@ export function registerOrchestratorTools(pi: ExtensionAPI, ctx: OrchestratorToo
                       model: { type: "string" },
                       source: { type: "string", description: "URL da issue de origem (obrigatória)" },
                       branch: { type: "string" },
+                      acceptance: {
+                        type: "array",
+                        items: { type: "string" },
+                        description: "Critérios de aceite verificáveis. Obrigatórios em direct-pr.",
+                      },
                     },
                     required: ["project_path", "request", "objective", "mode", "source"],
                     additionalProperties: false,
