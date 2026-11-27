@@ -10,6 +10,7 @@ interface AcceptanceScenario {
 export interface TicketDraft {
   id: string;
   title: string;
+  source?: string;
   parent_fingerprint: string;
   what: string;
   requirements: string[];
