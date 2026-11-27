@@ -24,13 +24,25 @@ import { clampLines, logError, maskSecrets } from "../shared/logs.ts";
 import { summarizeTurns, type TurnRecord } from "../shared/usage.ts";
 import { classifyFailure } from "../policy/failure.ts";
 import { RELAUNCH_MARK, relaunchContext, relaunchNotice } from "./relaunch-context.ts";
-import { isActive, reportKey, validateReport, type TaskRecord, type TaskStatus } from "../shared/contract.ts";
+import {
+  isActive,
+  reportKey,
+  validateReport,
+  type LostDiagnosis,
+  type TaskRecord,
+  type TaskStatus,
+} from "../shared/contract.ts";
 import type { Report } from "../shared/contract.ts";
+import { readPublishState, type PublishState } from "../shared/publish.ts";
+import type { LeaseFacts } from "../shared/worktrees.ts";
+import { diagnoseLostTask, lostSummary, type ReportFact, type WorktreeFact } from "./lost-diagnosis.ts";
+import { prUrlOf } from "./pr-watch.ts";
 import { belowFloor, PRESENTATION_FLOOR, type HerdrPort, type PaneInfo, type TabResult } from "../shared/herdr.ts";
 import type { Store } from "../shared/store.ts";
 
 export interface OrchDeps {
   releaseWorktree?: (task: TaskRecord) => string;
+  inspectWorktree?: (task: TaskRecord) => LeaseFacts | null;
   herdr: HerdrPort;
   presentationSpaces?: boolean;
   store: Store;
@@ -577,12 +589,14 @@ export class Orchestrator {
     };
   }
 
-  private setTerminal(taskId: string, status: TaskStatus, error: string | null): WatchEvent {
+  private setTerminal(taskId: string, status: TaskStatus, error: string | null, diagnosis?: LostDiagnosis): WatchEvent {
     this.idleSince.delete(taskId);
     const t = this.update(taskId, (x) => {
       x.status = status;
       x.error = error;
       x.notified = false;
+      // keep: diagnóstico e status na mesma escrita; crash entre as duas não deixa lost sem diagnóstico.
+      if (diagnosis !== undefined) x.diagnosis = diagnosis;
     });
     this.d.onTerminal?.(taskId);
     return this.toEvent(t);
@@ -618,8 +632,11 @@ export class Orchestrator {
     }
     const { owner, pane } = await this.paneOwnership(t);
     if (owner !== "owned") {
+      // keep: diagnóstico antes de noteWorktree, que pode devolver a worktree e apagar o lease que ele lê.
+      const diagnosis = this.diagnoseLost(t, owner === "mismatch" ? "trocou" : "ausente");
       this.noteWorktree(taskId);
-      return this.setTerminal(taskId, "lost", `pane ${owner === "missing" ? "não existe mais" : "trocou de agente"}`);
+      const reason = `pane ${owner === "missing" ? "não existe mais" : "trocou de agente"}`;
+      return this.setTerminal(taskId, "lost", `${reason}. ${lostSummary(diagnosis)}`, diagnosis);
     }
     return t.status === "running" ? this.failIfIdleWithoutReport(taskId, pane) : null;
   }
@@ -642,6 +659,63 @@ export class Orchestrator {
   async refreshAll(): Promise<void> {
     for (const t of this.owned()) {
       if (t.status !== "cancelled") await this.refresh(t.task_id).catch(() => null);
+      await this.backfillDiagnosis(t.task_id).catch(() => null);
+    }
+  }
+
+  // keep: tarefa lost antiga, sem diagnóstico, ganha um só na reconciliação; a segunda passagem encontra o campo e não regrava.
+  private async backfillDiagnosis(taskId: string): Promise<void> {
+    const t = this.get(taskId);
+    if (t.status !== "lost" || t.diagnosis) return;
+    const { owner } = await this.paneOwnership(t);
+    if (owner === "owned") return;
+    const diagnosis = this.diagnoseLost(t, owner === "mismatch" ? "trocou" : "ausente");
+    this.update(taskId, (x) => {
+      if (!x.diagnosis) x.diagnosis = diagnosis;
+    });
+  }
+
+  // keep: só lê fontes locais (relatório, sessão, publish-state, worktree da própria tarefa); nunca fala com o pane.
+  private diagnoseLost(t: TaskRecord, pane: "ausente" | "trocou"): LostDiagnosis {
+    return diagnoseLostTask({
+      now: this.iso(),
+      task: t,
+      report: this.reportFact(t),
+      ...this.publishFacts(t),
+      worktree: this.worktreeFact(t),
+      session: workerSessionFile(t.task_dir),
+      pane,
+      prUrl: prUrlOf(t),
+    });
+  }
+
+  private reportFact(t: TaskRecord): ReportFact {
+    const file = this.reportPath(t);
+    if (!existsSync(file)) return { state: "ausente" };
+    try {
+      const r = validateReport(JSON.parse(readFileSync(file, "utf8")), t.task_id);
+      return { state: "valido", status: r.status, result: r.result };
+    } catch (err) {
+      return { state: "invalido", detail: errorMessage(err).slice(0, 160) };
+    }
+  }
+
+  // keep: publish-state ilegível vira fonte indisponível; tratá-lo como ausente diria 'sem commit' onde pode haver commit.
+  private publishFacts(t: TaskRecord): { publish: PublishState | null; publishError: string | null } {
+    try {
+      return { publish: readPublishState(t.task_dir), publishError: null };
+    } catch (err) {
+      return { publish: null, publishError: errorMessage(err).slice(0, 160) };
+    }
+  }
+
+  private worktreeFact(t: TaskRecord): WorktreeFact {
+    if (!this.d.inspectWorktree) return { state: "indisponivel", detail: "inspeção de worktree não configurada" };
+    try {
+      const lease = this.d.inspectWorktree(t);
+      return lease ? { state: "encontrada", ...lease } : { state: "ausente" };
+    } catch (err) {
+      return { state: "indisponivel", detail: errorMessage(err).slice(0, 160) };
     }
   }
 

@@ -64,6 +64,31 @@ export function releaseLease(ops: WorktreeOps, repo: string, holder: string, hom
   }
 }
 
+export interface LeaseFacts {
+  path: string;
+  head: string | null;
+  dirty: boolean;
+  pushed: boolean;
+  // keep: commits alcançáveis pelo HEAD e por nenhuma referência remota; não depende de publish-state.json.
+  unpushed: number;
+}
+
+// keep: só lê a worktree arrendada pela própria tarefa (holder = task_id); nunca toca em lease de outra tarefa. Erro propaga para o chamador registrar como indisponível.
+export function inspectLease(
+  ops: WorktreeOps,
+  repo: string,
+  holder: string,
+  home: string = homedir(),
+): LeaseFacts | null {
+  const lease = parseLeases(ops.status(repo), home).find((l) => l.holder === holder);
+  if (!lease) return null;
+  const dirty = ops.git(lease.path, ["status", "--porcelain"]).trim() !== "";
+  const head = ops.git(lease.path, ["rev-parse", "HEAD"]).trim() || null;
+  const pushed = head !== null && ops.git(lease.path, ["branch", "-r", "--contains", "HEAD"]).trim() !== "";
+  const unpushed = Number(ops.git(lease.path, ["rev-list", "--count", "HEAD", "--not", "--remotes"]).trim());
+  return { path: lease.path, head, dirty, pushed, unpushed };
+}
+
 export function orphanLeases(
   ops: WorktreeOps,
   repo: string,

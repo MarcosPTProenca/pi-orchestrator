@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HerdrPort, PaneInfo, TabResult, WorkspaceResult } from "../src/shared/herdr.ts";
-import { Orchestrator } from "../src/orchestrator/orchestrator.ts";
+import { Orchestrator, type OrchDeps } from "../src/orchestrator/orchestrator.ts";
 import { Store } from "../src/shared/store.ts";
 
 export type WaitFn = (
@@ -119,6 +119,7 @@ export interface Harness {
   stateDir: string;
   project: string;
   clock: { ms: number };
+  extra: Partial<OrchDeps>;
 }
 
 function orchestratorFor(
@@ -126,9 +127,11 @@ function orchestratorFor(
   herdr: FakeHerdr,
   clock: { ms: number },
   presentationSpaces?: boolean,
+  extra: Partial<OrchDeps> = {},
 ): Orchestrator {
   let counter = 0;
   return new Orchestrator({
+    ...extra,
     herdr,
     store: new Store(join(stateDir, "state.json")),
     tasksDir: join(stateDir, "tasks"),
@@ -143,18 +146,21 @@ function orchestratorFor(
 
 // keep: novo processo sobre o mesmo state.json, como um reinício real faria; testa o que foi persistido.
 export function reopenHarness(h: Harness, presentationSpaces?: boolean): Orchestrator {
-  return orchestratorFor(h.stateDir, h.herdr, h.clock, presentationSpaces);
+  return orchestratorFor(h.stateDir, h.herdr, h.clock, presentationSpaces, h.extra);
 }
 
-export function makeHarness(opts: { presentationSpaces?: boolean; herdrVersion?: string } = {}): Harness {
+export function makeHarness(
+  opts: { presentationSpaces?: boolean; herdrVersion?: string; extra?: Partial<OrchDeps> } = {},
+): Harness {
   const stateDir = mkdtempSync(join(tmpdir(), "orch-state-"));
   const project = mkdtempSync(join(tmpdir(), "orch-proj-"));
   mkdirSync(join(project, ".git"));
   const herdr = new FakeHerdr();
   herdr.version = opts.herdrVersion ?? "0.9.1";
   const clock = { ms: Date.parse("2026-11-16T12:00:00Z") };
-  const orch = orchestratorFor(stateDir, herdr, clock, opts.presentationSpaces);
-  return { herdr, orch, stateDir, project, clock };
+  const extra = opts.extra ?? {};
+  const orch = orchestratorFor(stateDir, herdr, clock, opts.presentationSpaces, extra);
+  return { herdr, orch, stateDir, project, clock, extra };
 }
 
 // keep: delegação com acceptance gera ticket, que exige script oficial (test) no package.json do projeto.
