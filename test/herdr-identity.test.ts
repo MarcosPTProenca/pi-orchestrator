@@ -6,7 +6,6 @@ import { join } from "node:path";
 import { HerdrCli } from "../src/shared/herdr.ts";
 import { workerTabName } from "../src/shared/label.ts";
 
-// Herdr fake por script: registra cada chamada (uma linha por comando) e responde o JSON mínimo esperado.
 function fakeHerdr(): { bin: string; calls: () => string[] } {
   const dir = mkdtempSync(join(tmpdir(), "herdr-fake-"));
   const log = join(dir, "calls.log");
