@@ -370,17 +370,47 @@ const decideFor = (policy: ReturnType<typeof repoPolicyFor>, ticket: typeof scop
     expected_head_sha: HEAD,
   });
 
-test("ticketFacts: estado e branch vêm da tarefa; escopo vazio (fail-closed)", () => {
+test("ticketFacts: paths vêm dos arquivos do plano da tarefa", () => {
+  const taskDir = dir();
+  writeFileSync(
+    join(taskDir, "implementation-plan.json"),
+    JSON.stringify({ task_id: T_A, steps: [{ files: ["src/a.ts", "src/b.ts", "../outside.ts", "/tmp/no.ts"] }] }),
+  );
   const task = (status: TaskRecord["status"], branch: string | null) =>
-    ({ task_id: T_A, status, branch }) as TaskRecord;
+    ({ task_id: T_A, status, branch, task_dir: taskDir }) as TaskRecord;
   assert.deepEqual(ticketFacts(task("running", "feat/x")), {
     id: T_A,
     state: "running",
     branch: "feat/x",
-    allowed_paths: [],
+    allowed_paths: ["src/a.ts", "src/b.ts"],
   });
   assert.equal(ticketFacts(task("cancelled", "feat/x")).state, "cancelled");
   assert.equal(ticketFacts(task("done", null)).branch, null);
+});
+
+test("integration: o plano autoriza paths declarados e bloqueia alteração fora deles", async () => {
+  const taskDir = dir();
+  writeFileSync(
+    join(taskDir, "implementation-plan.json"),
+    JSON.stringify({ task_id: T_A, steps: [{ files: ["src/worker/"] }] }),
+  );
+  const ticket = ticketFacts({ task_id: T_A, task_dir: taskDir, status: "done", branch: "feat/x" } as TaskRecord);
+  const inside = await requestIntegration(request(authorizedPolicy(), ticket), {
+    github: githubFake({ ...pr(), files: [{ ...pr().files[0]!, path: "src/worker/change.ts" }] }).github,
+    store: new IntegrationStore(dir()),
+  });
+  assert.ok(
+    !inside.reasons.some((r) => ["scope_undefined", "scope_drift"].includes(r.code)),
+    JSON.stringify({ ticket, reasons: inside.reasons }),
+  );
+  const outside = await requestIntegration(request(authorizedPolicy(), ticket), {
+    github: githubFake({ ...pr(), files: [{ ...pr().files[0]!, path: "test/change.ts" }] }).github,
+    store: new IntegrationStore(dir()),
+  });
+  assert.ok(
+    outside.reasons.some((r) => r.code === "scope_drift"),
+    JSON.stringify(outside.reasons),
+  );
 });
 
 test("runtime sem escopo declarado: review aprovado e autorizado não pede merge", async () => {

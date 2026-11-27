@@ -348,7 +348,7 @@ export function evaluateMergeGate(input: MergeGateInput): MergeGateResult {
   if (classification && ticket) {
     if (ticket.allowed_paths.length === 0) blockers.push(block("scope_undefined", "escopo do ticket não definido"));
     for (const f of classification.files) {
-      if (!ticket.allowed_paths.some((s) => f.path.startsWith(s))) {
+      if (!ticket.allowed_paths.some((s) => (s.endsWith("/") ? f.path.startsWith(s) : f.path === s))) {
         blockers.push(block("scope_drift", `fora do escopo: ${f.path}`));
       }
     }
