@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { latestAsk, recordOracleVerdict } from "../shared/ask.ts";
+import { consultToken, type OracleCapture } from "./oracle-guard.ts";
 
 // keep: só estes vereditos chegam do Oracle; "failed" é gravado pelo orquestrador quando o parecer não serve.
 const ANSWER_VERDICTS = ["answered", "inconclusive", "contradictory", "out_of_scope"] as const;
@@ -34,7 +36,8 @@ export function oracleContract(c: OracleAskContext): string {
     `- Objetivo da tarefa: ${clip(c.objective || "(não informado)", MAX_OBJECTIVE)}`,
     `- Spec ou ticket de origem: ${c.source ?? "(nenhuma informada)"}`,
     `- Repositório: ${c.projectPath}. Visão do projeto, se existir: ${c.visionPath} (leia só se precisar).`,
-    "- Investigue só o necessário, em modo somente leitura (read, grep, find, ls, git log, git diff, git show). Não edite arquivos, não altere estado e não decida merge.",
+    "- Investigue só o necessário, em modo somente leitura (read, grep, find, ls). Não edite arquivos, não altere estado e não decida merge.",
+    `- Marcador de consulta: ${consultToken(c.taskId, c.askId)}. Inclua esta linha no campo task do subagent.`,
     '- Responda só em JSON: {"verdict":"answered|inconclusive|contradictory|out_of_scope","answer":"orientação em uma frase, se answered","reason":"racional curto","uncertainty":"o que não foi possível confirmar"}.',
     '- "answered" só quando a spec ou o código sustentam a orientação. "out_of_scope" quando responder exigiria mudar o escopo. "contradictory" quando spec e código divergem. "inconclusive" quando não dá para concluir.',
   ].join("\n");
@@ -75,6 +78,7 @@ export interface SettleInput {
   taskDir: string;
   askId: string;
   raw: string;
+  capture: OracleCapture | undefined;
 }
 
 // keep: a pergunta só é consultada uma vez; falha de formato também conta, para o ciclo de consultas não ser indefinido.
@@ -82,6 +86,14 @@ export function settleOracleVerdict(input: SettleInput): string {
   const latest = latestAsk(input.taskDir);
   if (!latest || latest.id !== input.askId)
     throw new Error(`pergunta ${input.askId} não é a atual da tarefa ${input.taskId}; nada foi registrado`);
+  const cap = input.capture;
+  if (!cap || cap.token !== consultToken(input.taskId, input.askId))
+    throw new Error(`sem consulta registrada ao subagent oracle para a pergunta ${input.askId}; nada foi registrado`);
+  const raw = input.raw.trim();
+  if (raw === "" || !cap.output.includes(raw))
+    throw new Error(
+      `parecer não confere com a saída do subagent oracle da pergunta ${input.askId}; nada foi registrado`,
+    );
   let parsed: OracleAnswer | null = null;
   let failure = "";
   try {
@@ -90,7 +102,13 @@ export function settleOracleVerdict(input: SettleInput): string {
     failure = err instanceof Error ? err.message : String(err);
   }
   const verdict = parsed?.verdict ?? "failed";
-  if (!recordOracleVerdict(input.taskDir, input.askId, verdict))
+  const origin = {
+    agent: cap.agent,
+    model: cap.model,
+    tool_call_id: cap.toolCallId,
+    output_sha256: createHash("sha256").update(cap.output).digest("hex"),
+  };
+  if (!recordOracleVerdict(input.taskDir, input.askId, verdict, origin))
     throw new Error(`já há parecer para a pergunta ${input.askId}; não consulte de novo: escale ao usuário`);
   // keep: sem parecer answered o worker não recebe orientação; a pergunta segue pendente até a decisão do usuário.
   const escalate = `Não responda ao worker: informe o usuário da pergunta e do task_id (${input.taskId}); a pergunta segue pendente até a decisão dele.`;
