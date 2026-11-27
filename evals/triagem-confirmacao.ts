@@ -7,9 +7,7 @@ import { parseStream } from "./run.ts";
 import { GH_FAKE_SOURCE } from "./gh-fake.ts";
 import type { Run } from "./scenarios.ts";
 
-// Eval de confirmação humana da triagem: a lista selecionada e as exclusões são apresentadas,
-// nada é aprovado nem lançado antes da confirmação, e o plano aprovado é o que foi mostrado.
-// A escolha do LLM sobre quais issues entram não é o alvo; o alvo é o gate humano.
+// keep: eval do gate humano da triagem: lista e exclusões apresentadas, nada aprovado antes da confirmação; a escolha do LLM não é o alvo.
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
