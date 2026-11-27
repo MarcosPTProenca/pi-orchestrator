@@ -12,10 +12,10 @@ const IMPLEMENT_CUE =
 const NOT_ISSUE = /\bPRs?\s*#?\d+\b|https?:\/\/github\.com\/[^\s/]+\/[^\s/]+\/pull\/\d+/gi;
 
 // keep: direct-pr concede commit, push e PR (GRANTS/acceptance); restrição do usuário que proíbe isso é conflito explícito, recusado antes do lançamento (#244).
-// keep: "não abra outro PR", "não feche PR", "não faça merge do PR" e "não force-push na base" são restrições legítimas de orch_fix_red_prs (prs.ts), não proibição de publicar; PR não conta se fechar/merge/mesclar/outro vier entre a negação e o PR (#244).
+// keep: "não abra outro PR", "não feche PR", "não faça merge do PR" e "não force-push na base" são restrições legítimas de orch_fix_red_prs (prs.ts), não proibição de publicar; PR sem verbo de abrir não conta se fechar/merge/mesclar/outro vier entre a negação e o PR; abrir/criar PR continua recusado mesmo depois de merge ou fechar, desde que sem "outro" (#244, #253).
 // shortcut: detecção por palavras-chave com negação próxima; uma restrição que cita commit sem proibir publicação pode ser recusada por engano. Subir para parser semântico se isso aparecer.
 const PUBLICATION_PROHIBITION =
-  /\b(n(ã|a)o|nem|sem|proibid\w*)\b(?:[^.;\n]{0,40}?\b(commit|(?<!force-)push|publi(c|qu))\w*\b|(?:(?!\b(?:fech|merg|mescl|outr[oa]s?)\w*\b)[^.;\n]){0,40}?\b(PRs?|pull requests?)\b)/i;
+  /\b(n(ã|a)o|nem|sem|proibid\w*)\b(?:[^.;\n]{0,40}?\b(commit|(?<!force[- ])push|publi(c|qu))\w*\b|(?:(?!\b(?:fech|merg|mescl|outr[oa]s?)\w*\b)[^.;\n]){0,40}?\b(PRs?|pull requests?)\b|[^.;\n]{0,40}?\b(abr|cri)\w*\b(?:(?!\boutr[oa]s?\b)[^.;\n]){0,20}?\b(PRs?|pull requests?)\b)/i;
 
 export function publicationConflict(input: Pick<DelegateInput, "mode" | "constraints">): string | null {
   if (input.mode !== "direct-pr") return null;
