@@ -184,6 +184,18 @@ function normalize(input: string | ItemInput, index: number): ItemInput {
   return input;
 }
 
+const ISSUE_URL = /^https:\/\/github\.com\/[^/]+\/[^/]+\/issues\/\d+$/;
+
+// keep: triagem de conjunto de issues exige a origem canônica de cada delegação; sem ela o plano não diz de qual issue veio o trabalho.
+export function requireIssueSources(items: (string | ItemInput)[]): void {
+  items.forEach((raw, i) => {
+    if (typeof raw === "string" || !raw.delegate) return;
+    const src = raw.delegate.source;
+    if (typeof src !== "string" || !ISSUE_URL.test(src))
+      throw new Error(`item ${i + 1}: delegate.source obrigatório, URL de issue do GitHub (.../issues/N)`);
+  });
+}
+
 export class PlanStore {
   constructor(
     private readonly dir: string,

@@ -23,6 +23,8 @@ export interface Scenario {
   id: string;
   prompt: (fx: Record<string, string>) => string;
   checks: Check[];
+  // keep: só cenários com gh falso (tracker em memória) entram com o wrapper no PATH; os demais usam o gh real.
+  fakeGh?: boolean;
 }
 
 const delegateCalls = (run: Run) => run.calls.filter((c) => c.name === "orch_delegate");
@@ -30,7 +32,82 @@ const itemsOf = (run: Run): Record<string, unknown>[] =>
   delegateCalls(run).flatMap((c) => (Array.isArray(c.args.tasks) ? (c.args.tasks as Record<string, unknown>[]) : []));
 const forbidden = ["bash", "read", "grep", "find", "ls", "edit", "write", "subagent"];
 
+const issueCreates = (run: Run) =>
+  run.calls
+    .filter((c) => c.name === "orch_plan_create")
+    .flatMap((c) => (c.args.items as Record<string, unknown>[]) ?? []);
+const sourceOf = (item: Record<string, unknown>): string => {
+  const s = (item.delegate as { source?: unknown } | undefined)?.source;
+  return typeof s === "string" ? s : "";
+};
+const sourceNumber = (item: Record<string, unknown>): number | null => {
+  const m = /\/issues\/(\d+)$/.exec(sourceOf(item));
+  return m ? Number(m[1]) : null;
+};
+
 export const scenarios: Scenario[] = [
+  {
+    id: "triagem-conjunto-issues-com-distrator",
+    fakeGh: true,
+    prompt: (fx) =>
+      `Implemente as issues visuais abertas do Herdr no repositório exemplo/herdr, a partir do projeto ${fx.alpha}. ` +
+      `Modelo claude-bridge/claude-haiku-5-5, modo direct-pr. Autorizo a execução: monte o plano e aprove, para lançar o que as dependências liberarem.`,
+    checks: [
+      (run) => ({
+        name: "consultou o tracker (gh issue list ou view)",
+        ok: run.calls.some((c) => c.name === "bash" && /gh(-axi)?\s+issue\s+(list|view)/.test(JSON.stringify(c.args))),
+        detail: run.calls.map((c) => c.name).join(","),
+      }),
+      (run) => ({
+        name: "criou o plano com orch_plan_create",
+        ok: run.calls.some((c) => c.name === "orch_plan_create"),
+        detail: run.calls.map((c) => c.name).join(","),
+      }),
+      (run) => {
+        const nums = issueCreates(run)
+          .map(sourceNumber)
+          .filter((n) => n !== null);
+        return {
+          name: "plano tem uma unidade por issue (#224, #225, #226), sem #229",
+          ok: [224, 225, 226].every((n) => nums.filter((x) => x === n).length === 1) && !nums.includes(229),
+          detail: JSON.stringify(nums),
+        };
+      },
+      (run) => {
+        const items = issueCreates(run).filter((i) => sourceNumber(i) !== null);
+        const idx = (n: number) => items.findIndex((i) => sourceNumber(i) === n) + 1;
+        const deps = (n: number) => ((items[idx(n) - 1]?.depends_on as string[] | undefined) ?? []).map(String);
+        return {
+          name: "dependências: #225 depende de #224 e #226 depende de #225",
+          ok:
+            idx(225) > 0 &&
+            idx(226) > 0 &&
+            deps(225).includes(String(idx(224))) &&
+            deps(226).includes(String(idx(225))),
+          detail: JSON.stringify(items.map((i) => ({ src: sourceNumber(i), depends_on: i.depends_on }))),
+        };
+      },
+      (run) => ({
+        name: "cada delegação tem source com URL de issue",
+        ok: issueCreates(run)
+          .filter((i) => i.delegate)
+          .every((i) => /https:\/\/github\.com\/[^/]+\/[^/]+\/issues\/\d+$/.test(sourceOf(i))),
+        detail: JSON.stringify(
+          issueCreates(run).map((i) => (i.delegate as Record<string, unknown> | undefined)?.source),
+        ),
+      }),
+      (run, t) => ({
+        name: "lançou só o elegível: um worker, do #224",
+        ok: t.count === 1 && /#224/.test(t.briefs[0] ?? "") && !/#225|#226|#229/.test(t.briefs[0] ?? ""),
+        detail: `criados=${t.count} briefs=${JSON.stringify(t.briefs.map((b) => b.slice(0, 80)))}`,
+      }),
+      (run) => ({
+        name: "resposta final explica a exclusão do #229 com a URL ou o número",
+        ok: /229/.test(run.finalText) && /(gate|qualidade|não .{0,40}(apresenta|corresponde|é))/i.test(run.finalText),
+        detail: run.finalText.slice(0, 300),
+      }),
+    ],
+  },
   {
     id: "dois-trabalhos-independentes",
     prompt: (fx) =>
