@@ -62,10 +62,11 @@ test("report com critérios não ganha permissão de publicação no ticket", as
   assert.deepEqual(ticket.authority, { execute_plan: false, integrate: false });
 });
 
-test("legado: delegação sem critérios continua sem ticket, como antes", async () => {
+test("legado: delegação de PR sem critérios continua sem ticket, como antes", async () => {
   const h = makeHarness();
   realProject(h);
-  const { acceptance: _omit, ...input } = delegateInput(h.project);
+  // keep: issue exige critérios desde #240; o caminho legado sem ticket é o de PR.
+  const { acceptance: _omit, ...input } = delegateInput(h.project, { source: "https://github.com/acme/repo/pull/7" });
   void _omit;
   const t = await h.orch.delegate(input);
   assert.equal(existsSync(join(t.task_dir, TICKET_FILE)), false);

@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { toExecutionTicket, validationFromScripts, type ExecutionTicket } from "../shared/execution-ticket.ts";
+import { checkIssueDelegation, isIssueWork, issueSendScope, repoFromRemote } from "../shared/delegation-gate.ts";
 import { TICKET_FILE } from "../shared/plan.ts";
 import { latestAsk, oracleVerdictFor } from "../shared/ask.ts";
 import {
@@ -275,9 +276,27 @@ export class Orchestrator {
   }
 
   checkDelegate(input: DelegateInput): void {
+    this.assertContract(input);
     resolveModel(input.model, this.d.availableModels());
     buildIntake({ ...input, model: input.model });
     this.assertNotActive(input);
+  }
+
+  // keep: #240 gate antes de qualquer pane, worktree ou registro; a recusa lista os campos ausentes ou o conflito.
+  private assertContract(input: DelegateInput): void {
+    const origin = isIssueWork(input) ? this.originRepoOf(input.project_path) : null;
+    const refusal = checkIssueDelegation(input, origin);
+    if (refusal) throw new Error(refusal);
+  }
+
+  private originRepoOf(projectPath: string): string | null {
+    try {
+      return repoFromRemote(
+        execFileSync("git", ["remote", "get-url", "origin"], { cwd: projectPath, encoding: "utf8" }),
+      );
+    } catch {
+      return null;
+    }
   }
 
   checkBatch(inputs: DelegateInput[]): void {
@@ -325,6 +344,7 @@ export class Orchestrator {
     const input = this.d.enrichSource ? await this.d.enrichSource(rawInput) : rawInput;
     const badRelease = invalidToolRelease(input.allowed_tools ?? []);
     if (badRelease) throw new Error(badRelease);
+    this.assertContract(input);
     this.assertNotActive(input);
     const model = this.d.chooseModel
       ? (await this.d.chooseModel(input.model)).model
@@ -1005,6 +1025,9 @@ export class Orchestrator {
     if (t.status !== "running" && t.status !== "blocked" && t.status !== "done")
       throw new Error(`tarefa ${taskId} não aceita mensagem (status: ${t.status}); ${proximoPasso(t.status)}`);
     if (text.trim() === "") throw new Error("mensagem vazia");
+    // keep: #240 troca de escopo recusada antes de painel ou estado; a tarefa segue como estava.
+    const scope = issueSendScope({ source: t.source, mode: t.mode }, text);
+    if (scope) throw new Error(scope);
     if (askId !== undefined) {
       if (t.last_answered_ask_id === askId) throw new Error(`pergunta ${askId} já foi respondida; nada foi enviado`);
       if (t.status !== "running" || t.pending_ask?.id !== askId)

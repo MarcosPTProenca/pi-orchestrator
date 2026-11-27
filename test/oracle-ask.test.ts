@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { makeHarness } from "./fakes.ts";
+import { makeHarness, writeManifest } from "./fakes.ts";
 import { asWorker, reportDone } from "./worker-harness.ts";
 import { askMessageFor } from "../src/orchestrator/messages.ts";
 import {
@@ -36,6 +36,7 @@ const contractInput = {
 
 async function startTask() {
   const h = makeHarness();
+  writeManifest(h.project);
   const t = await h.orch.delegate({
     project_path: h.project,
     role: "a",
@@ -43,6 +44,7 @@ async function startTask() {
     objective: "X funciona",
     mode: "direct-pr",
     source: "https://github.com/o/r/issues/221",
+    acceptance: ["X funciona no fluxo de pergunta e resposta"],
   });
   return { h, t };
 }

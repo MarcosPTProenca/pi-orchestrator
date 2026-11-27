@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { writeManifest } from "./fakes.ts";
 import orchestratorExtension from "../src/orchestrator/extension.ts";
 import { PlanStore } from "../src/orchestrator/plans.ts";
 
@@ -34,6 +35,7 @@ function delegateFor(n: number, source: string | undefined = sourceOf(n)) {
     model: MODEL,
     request: `Implemente a issue #${n}.`,
     objective: `Critérios da issue #${n} atendidos.`,
+    acceptance: [`Critérios da issue #${n} atendidos com testes verdes`],
     ...(source === undefined ? {} : { source }),
   };
 }
@@ -96,6 +98,7 @@ function setup() {
   const stateDir = mkdtempSync(join(tmpdir(), "triagem-state-"));
   const project = mkdtempSync(join(tmpdir(), "triagem-proj-"));
   mkdirSync(join(project, ".git"));
+  writeManifest(project);
   const saved = { dry: process.env.PI_ORCH_DRY_RUN, dir: process.env.PI_ORCH_STATE_DIR, path: process.env.PATH };
   process.env.PI_ORCH_DRY_RUN = "1";
   process.env.PI_ORCH_STATE_DIR = stateDir;
