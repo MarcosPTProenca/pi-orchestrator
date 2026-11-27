@@ -14,6 +14,7 @@
     "doctor:complete": "node --import tsx scripts/doctor.ts --profile complete",
     "eval:approval": "node --import tsx evals/approval-flow.ts",
     "eval:pipeline": "node --import tsx evals/pipeline-run.ts",
+    "eval:oracle": "node --import tsx evals/oracle-acionamento.ts",
     "usage:real-pi": "node --import tsx scripts/usage-real-pi.ts",
     "usage:report": "node --import tsx scripts/usage-report.ts",
     "cache:check": "node --import tsx scripts/cache-warming-check.ts",

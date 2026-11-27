@@ -88,6 +88,20 @@ Antes de um item de plano sem PR avançar no `done`, o orquestrador confere o re
 
 Formato esperado do `VISION.md`: Markdown livre na raiz do repositório. Recomendado: um `# Título` com o nome do projeto e seções curtas com o propósito, o que está dentro do escopo, o que está fora e os princípios que decidem conflitos. Como o arquivo é lido inteiro, mantenha-o enxuto: ele é enviado a cada tarefa e a cada revisão.
 
+## Quando o Oracle é acionado
+
+O subagent `oracle-ro` (somente leitura, contexto limpo) tem quatro pontos de acionamento. Coordenar issues já definidas não é um deles.
+
+1. **Spec e tickets.** Nas etapas `grill-with-docs`, `to-spec` e `to-tickets`, o orquestrador roda o Oracle antes de apresentar a spec ou os tickets.
+2. **Pergunta operacional de worker.** Antes de responder a um worker, com `orch_ask_verdict`.
+3. **Revisão de escopo.** Quando um item de plano reporta `done`, com `orch_scope_verdict` (ver "Revisão de escopo").
+4. **Não aciona:** triagem, `orch_plan_*`, `orch_send`, `orch_status` e lançamento de workers para issues que você citou. A confirmação da triagem na conversa basta.
+
+Reproduzir a regressão do #243 (live, usa o modelo do `--model`, padrão `openai-codex/gpt-6.1-sol`, e pode gastar tokens):
+
+- `npm run eval:oracle` roda dois cenários em `pi` com `gh` falso: pedido operacional #239 → #240/#241 (nenhum Oracle; aprovação só após confirmação) e spec/tickets (Oracle chamado). Sai com código 1 se algum check falhar.
+- Os testes determinísticos da regra estão em `test/oracle-acionamento.test.ts` (`npm test`).
+
 ## Permissões
 
 Cada tarefa recebe um ticket de execução (`src/shared/execution-ticket.ts`) com permissões por modo:
