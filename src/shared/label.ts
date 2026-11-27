@@ -30,6 +30,8 @@ function slug(text: string, max: number): string {
     .replace(/-+$/g, "");
 }
 
+export const ORCHESTRATOR_PANE_LABEL = "PI FACTORY · ORCHESTRATOR";
+
 export function orchestratorAgentName(cwd: string): string {
   const folder = basename(cwd)
     .normalize("NFD")

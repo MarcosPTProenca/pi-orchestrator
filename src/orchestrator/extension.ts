@@ -26,7 +26,7 @@ import {
 import { FixLoopStore, type FixAction, type FixRecord } from "./fix-loop.ts";
 import { judgeDone, type VerifyEnv } from "./verify.ts";
 import { FixQueue } from "./queue.ts";
-import { orchestratorAgentName } from "../shared/label.ts";
+import { ORCHESTRATOR_PANE_LABEL, orchestratorAgentName } from "../shared/label.ts";
 import { Store, defaultStateDir } from "../shared/store.ts";
 import { deliveryFromFix, integrationRoute, repoPolicyFor, ticketFacts } from "./delivery.ts";
 import {
@@ -870,12 +870,14 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     startSweep();
     const pane = process.env.HERDR_PANE_ID;
     if (pane) {
+      // keep: só o pane próprio da sessão; nunca renomeia pane de worker ou de terceiros.
       execFile(
         "herdr",
         ["agent", "rename", pane, orchestratorAgentName(ctx.cwd)],
         { timeout: 15_000 },
         () => undefined,
       );
+      execFile("herdr", ["pane", "rename", pane, ORCHESTRATOR_PANE_LABEL], { timeout: 15_000 }, () => undefined);
     }
     await orch.reconcile();
     const pending = await orch.pendingNotices();
