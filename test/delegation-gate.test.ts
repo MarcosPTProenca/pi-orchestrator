@@ -8,6 +8,7 @@ import {
   repoFromRemote,
 } from "../src/shared/delegation-gate.ts";
 import type { DelegateInput } from "../src/shared/task.ts";
+import { fixInputFor, type RedPr } from "../src/shared/prs.ts";
 
 const REPO = "https://github.com/exemplo/herdr";
 
@@ -182,4 +183,46 @@ test("pesquisa (report) com proibição de publicação é coerente e passa", ()
 test("design com proibição de publicação continua fora do gate de publicação", () => {
   const design = implementation({ mode: "design", constraints: [PROIBE_PUBLICAR], acceptance: undefined });
   assert.equal(publicationConflict(design), null);
+});
+
+const RED_PR: RedPr = {
+  number: 137,
+  title: "feat: rota",
+  headRefName: "fm/al-issue-63-q1",
+  baseRefName: "master",
+  url: "https://github.com/exemplo/herdr/pull/137",
+  failing: ["quality"],
+  mergeable: "MERGEABLE",
+  mergeStateStatus: "CLEAN",
+};
+
+test("fix de PR vermelha (orch_fix_red_prs) passa o gate de publicação (#244)", () => {
+  assert.equal(publicationConflict(fixInputFor(RED_PR, "/repo")), null);
+});
+
+test("fix de PR vermelha com conflito de merge passa o gate (#244)", () => {
+  const dirty = fixInputFor({ ...RED_PR, mergeable: "CONFLICTING", mergeStateStatus: "DIRTY" }, "/repo");
+  assert.equal(publicationConflict(dirty), null);
+});
+
+test("restrições de src/shared/prs.ts não viram proibição de publicação (#244)", () => {
+  for (const constraint of [
+    "Push somente na branch fm/al-issue-63-q1; não abra outro PR.",
+    "Não feche PR e não faça merge.",
+    "A PR tem conflito com a base master: não force-push na base.",
+    "Não atualize baselines, não desabilite testes nem lint para passar.",
+  ]) {
+    assert.equal(publicationConflict(implementation({ constraints: [constraint] })), null, constraint);
+  }
+});
+
+test("proibição real de abrir PR ou publicar continua recusada (#244)", () => {
+  for (const constraint of [
+    "Não abra PR nem faça push.",
+    "Sem abrir PR sem pedido explícito.",
+    "Não crie PR.",
+    "Não publique a branch.",
+  ]) {
+    assert.ok(publicationConflict(implementation({ constraints: [constraint] })), constraint);
+  }
 });
