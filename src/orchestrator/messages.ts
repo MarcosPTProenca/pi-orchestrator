@@ -70,7 +70,7 @@ export function askMessageFor(e: WatchEvent, contract?: string): string {
   if (e.hint) lines.push(`Aviso do diálogo: ${clip(e.hint, 400)}`);
   lines.push(
     "",
-    "1. Rode o subagent `oracle` com contexto limpo (não passe a sua conversa), somente leitura, com este contrato:",
+    "1. Rode o subagent `oracle-ro` (somente leitura, sem bash) com contexto limpo (não passe a sua conversa), com este contrato:",
     contract ?? "(contrato indisponível: confira só pela spec e pelo pedido)",
     `2. Chame orch_ask_verdict(task_id="${e.task_id}", ask_id="${askId}", raw=<JSON do subagent>). Uma consulta por pergunta: a segunda é recusada.`,
     `3. Só responda se o parecer for answered e a orientação couber na spec, no VISION.md ou no pedido do usuário: orch_send(task_id="${e.task_id}", ask_id="${askId}", text). Sem parecer autorizado, a resposta não chega ao worker.`,

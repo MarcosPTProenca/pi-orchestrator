@@ -68,12 +68,12 @@ export interface ScopeContext {
   vision: VisionDoc;
 }
 
-// keep: o revisor roda como subagent oracle com contexto limpo; quem o aciona é o LLM do orquestrador, e o parecer volta por orch_scope_verdict.
+// keep: o revisor roda como subagent oracle-ro com contexto limpo; quem o aciona é o LLM do orquestrador, e o parecer volta por orch_scope_verdict.
 export function scopeReviewText(c: ScopeContext): string {
   return [
     `Revisão de escopo do item ${c.planId}/${c.itemId} (${c.itemTitle}), tarefa ${c.taskId} (${c.projectLabel}).`,
     "O worker reportou done e a verificação passou. O plano não avança antes do parecer.",
-    "1. Rode o subagent `oracle` com contexto limpo (não passe a sua conversa), com ferramentas somente leitura.",
+    "1. Rode o subagent `oracle-ro` com contexto limpo (não passe a sua conversa), com ferramentas somente leitura (sem bash).",
     "2. Entregue a ele este contrato:",
     `   - Repositório: ${c.projectPath}. Leia o resultado com git (git log, git diff) a partir da branch ou dos artefatos abaixo.`,
     `   - Pedido: ${c.request}`,

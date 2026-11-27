@@ -1,11 +1,13 @@
 import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { READ_ONLY_TOOLS } from "../shared/review.ts";
 
-// keep: só estes nomes de subagent são tratados como Oracle; a captura e o gate olham só eles.
-const ORACLE_AGENTS: readonly string[] = ["oracle", "advisor"];
+// keep: agente somente leitura do próprio repo (.pi/agents/oracle-ro.md); o gate lê esse arquivo antes de cada consulta.
+export const ORACLE_AGENT = "oracle-ro";
 const MARKER_RE = /Marcador de consulta: ([0-9a-f]{16})/;
 
-// keep: a saída real do subagent é a prova de origem do parecer; o texto que o orquestrador repassa não basta.
+// keep: captura da saída real do subagent é a prova de origem do parecer; o texto que o orquestrador repassa não basta.
 export interface OracleCapture {
   token: string;
   agent: string;
@@ -27,6 +29,26 @@ export function oracleToolGate(tools: readonly string[] | undefined): string | n
   return extra.length === 0 ? null : `subagent oracle é somente leitura; recusado: ${extra.join(", ")}`;
 }
 
+// keep: o campo tools do frontmatter é a allowlist que o subagent recebe; sem ele, o agente herda todas as ferramentas.
+export function parseAgentTools(markdown: string): string[] | undefined {
+  const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(markdown);
+  if (!frontmatter) return undefined;
+  const line = /^tools:[ \t]*(.*)$/m.exec(frontmatter[1]);
+  if (!line) return undefined;
+  return line[1]
+    .split(",")
+    .map((t) => t.trim())
+    .filter((t) => t !== "");
+}
+
+// keep: decisão do hook tool_call: consulta ao Oracle só roda se o agente do projeto for somente leitura.
+export function oracleCallGate(input: { agent: unknown; cwd: string }): string | null {
+  if (input.agent !== ORACLE_AGENT) return null;
+  const file = join(input.cwd, ".pi", "agents", `${ORACLE_AGENT}.md`);
+  if (!existsSync(file)) return `agente ${ORACLE_AGENT} não definido em .pi/agents deste projeto; consulta recusada`;
+  return oracleToolGate(parseAgentTools(readFileSync(file, "utf8")));
+}
+
 interface Launch {
   token: string;
   agent: string;
@@ -39,11 +61,11 @@ export class OracleCaptures {
   private readonly byToken = new Map<string, OracleCapture>();
 
   noteCall(toolCallId: string, input: { agent?: unknown; task?: unknown; model?: unknown }): void {
-    if (typeof input.agent !== "string" || !ORACLE_AGENTS.includes(input.agent)) return;
+    if (input.agent !== ORACLE_AGENT) return;
     const m = typeof input.task === "string" ? MARKER_RE.exec(input.task) : null;
     if (!m) return;
     const model = typeof input.model === "string" ? input.model : null;
-    this.launches.set(toolCallId, { token: m[1], agent: input.agent, model });
+    this.launches.set(toolCallId, { token: m[1], agent: ORACLE_AGENT, model });
   }
 
   noteResult(toolCallId: string, output: string, isError: boolean): void {

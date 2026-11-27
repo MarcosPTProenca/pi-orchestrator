@@ -9,7 +9,7 @@ import {
   settleOracleVerdict as settleRaw,
   type SettleInput,
 } from "../src/orchestrator/oracle-ask.ts";
-import { consultToken, OracleCaptures } from "../src/orchestrator/oracle-guard.ts";
+import { consultToken, ORACLE_AGENT, OracleCaptures } from "../src/orchestrator/oracle-guard.ts";
 import { latestAsk } from "../src/shared/ask.ts";
 
 const answered = (answer = "use o helper de src/shared/x.ts") =>
@@ -241,7 +241,7 @@ test("E2E: parecer forjado é recusado; só a saída capturada de uma consulta l
   assert.equal(h.herdr.opsOf("prompt").length, 0);
 
   const inconclusive = JSON.stringify({ verdict: "inconclusive", reason: "a spec não diz" });
-  captures.noteCall("call-1", { agent: "oracle", task, model: "m" });
+  captures.noteCall("call-1", { agent: ORACLE_AGENT, task, model: "m" });
   captures.noteResult("call-1", inconclusive, false);
   assert.throws(
     () => settleRaw({ taskId: t.task_id, taskDir: t.task_dir, askId, raw: answered(), capture: captures.get(token) }),
@@ -265,7 +265,7 @@ test("E2E: consulta lançada com marcador -> parecer answered capturado -> respo
     projectPath: h.project,
     visionPath: `${h.project}/VISION.md`,
   });
-  captures.noteCall("call-ok", { agent: "oracle", task, model: "m" });
+  captures.noteCall("call-ok", { agent: ORACLE_AGENT, task, model: "m" });
   captures.noteResult("call-ok", answered(), false);
   const text = settleRaw({
     taskId: t.task_id,

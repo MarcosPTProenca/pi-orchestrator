@@ -54,7 +54,7 @@ import {
 import { missingVisionNotice, parseScopeVerdict, scopeReviewText, scopeStep } from "./scope.ts";
 import { readVision, VISION_FILE } from "../shared/intake.ts";
 import { oracleContract, settleOracleVerdict } from "./oracle-ask.ts";
-import { consultToken, OracleCaptures } from "./oracle-guard.ts";
+import { consultToken, oracleCallGate, OracleCaptures } from "./oracle-guard.ts";
 import { EVENT_POLICY, UI_ENTRY, emitEvent, statusKind, wakesLlm, type EventSink } from "../policy/event-policy.ts";
 import { orchestratorUsage } from "../shared/usage.ts";
 import { NoticeBatcher } from "./notices.ts";
@@ -891,8 +891,13 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("cache_warming_decision", () => cacheWarmingOverride());
-  pi.on("tool_call", (event) => {
-    if (event.toolName === "subagent") oracleCaptures.noteCall(event.toolCallId, event.input);
+  // keep: o gate roda antes do subagent; agente do Oracle sem bash e sem escrita não chega a ser lançado.
+  pi.on("tool_call", (event, ctx) => {
+    if (event.toolName !== "subagent") return undefined;
+    const reason = oracleCallGate({ agent: event.input.agent, cwd: ctx.cwd });
+    if (reason) return { block: true, reason };
+    oracleCaptures.noteCall(event.toolCallId, event.input);
+    return undefined;
   });
   pi.on("tool_result", (event) => {
     if (event.toolName !== "subagent") return;

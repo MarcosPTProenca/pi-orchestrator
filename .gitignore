@@ -1,2 +1,3 @@
-.pi/
+.pi/*
+!.pi/agents/
 node_modules/
