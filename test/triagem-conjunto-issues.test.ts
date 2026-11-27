@@ -5,6 +5,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { parseExecutionTicket } from "../src/shared/execution-ticket.ts";
+import { approveSpec, renderSpec, verifySpec } from "../src/shared/spec.ts";
 import { TICKET_FILE } from "../src/shared/plan.ts";
 import { writeManifest } from "./fakes.ts";
 import orchestratorExtension from "../src/orchestrator/extension.ts";
@@ -200,6 +201,24 @@ test("#239 integração: seleção → plano com uma unidade por issue → deleg
 // keep: #255 — o fluxo plano -> aprovação -> launchReady -> delegate precisa passar no assertContract e gravar ticket.json válido.
 const ACC_SOURCE = "https://github.com/exemplo/herdr/issues/224";
 const ACC_CRITERIA = ["Teste de regressão do bug X passa", "npm test verde"];
+const PLAN_SPEC_BODY = `# Spec\n## Problema\np\n## Comportamento\nc\n## Requisitos\n- R1: comportamento demonstrável\n## Cenários\n- S1 (R1): Given a / When b / Then cenário concluído\n## Non-goals\n- nada\n## Invariantes\n- i\n## Validação\n- npm test\n## Suposições\n- s\n## Decisões pendentes\n- nenhuma\n`;
+const PLAN_SPEC = approveSpec(renderSpec(PLAN_SPEC_BODY, "reviewed"), "user");
+const PLAN_TICKET = {
+  id: "comportamento",
+  title: "Comportamento ponta a ponta",
+  parent_fingerprint: verifySpec(PLAN_SPEC).fingerprint,
+  what: "Entregar comportamento demonstrável",
+  requirements: ["R1"],
+  scenarios: [{ id: "AC-1", given: "a", when: "b", then: "cenário concluído" }],
+  context: "",
+  test_seams: ["integração"],
+  non_goals: [],
+  blocked_by: [],
+  validation: ["npm test"],
+  dod: [],
+  source: ACC_SOURCE,
+};
+const PLAN_TARGET = { project_path: "/repo", mode: "direct-pr" };
 
 const acceptanceDelegate = (project: string, overrides: Record<string, unknown> = {}) => ({
   project_path: project,
@@ -228,6 +247,124 @@ test("schema de orch_plan_create declara acceptance em delegate (todas as chaves
     const missing = accepted.filter((k) => !(k in delegateSchema.properties));
     assert.deepEqual(missing, [], "chaves de delegate ausentes no schema seriam rejeitadas pelo Pi");
     assert.ok("acceptance" in delegateSchema.properties);
+  } finally {
+    h.restore();
+  }
+});
+
+test("orch_plan_create aceita spec + tickets + target e mantém origem e acceptance", async () => {
+  const h = setup();
+  try {
+    const schema = h.f.schemaOf("orch_plan_create") as { properties: Record<string, unknown> };
+    assert.ok("spec" in schema.properties);
+    assert.ok("tickets" in schema.properties);
+    assert.ok("target" in schema.properties);
+    await h.f.call("orch_plan_create", {
+      id: "plano-spec-runtime",
+      title: "Plano ligado à spec",
+      spec: PLAN_SPEC,
+      tickets: [PLAN_TICKET],
+      target: PLAN_TARGET,
+    });
+    const plan = new PlanStore(join(h.stateDir, "plans")).show("plano-spec-runtime");
+    assert.equal(plan.items[0].delegate?.source, ACC_SOURCE);
+    assert.deepEqual(plan.items[0].delegate?.acceptance, ["cenário concluído"]);
+    assert.deepEqual(plan.items[0].depends_on, []);
+  } finally {
+    h.restore();
+  }
+});
+
+test("orch_plan_create exige source da issue em ticket direct-pr", async () => {
+  const h = setup();
+  try {
+    const ticketWithoutSource = { ...PLAN_TICKET, source: undefined };
+    await assert.rejects(
+      h.f.call("orch_plan_create", {
+        id: "sem-source",
+        title: "Plano ligado à spec",
+        spec: PLAN_SPEC,
+        tickets: [ticketWithoutSource],
+        target: PLAN_TARGET,
+      }),
+      /item 1: delegate.source obrigatório/,
+    );
+    assert.equal(existsSync(join(h.stateDir, "plans", "sem-source.json")), false);
+  } finally {
+    h.restore();
+  }
+});
+
+test("orch_plan_create rejeita o trio spec/tickets/target incompleto ou junto com items", async () => {
+  const h = setup();
+  try {
+    await assert.rejects(
+      h.f.call("orch_plan_create", { id: "sem-target", title: "x", spec: PLAN_SPEC, tickets: [PLAN_TICKET] }),
+      /target/,
+    );
+    await assert.rejects(
+      h.f.call("orch_plan_create", {
+        id: "ambiguous",
+        title: "x",
+        items: [{ title: "x" }],
+        spec: PLAN_SPEC,
+        tickets: [PLAN_TICKET],
+        target: PLAN_TARGET,
+      }),
+      /mutuamente exclusivos/,
+    );
+  } finally {
+    h.restore();
+  }
+});
+
+test("orch_plan_create no runtime recusa cada falha do gate com código e item", async () => {
+  const h = setup();
+  try {
+    const cases = [
+      {
+        id: "spec-draft",
+        spec: renderSpec(PLAN_SPEC_BODY, "draft"),
+        tickets: [PLAN_TICKET],
+        code: "spec_not_approved",
+      },
+      {
+        id: "horizontal",
+        spec: PLAN_SPEC,
+        tickets: [{ ...PLAN_TICKET, title: "Criar tabela de dados" }],
+        code: "horizontal_slice",
+      },
+      {
+        id: "cycle",
+        spec: PLAN_SPEC,
+        tickets: [
+          PLAN_TICKET,
+          { ...PLAN_TICKET, id: "segundo", title: "Segundo comportamento", blocked_by: ["comportamento"] },
+        ].map((t, i) => (i === 0 ? { ...t, blocked_by: ["segundo"] } : t)),
+        code: "dependency_cycle",
+      },
+      {
+        id: "uncovered",
+        spec: PLAN_SPEC,
+        tickets: [{ ...PLAN_TICKET, requirements: [] }],
+        code: "uncovered_requirement",
+      },
+    ];
+    for (const item of cases) {
+      await assert.rejects(
+        h.f.call("orch_plan_create", {
+          id: `gate-${item.id}`,
+          title: "Plano ligado à spec",
+          spec: item.spec,
+          tickets: item.tickets,
+          target: PLAN_TARGET,
+        }),
+        new RegExp(
+          `${item.code}.*${item.id === "spec-draft" ? "draft" : item.id === "uncovered" ? "R1" : item.id === "cycle" ? "comportamento" : "comportamento"}`,
+        ),
+      );
+      assert.equal(existsSync(join(h.stateDir, "plans", `gate-${item.id}.json`)), false);
+    }
   } finally {
     h.restore();
   }

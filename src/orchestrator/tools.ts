@@ -8,7 +8,16 @@ import type { DelegateInput } from "../shared/task.ts";
 import { fixInputFor, listRedPrs } from "../shared/prs.ts";
 import { FixQueue } from "./queue.ts";
 import { locateProject } from "./locate.ts";
-import { ITEM_STATUSES, requireIssueSources, type ItemInput, type ItemStatus, type PlanStore } from "./plans.ts";
+import {
+  ITEM_STATUSES,
+  requireIssueSources,
+  type ItemInput,
+  type ItemStatus,
+  type PlanDelegate,
+  type PlanStore,
+} from "./plans.ts";
+import { planItemsFromTickets } from "./ticket-plan.ts";
+import type { TicketDraft } from "../shared/ticket-gate.ts";
 import { EVENT_POLICY, emitEvent, type EventSink } from "../policy/event-policy.ts";
 import { capError } from "../policy/cap.ts";
 import { summarizeUsage } from "./usage-report.ts";
@@ -416,12 +425,73 @@ export function registerOrchestratorTools(pi: ExtensionAPI, ctx: OrchestratorToo
     name: "orch_plan_create",
     label: "orch plan create",
     description:
-      "Registra um plano entregue pelo usuário, fora dos repositórios, em rascunho: não lança nada até orch_plan_approve. Cada item é um título (manual) ou um objeto com `depends_on` (ids de itens anteriores) e `delegate` (especificação de lançamento: project_path, request, objective, mode, source, e opcionalmente role, model, branch, acceptance). `source` é a URL da issue de origem e é obrigatório em cada delegate. `acceptance` (critérios verificáveis) é obrigatório em delegate com mode direct-pr e grava o ticket.json do worker. Itens com `delegate` são lançados sozinhos quando as dependências são concluídas; o orquestrador não precisa ser lembrado.",
+      "Registra um plano em rascunho: não lança nada até orch_plan_approve. Use items para o formato manual atual, ou spec + tickets + target para criar um plano validado contra uma spec aprovada; os formatos são mutuamente exclusivos. source é obrigatória em cada delegate e acceptance em direct-pr.",
     parameters: {
       type: "object",
       properties: {
         id: { type: "string" },
         title: { type: "string" },
+        spec: { type: "string", description: "Markdown da spec aprovada que vincula os tickets ao plano." },
+        tickets: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              title: { type: "string" },
+              source: { type: "string", description: "URL canônica da issue publicada no GitHub." },
+              parent_fingerprint: { type: "string" },
+              what: { type: "string" },
+              requirements: { type: "array", items: { type: "string" } },
+              scenarios: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string" },
+                    given: { type: "string" },
+                    when: { type: "string" },
+                    then: { type: "string" },
+                  },
+                  required: ["id", "given", "when", "then"],
+                  additionalProperties: false,
+                },
+              },
+              context: { type: "string" },
+              test_seams: { type: "array", items: { type: "string" } },
+              non_goals: { type: "array", items: { type: "string" } },
+              blocked_by: { type: "array", items: { type: "string" } },
+              validation: { type: "array", items: { type: "string" } },
+              dod: { type: "array", items: { type: "string" } },
+            },
+            required: [
+              "id",
+              "title",
+              "parent_fingerprint",
+              "what",
+              "requirements",
+              "scenarios",
+              "context",
+              "test_seams",
+              "non_goals",
+              "blocked_by",
+              "validation",
+              "dod",
+            ],
+            additionalProperties: false,
+          },
+        },
+        target: {
+          type: "object",
+          properties: {
+            project_path: { type: "string" },
+            mode: { type: "string", enum: ["report", "direct-pr", "design"] },
+            role: { type: "string" },
+            model: { type: "string" },
+          },
+          required: ["project_path", "mode"],
+          additionalProperties: false,
+        },
         items: {
           type: "array",
           items: {
@@ -460,12 +530,32 @@ export function registerOrchestratorTools(pi: ExtensionAPI, ctx: OrchestratorToo
           },
         },
       },
-      required: ["id", "title", "items"],
+      required: ["id", "title"],
       additionalProperties: false,
     },
     async execute(_id: string, raw: Record<string, unknown>) {
       assertWritable();
-      const items = Array.isArray(raw.items) ? (raw.items as (string | ItemInput)[]) : [];
+      const hasSpecRoute = raw.spec !== undefined || raw.tickets !== undefined || raw.target !== undefined;
+      let items: (string | ItemInput)[];
+      if (hasSpecRoute) {
+        if (raw.items !== undefined) throw new Error("items e spec/tickets/target são mutuamente exclusivos");
+        if (
+          typeof raw.spec !== "string" ||
+          !Array.isArray(raw.tickets) ||
+          typeof raw.target !== "object" ||
+          raw.target === null
+        ) {
+          throw new Error("plano vinculado a spec exige spec, tickets e target");
+        }
+        items = planItemsFromTickets(
+          raw.spec,
+          raw.tickets as TicketDraft[],
+          raw.target as Pick<PlanDelegate, "project_path" | "mode" | "role" | "model">,
+        );
+      } else {
+        if (!Array.isArray(raw.items)) throw new Error("forneça items ou o trio spec/tickets/target");
+        items = raw.items as (string | ItemInput)[];
+      }
       requireIssueSources(items);
       const plan = planStore.create(String(raw.id ?? ""), String(raw.title ?? ""), items);
       const delegated = plan.items.filter((i) => i.delegate !== null).length;
