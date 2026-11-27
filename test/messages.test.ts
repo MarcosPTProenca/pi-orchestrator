@@ -126,6 +126,10 @@ test("papel não proíbe dividir quando o usuário pede um conjunto de issues", 
   assert.match(ORCHESTRATOR_ROLE, /[Ii]tens de plano aprovado são lançados pelo plano/);
   assert.match(ORCHESTRATOR_ROLE, /não use orch_delegate nem orch_relaunch para eles/);
   assert.match(ORCHESTRATOR_ROLE, /[Nn]ão aprove um plano que contenha item excluído/);
+  assert.match(ORCHESTRATOR_ROLE, /mostre ao usuário a lista de issues selecionadas/);
+  assert.match(ORCHESTRATOR_ROLE, /exclusões com motivo e URL/);
+  assert.match(ORCHESTRATOR_ROLE, /espere a confirmação dele na conversa/);
+  assert.match(ORCHESTRATOR_ROLE, /só depois da confirmação chame orch_plan_approve/);
   assert.match(ORCHESTRATOR_ROLE, /com o motivo e a URL/);
   assert.match(ORCHESTRATOR_ROLE, /orch_plan_create/);
 });
