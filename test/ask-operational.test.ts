@@ -6,8 +6,6 @@ import { makeHarness, reopenHarness, writeReport } from "./fakes.ts";
 import { asWorker, reportDone } from "./worker-harness.ts";
 import { appendAsk } from "../src/shared/ask.ts";
 import { askMessageFor } from "../src/orchestrator/messages.ts";
-import { settleOracleVerdict as settleRaw } from "../src/orchestrator/oracle-ask.ts";
-import { consultToken } from "../src/orchestrator/oracle-guard.ts";
 
 const entry = (id: string, question = "Reutilizar qual contrato?") => ({
   id,
@@ -30,18 +28,6 @@ async function startTask(owner?: string) {
   return { h, t };
 }
 
-// keep: resposta com ask_id só segue com parecer answered do Oracle; este helper grava esse parecer como orch_ask_verdict faria.
-function oracleAnswered(taskId: string, taskDir: string, askId: string): void {
-  const raw = JSON.stringify({ verdict: "answered", answer: "use o helper", reason: "spec cita o helper" });
-  settleRaw({
-    taskId,
-    taskDir,
-    askId,
-    raw,
-    capture: { token: consultToken(taskId, askId), agent: "oracle", model: null, toolCallId: "c1", output: raw },
-  });
-}
-
 async function askAndNotice(
   h: Awaited<ReturnType<typeof startTask>>["h"],
   t: Awaited<ReturnType<typeof startTask>>["t"],
@@ -49,7 +35,6 @@ async function askAndNotice(
 ) {
   appendAsk(t.task_dir, e);
   await h.orch.refresh(t.task_id);
-  oracleAnswered(t.task_id, t.task_dir, e.id);
   return h.orch.noticeFor(t.task_id);
 }
 
@@ -111,20 +96,21 @@ test("relatório blocked continua sendo decisão humana, sem afetar o fluxo de p
   assert.equal((await h.orch.noticeFor(t.task_id))?.kind, undefined, "blocked segue o aviso comum");
 });
 
-test("texto do aviso manda consultar o Oracle e responder por orch_send só com parecer answered", () => {
+test("texto do aviso manda o orquestrador responder por orch_send, sem subagent nem orch_ask_verdict (#256)", () => {
   const msg = askMessageFor({
     task_id: "t-1",
     project_id: "p",
     status: "running",
     result: null,
     question: "Reutilizar qual contrato?",
+    ask_id: "a1",
     artifacts: [],
     error: null,
     kind: "ask",
   });
-  assert.match(msg, /orch_send/);
-  assert.match(msg, /orch_ask_verdict/);
-  assert.match(msg, /answered/);
+  assert.doesNotMatch(msg, /oracle|orch_ask_verdict/i);
+  assert.match(msg, /Responda você mesmo/);
+  assert.match(msg, /orch_send\(task_id="t-1", ask_id="a1", text=<orientação>\)/);
   assert.match(msg, /não use orch_answer/i);
   assert.match(msg, /Reutilizar qual contrato\?/);
 });
@@ -158,7 +144,6 @@ test("sequência completa: worker pergunta, orquestrador responde, worker conclu
     const ev = await h.orch.noticeFor(t.task_id);
     assert.equal(ev?.kind, "ask");
     assert.equal(h.orch.get(t.task_id).status, "running");
-    oracleAnswered(t.task_id, t.task_dir, ev?.ask_id ?? "");
     await h.orch.send(t.task_id, "use o helper de src/shared/x.ts", ev?.ask_id);
     assert.equal(h.herdr.opsOf("prompt").length, 1);
 

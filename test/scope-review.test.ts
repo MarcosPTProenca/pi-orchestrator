@@ -129,7 +129,7 @@ test("o contrato da revisão leva a VISION inteira e pede o JSON e a tool de par
     vision,
   });
   assert.ok(text.includes("Só planilha de evals."));
-  assert.ok(text.includes("subagent `oracle-ro` com contexto limpo"));
+  assert.ok(text.includes("Avalie você mesmo, sem subagent"));
   assert.ok(text.includes(`orch_scope_verdict(task_id="${T}"`));
   assert.ok(text.includes("https://github.com/o/r/issues/9"));
 });

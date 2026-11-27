@@ -68,13 +68,13 @@ export interface ScopeContext {
   vision: VisionDoc;
 }
 
-// keep: o revisor roda como subagent oracle-ro com contexto limpo; quem o aciona é o LLM do orquestrador, e o parecer volta por orch_scope_verdict.
+// keep: o orquestrador avalia a entrega ele mesmo (#256); o parecer volta por orch_scope_verdict e a verificação determinística segue como gate.
 export function scopeReviewText(c: ScopeContext): string {
   return [
     `Revisão de escopo do item ${c.planId}/${c.itemId} (${c.itemTitle}), tarefa ${c.taskId} (${c.projectLabel}).`,
-    "O worker reportou done e a verificação passou. O plano não avança antes do parecer.",
-    "1. Rode o subagent `oracle-ro` com contexto limpo (não passe a sua conversa), com ferramentas somente leitura (sem bash).",
-    "2. Entregue a ele este contrato:",
+    "O worker reportou done e a verificação passou. O plano não avança antes do seu parecer.",
+    "1. Avalie você mesmo, sem subagent, com o contrato abaixo. Seu parecer complementa a verificação determinística e não a substitui.",
+    "2. Contrato:",
     `   - Repositório: ${c.projectPath}. Leia o resultado com git (git log, git diff) a partir da branch ou dos artefatos abaixo.`,
     `   - Pedido: ${c.request}`,
     `   - Objetivo: ${c.objective}`,
@@ -83,8 +83,8 @@ export function scopeReviewText(c: ScopeContext): string {
     `   - Visão do projeto (${VISION_FILE}):`,
     visionText(c.vision),
     "   - Pergunte: o resultado está alinhado com a spec? Está no caminho da visão? O que foi feito além ou aquém do pedido?",
-    '3. Peça resposta só em JSON: {"verdict":"aligned"|"out_of_scope"|"unverified","reason":"uma frase"}. "unverified" quando o revisor não conseguir conferir.',
-    `4. Chame orch_scope_verdict(task_id="${c.taskId}", raw=<JSON do subagent>). Se a ferramenta recusar o JSON, corrija e chame de novo.`,
+    '3. Responda só em JSON: {"verdict":"aligned"|"out_of_scope"|"unverified","reason":"uma frase"}. "unverified" quando não conseguir conferir.',
+    `4. Chame orch_scope_verdict(task_id="${c.taskId}", raw=<seu JSON>). Se a ferramenta recusar o JSON, corrija e chame de novo.`,
     "Não corrija nada: divergência vai ao usuário como pergunta, e ele decide.",
   ].join("\n");
 }

@@ -58,8 +58,8 @@ export function modelMessageFor(e: WatchEvent): string {
   return lines.join("\n");
 }
 
-// keep: pergunta operacional não é decisão do usuário; o Oracle orienta, o orquestrador valida o escopo e só então responde ao worker.
-export function askMessageFor(e: WatchEvent, contract?: string): string {
+// keep: pergunta operacional não é decisão do usuário; o orquestrador responde só com orientação que a spec, a visão ou o pedido sustentem (#256).
+export function askMessageFor(e: WatchEvent): string {
   const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)} [truncado]` : text);
   const askId = e.ask_id ?? "(sem id)";
   const lines = [
@@ -70,11 +70,10 @@ export function askMessageFor(e: WatchEvent, contract?: string): string {
   if (e.hint) lines.push(`Aviso do diálogo: ${clip(e.hint, 400)}`);
   lines.push(
     "",
-    "1. Rode o subagent `oracle-ro` (somente leitura, sem bash) com contexto limpo (não passe a sua conversa), com este contrato:",
-    contract ?? "(contrato indisponível: confira só pela spec e pelo pedido)",
-    `2. Chame orch_ask_verdict(task_id="${e.task_id}", ask_id="${askId}", raw=<JSON do subagent>). Uma consulta por pergunta: a segunda é recusada.`,
-    `3. Só responda se o parecer for answered e a orientação couber na spec, no VISION.md ou no pedido do usuário: orch_send(task_id="${e.task_id}", ask_id="${askId}", text). Sem parecer autorizado, a resposta não chega ao worker.`,
-    "4. Parecer não autorizado ou falha: não responda ao worker. Informe o usuário da pergunta e do task_id; a pergunta segue pendente até a decisão dele. Não use orch_answer: a tarefa não está bloqueada.",
+    "1. Responda você mesmo, sem subagent, só se a spec, o VISION.md ou o pedido do usuário sustentarem a orientação. Leia o que precisar, em modo somente leitura.",
+    `2. Se sustentar: orch_send(task_id="${e.task_id}", ask_id="${askId}", text=<orientação>). Uma resposta por pergunta.`,
+    "3. Se não sustentar ou não der para confirmar: não responda ao worker. Informe o usuário da pergunta e do task_id; a pergunta segue pendente até a decisão dele.",
+    "4. Não use orch_answer: a tarefa não está bloqueada.",
   );
   return lines.join("\n");
 }

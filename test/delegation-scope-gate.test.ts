@@ -31,7 +31,6 @@ function toolsFor(h: Harness) {
     startTask: () => Promise.reject(new Error("não esperado nesta suíte")),
     launchReady: () => Promise.resolve(),
     scopeVerdict: () => Promise.resolve(""),
-    askVerdict: () => "",
     usage: () => null,
   };
   registerOrchestratorTools(pi, ctx);
