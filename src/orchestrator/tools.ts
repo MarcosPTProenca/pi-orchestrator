@@ -515,7 +515,7 @@ export function registerOrchestratorTools(pi: ExtensionAPI, ctx: OrchestratorToo
         assertWritable();
         const id = typeof raw.id === "string" ? raw.id : "";
         const plan = planStore.act(id, action);
-        const launching = action === "approve" ? launchReady(id).catch(() => undefined) : Promise.resolve();
+        const launching = action === "approve" ? launchReady(id) : Promise.resolve();
         return launching.then(() => asText({ id: plan.id, state: planStore.show(id).state }));
       },
     });

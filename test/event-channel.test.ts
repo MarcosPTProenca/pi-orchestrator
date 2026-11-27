@@ -55,6 +55,7 @@ const CHANNEL: Record<string, "tela" | "acorda"> = {
   "pending-replay": "acorda",
   "ci-action-sent": "tela",
   "plan-launched": "acorda",
+  "plan-failed": "acorda",
   "plan-transition": "acorda",
   "scope-review": "acorda",
   "scope-blocked": "acorda",
