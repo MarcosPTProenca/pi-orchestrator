@@ -5,7 +5,13 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { toExecutionTicket, validationFromScripts, type ExecutionTicket } from "../shared/execution-ticket.ts";
-import { checkIssueDelegation, isIssueWork, issueSendScope, repoFromRemote } from "../shared/delegation-gate.ts";
+import {
+  checkIssueDelegation,
+  isIssueWork,
+  issueSendScope,
+  publicationConflict,
+  repoFromRemote,
+} from "../shared/delegation-gate.ts";
 import { TICKET_FILE } from "../shared/plan.ts";
 import { latestAsk, oracleVerdictFor } from "../shared/ask.ts";
 import {
@@ -296,6 +302,8 @@ export class Orchestrator {
 
   // keep: #240 gate antes de qualquer pane, worktree ou registro; a recusa lista os campos ausentes ou o conflito.
   private assertContract(input: DelegateInput): void {
+    const conflict = publicationConflict(input);
+    if (conflict) throw new Error(conflict);
     const origin = isIssueWork(input) ? this.originRepoOf(input.project_path) : null;
     const refusal = checkIssueDelegation(input, origin);
     if (refusal) throw new Error(refusal);
