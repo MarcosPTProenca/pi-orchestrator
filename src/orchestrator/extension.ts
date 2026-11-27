@@ -121,7 +121,6 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   });
   const stateDir = defaultStateDir();
   const dryRun = process.env.PI_ORCH_DRY_RUN === "1";
-  let quotaCache: { at: number; quotas: ProviderQuota[] } | undefined;
   const maxActive = maxActiveFrom(process.env.PI_ORCH_MAX_ACTIVE);
   let owner = dryRun;
   let ownerPid: number | undefined;
@@ -133,12 +132,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       );
   };
 
-  const quotas = async (): Promise<ProviderQuota[]> => {
-    if (quotaCache && Date.now() - quotaCache.at < 60_000) return quotaCache.quotas;
-    const fresh = await readQuota();
-    quotaCache = { at: Date.now(), quotas: fresh };
-    return fresh;
-  };
+  const quotas = async (): Promise<ProviderQuota[]> => readQuota();
 
   const chooseModel = async (requested: string | undefined): Promise<{ model: string | undefined; reason: string }> => {
     const avail = availableModels();
