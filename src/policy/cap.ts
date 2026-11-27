@@ -1,4 +1,4 @@
-const DEFAULT_MAX_ACTIVE = 6;
+const DEFAULT_MAX_ACTIVE = 8;
 const MAX_ALLOWED = 50;
 
 export function maxActiveFrom(env: string | undefined): number {

@@ -243,7 +243,7 @@ export class Orchestrator {
   }
 
   activeCount(): number {
-    return this.list().filter((t) => isActive(t.status)).length;
+    return this.list().filter((t) => t.status === "starting" || t.status === "running").length;
   }
 
   list(): TaskRecord[] {
