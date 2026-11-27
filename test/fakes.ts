@@ -163,6 +163,11 @@ export function makeHarness(
   return { herdr, orch, stateDir, project, clock, extra };
 }
 
+// keep: delegação com acceptance gera ticket, que exige script oficial (test) no package.json do projeto.
+export function writeManifest(project: string): void {
+  writeFileSync(join(project, "package.json"), JSON.stringify({ scripts: { test: "node --test" } }));
+}
+
 export function writeReport(taskDir: string, taskId: string, body: Record<string, unknown>, stamp = "t"): void {
   writeFileSync(
     join(taskDir, "report.json"),

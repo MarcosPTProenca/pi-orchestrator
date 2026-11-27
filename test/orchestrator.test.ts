@@ -7,7 +7,7 @@ import { validateReport, reportKey } from "../src/shared/contract.ts";
 import { parsePanes, parseTabCreate, parseWorkspaceCreate, parseWorkspaceIds } from "../src/shared/herdr.ts";
 import { Orchestrator } from "../src/orchestrator/orchestrator.ts";
 import { Store } from "../src/shared/store.ts";
-import { makeHarness, writeReport } from "./fakes.ts";
+import { makeHarness, writeManifest, writeReport } from "./fakes.ts";
 
 test("validateReport: blocked exige question e id de tarefa correto", () => {
   assert.throws(() => validateReport({ task_id: "t1", status: "blocked", result: "" }, "t1"), /exige question/);
@@ -962,6 +962,7 @@ test("forgetDeadTab limpa só a aba de tarefa concluída, sem tocar na worktree 
 
 test("pedido amplo de coordenação: o worker recebe a issue específica, sem tarefas de coordenação", async () => {
   const h = makeHarness();
+  writeManifest(h.project);
   const t = await h.orch.delegate({
     project_path: h.project,
     role: "resolver-issue",
@@ -969,6 +970,7 @@ test("pedido amplo de coordenação: o worker recebe a issue específica, sem ta
     request: "Resolver a issue #111: ajustar o contrato de delegação do orquestrador.",
     objective: "Issue #111 resolvida por PR com testes de regressão verdes.",
     source: "https://github.com/o/r/issues/111",
+    acceptance: ["Contrato de delegação ajustado com testes de regressão verdes"],
     constraints: ["Não tocar em outros arquivos além do contrato de delegação."],
   });
   const brief = readFileSync(t.brief_path, "utf8");
