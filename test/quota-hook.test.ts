@@ -115,6 +115,7 @@ test("orquestrador: escolha de modelo que falha impede o lançamento de qualquer
   const { Orchestrator } = await import("../src/orchestrator/orchestrator.ts");
   const { Store } = await import("../src/shared/store.ts");
   const orch = new Orchestrator({
+    leaseWorktree: (_p, id) => `/wt/${id}`,
     herdr: h.herdr,
     store: new Store(join(h.stateDir, "q.json")),
     tasksDir: join(h.stateDir, "q-tasks"),

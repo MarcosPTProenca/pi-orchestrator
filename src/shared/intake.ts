@@ -153,7 +153,12 @@ function visionSection(vision: VisionDoc): string[] {
   }
 }
 
-export function renderBrief(taskId: string, pack: IntakePack, reportPath: string): string {
+export function renderBrief(
+  taskId: string,
+  pack: IntakePack,
+  reportPath: string,
+  worktree: string = pack.project_path,
+): string {
   const lines: string[] = [
     `# Tarefa ${taskId} (papel: ${pack.role}, modo: ${pack.mode})`,
     "",
@@ -183,8 +188,8 @@ export function renderBrief(taskId: string, pack: IntakePack, reportPath: string
       : ["(o projeto não tem AGENTS.md nem CLAUDE.md)", ""]),
     ...visionSection(pack.vision),
     "## Setup",
-    `1. Arrende sua worktree isolada a partir de ${pack.project_path}: \`treehouse get --lease --lease-holder ${taskId}\`. O comando imprime o caminho; entre nele.`,
-    `2. Verifique o isolamento com \`pwd -P\` e \`git rev-parse --show-toplevel\`. Os dois devem apontar para a sua worktree, não para ${pack.project_path}. Se não baterem, chame orch_report com status failed e pare.`,
+    `1. Sua worktree isolada já foi arrendada pelo orquestrador e é o diretório de trabalho desta sessão: ${worktree}. Não arrende outra.`,
+    `2. Verifique o isolamento com \`pwd -P\` e \`git rev-parse --show-toplevel\`. Os dois devem apontar para ${worktree}, não para ${pack.project_path}. Se não baterem, chame orch_report com status failed e pare.`,
     ...(pack.source && /\/pull\/\d+/.test(pack.source)
       ? [
           "3. Antes de editar, consulte o estado de merge da PR (mergeable e mergeStateStatus, com gh autenticado). Se estiver com conflito, resolva o conflito no branch da PR primeiro. Ao terminar, confirme de novo que ela está mergeável e com checks verdes.",

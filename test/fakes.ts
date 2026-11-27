@@ -131,6 +131,7 @@ function orchestratorFor(
 ): Orchestrator {
   let counter = 0;
   return new Orchestrator({
+    leaseWorktree: (_projectPath, taskId) => join(stateDir, "worktrees", taskId),
     ...extra,
     herdr,
     store: new Store(join(stateDir, "state.json")),
