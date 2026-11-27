@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { isAbsolute } from "node:path";
 import { homedir } from "node:os";
 
 export interface Lease {
@@ -100,6 +101,30 @@ export function orphanLeases(
   } catch {
     return [];
   }
+}
+
+export type TreehouseRun = (repo: string, args: string[]) => string;
+
+const runTreehouse: TreehouseRun = (repo, args) =>
+  execFileSync("treehouse", args, { cwd: repo, encoding: "utf8", timeout: 60_000, stdio: ["ignore", "pipe", "pipe"] });
+
+// keep: o orquestrador arrenda antes de lançar o pane; o caminho impresso (última linha de stdout) é o cwd do worker.
+export function leaseTreehouse(repo: string, holder: string, run: TreehouseRun = runTreehouse): string {
+  let out: string;
+  try {
+    out = run(repo, ["get", "--lease", "--lease-holder", holder]);
+  } catch (err) {
+    throw new Error(`treehouse não arrendou worktree para ${holder}: ${String(err).slice(0, 200)}`);
+  }
+  const path =
+    out
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .at(-1) ?? "";
+  if (!isAbsolute(path))
+    throw new Error(`treehouse não devolveu caminho absoluto para ${holder}: "${path.slice(0, 120)}"`);
+  return path;
 }
 
 export const treehouseOps: WorktreeOps = {

@@ -109,7 +109,7 @@ export function registerOrchestratorTools(pi: ExtensionAPI, ctx: OrchestratorToo
     name: "orch_delegate",
     label: "orch delegate",
     description:
-      "Lança workers Pi com brief completo montado pelo intake. Para N workers, passe N itens em tasks numa única chamada. A chamada inteira é validada antes: se algum item for inválido, nada é lançado. Cada worker arrenda a própria worktree pelo treehouse.",
+      "Lança workers Pi com brief completo montado pelo intake. Para N workers, passe N itens em tasks numa única chamada. A chamada inteira é validada antes: se algum item for inválido, nada é lançado. O orquestrador arrenda a worktree de cada worker pelo treehouse antes de lançá-lo; o worker inicia nela.",
     parameters: {
       type: "object",
       properties: {

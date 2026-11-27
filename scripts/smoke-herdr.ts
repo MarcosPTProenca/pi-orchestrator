@@ -7,6 +7,7 @@ import { randomBytes } from "node:crypto";
 import { HerdrCli } from "../src/shared/herdr.ts";
 import { Orchestrator, type WatchEvent } from "../src/orchestrator/orchestrator.ts";
 import { Store } from "../src/shared/store.ts";
+import { leaseTreehouse } from "../src/shared/worktrees.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const workerExt = join(here, "..", "src", "worker-ext.ts");
@@ -41,6 +42,7 @@ const orch = new Orchestrator({
   store: new Store(join(stateDir, "state.json")),
   tasksDir: join(stateDir, "tasks"),
   workerExtPath: workerExt,
+  leaseWorktree: (projectPath, taskId) => leaseTreehouse(projectPath, taskId),
   now: () => Date.now(),
   newHex: () => randomBytes(4).toString("hex"),
   availableModels: () => [],

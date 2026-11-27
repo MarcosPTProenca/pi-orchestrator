@@ -47,6 +47,8 @@ import { belowFloor, PRESENTATION_FLOOR, type HerdrPort, type PaneInfo, type Tab
 import type { Store } from "../shared/store.ts";
 
 export interface OrchDeps {
+  // keep: #254 o orquestrador arrenda a worktree; o worker só inicia nela. Lança erro se o treehouse falhar.
+  leaseWorktree: (projectPath: string, taskId: string) => string;
   releaseWorktree?: (task: TaskRecord) => string;
   inspectWorktree?: (task: TaskRecord) => LeaseFacts | null;
   herdr: HerdrPort;
@@ -64,6 +66,8 @@ export interface OrchDeps {
   hookToken?: string;
   onTerminal?: (taskId: string) => void;
 }
+
+const DRY_RUN_WORKTREE = "(worktree arrendada no lançamento real)";
 
 export { MODES } from "../shared/intake.ts";
 import { buildIntake, renderBrief } from "../shared/intake.ts";
@@ -279,6 +283,14 @@ export class Orchestrator {
     return record;
   }
 
+  private leaseOrAbort(projectPath: string, taskId: string): string {
+    try {
+      return this.d.leaseWorktree(projectPath, taskId);
+    } catch (err) {
+      throw new Error(`não consegui arrendar worktree para ${taskId}: ${errorMessage(err)}. Nada foi lançado.`);
+    }
+  }
+
   private async closeSurface(t: TaskRecord): Promise<void> {
     if (t.projected) await this.d.herdr.closeWorkspace(t.workspace_id);
     else await this.d.herdr.closeTab(t.tab_id);
@@ -383,10 +395,12 @@ export class Orchestrator {
     const taskDir = join(this.d.tasksDir, taskId);
     const briefPath = join(taskDir, "brief.md");
     const reportPath = join(taskDir, "report.json");
+    // keep: #254 arrenda antes de brief, registro e pane; falha aborta sem tarefa nem pane. Dry-run não toca o treehouse.
+    const worktree = this.d.dryRun ? DRY_RUN_WORKTREE : this.leaseOrAbort(input.project_path, taskId);
     const ticket = ticketForDelegate(input, model ?? null, { taskId, reportPath });
     mkdirSync(taskDir, { recursive: true });
 
-    writeFileSync(briefPath, maskSecrets(renderBrief(taskId, intake, reportPath)));
+    writeFileSync(briefPath, maskSecrets(renderBrief(taskId, intake, reportPath, worktree)));
     if (ticket) writeFileSync(join(taskDir, TICKET_FILE), `${JSON.stringify(ticket, null, 2)}\n`);
 
     const deadlineAt = input.timeout_minutes ? this.iso(this.d.now() + input.timeout_minutes * 60_000) : null;
@@ -436,7 +450,7 @@ export class Orchestrator {
       let tab: TabResult;
       if (projected) {
         const space = await this.d.herdr.createWorkspace({
-          cwd: input.project_path,
+          cwd: worktree,
           label: workerTabName(input.role, taskId.slice(2)),
         });
         spaceId = space.workspace_id;
@@ -446,7 +460,7 @@ export class Orchestrator {
         ws = await this.ensureWorkspace(input.project_path, projectId);
         tab = await this.d.herdr.createTab({
           workspaceId: ws.workspace_id,
-          cwd: input.project_path,
+          cwd: worktree,
           label: workerTabName(input.role, taskId.slice(2)),
           env: {
             PI_ORCH_ROLE: "worker",
