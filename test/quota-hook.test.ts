@@ -8,20 +8,33 @@ import { fallbackReportFor, lastModelError } from "../src/worker/fallback.ts";
 import { startHook, postToHook } from "../src/shared/hook.ts";
 import { makeHarness, writeReport } from "./fakes.ts";
 
-const AVAIL = ["claude-bridge/claude-haiku-5-5", "openai-codex/gpt-6-luna", "kiro/auto"];
-const q = (provider: string, pct: number | null) => ({ provider, percentRemaining: pct, stale: false });
+const AVAIL = [
+  "claude-bridge/claude-haiku-5-5",
+  "openai-codex/gpt-6-luna",
+  "antigravity/gemini-4-hydrogen",
+  "kiro/auto",
+];
+const q = (provider: string, pct: number | null) => ({
+  provider: provider === "claude" ? "claude:all_models" : provider === "codex" ? "codex:all_models" : provider,
+  percentRemaining: pct,
+  stale: false,
+});
 
-test("ordem padrão: haiku (claude), luna (codex), kiro/auto por último", () => {
-  assert.deepEqual([...DEFAULT_PRIORITY], ["claude-bridge/claude-haiku-5-5", "openai-codex/gpt-6-luna", "kiro/auto"]);
-  assert.equal(quotaProviderOf("claude-bridge/claude-haiku-5-5"), "claude");
-  assert.equal(quotaProviderOf("openai-codex/gpt-6-luna"), "codex");
+test("ordem padrão inclui Hydrogen; modelos mapeiam ao escopo de cota", () => {
+  assert.ok(DEFAULT_PRIORITY.includes("antigravity/gemini-4-hydrogen"));
+  assert.equal(quotaProviderOf("antigravity/gemini-4-hydrogen"), "agy:gemini");
+  assert.equal(quotaProviderOf("claude-bridge/claiku"), "claude:all_models");
+  assert.equal(quotaProviderOf("openai-codex/gpt-6-luna"), "codex:all_models");
   assert.equal(quotaProviderOf("kiro/auto"), "kiro");
 });
 
-test("escolhe haiku enquanto a cota do Claude está acima do mínimo", () => {
-  const r = pickModel(DEFAULT_PRIORITY, [q("claude", 59), q("codex", 80)], AVAIL);
-  assert.equal(r.model, "claude-bridge/claude-haiku-5-5");
-  assert.match(r.reason, /cota claude 59%/);
+test("seleciona o modelo com maior cota restante em vez de drenar a ordem fixa", () => {
+  const r = pickModel(
+    DEFAULT_PRIORITY,
+    [q("claude:all_models", 59), q("codex:all_models", 80), q("agy:gemini", 70)],
+    AVAIL,
+  );
+  assert.equal(r.model, "openai-codex/gpt-6-luna");
 });
 
 test("Claude sem cota: cai para luna 6 do Codex", () => {
@@ -47,13 +60,28 @@ test("cota desconhecida não conta como disponível; sem nenhum modelo, erro exp
 test("modelo pedido com cota esgotada é recusado, sem troca", () => {
   assert.throws(
     () => checkRequestedQuota("claude-bridge/claude-haiku-5-5", [q("claude", 3)]),
-    /cota de claude esgotada.*não foi lançado/,
+    /cota de claude:all_models esgotada.*não foi lançado/,
   );
   assert.doesNotThrow(() => checkRequestedQuota("claude-bridge/claude-haiku-5-5", [q("claude", 40)]));
   assert.doesNotThrow(() => checkRequestedQuota("kiro/auto", [q("claude", 0)]));
 });
 
-test("parseQuota usa o menor percentual efetivo e marca stale", () => {
+test("cota baixa de um provedor não impede usar outro provedor com folga", () => {
+  const r = pickModel(
+    DEFAULT_PRIORITY,
+    [q("claude:all_models", 12), q("codex:all_models", 80), q("agy:gemini", 70)],
+    AVAIL,
+  );
+  assert.equal(r.model, "openai-codex/gpt-6-luna");
+});
+test("pedido explícito de Hydrogen respeita o mínimo de cota", () => {
+  assert.throws(
+    () => checkRequestedQuota("antigravity/gemini-4-hydrogen", [q("agy:gemini", 3)]),
+    /cota de agy:gemini esgotada/,
+  );
+  assert.doesNotThrow(() => checkRequestedQuota("antigravity/gemini-4-hydrogen", [q("agy:gemini", 40)]));
+});
+test("parseQuota usa escopos efetivos e marca stale", () => {
   const json = {
     providers: [
       {
@@ -63,14 +91,19 @@ test("parseQuota usa o menor percentual efetivo e marca stale", () => {
         windows: [{ percentRemaining: 59 }, { percentRemaining: 72 }],
       },
       { provider: "codex", windows: [{ percentRemaining: 30 }, { percentRemaining: 12 }] },
+      {
+        provider: "agy",
+        quotaSemantics: { effectiveAvailability: [{ scope: "gemini", effectivePercentRemaining: 77 }] },
+      },
     ],
   };
   const r = parseQuota(json);
   assert.deepEqual(
     r.map((x) => [x.provider, x.percentRemaining, x.stale]),
     [
-      ["claude", 59, true],
-      ["codex", 12, false],
+      ["claude:all_models", 59, true],
+      ["codex:all_models", 12, false],
+      ["agy:gemini", 77, false],
     ],
   );
 });

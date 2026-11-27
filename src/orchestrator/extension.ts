@@ -63,6 +63,7 @@ import { launchRoom, maxActiveFrom } from "../policy/cap.ts";
 import { isActive, type TaskRecord } from "../shared/contract.ts";
 import { inspectLease, leaseTreehouse, orphanLeases, releaseLease, treehouseOps } from "../shared/worktrees.ts";
 import { deadTabTaskIds, IdleWatch, idleSurfaces } from "./idle.ts";
+import { guardPlanStep, PlanFailureWatch, writePlanFailure, type PlanFailure } from "./plan-failures.ts";
 import { StallWatch, stallNoticeFor } from "./stall.ts";
 import {
   acquireOwnership,
@@ -120,7 +121,6 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   });
   const stateDir = defaultStateDir();
   const dryRun = process.env.PI_ORCH_DRY_RUN === "1";
-  let quotaCache: { at: number; quotas: ProviderQuota[] } | undefined;
   const maxActive = maxActiveFrom(process.env.PI_ORCH_MAX_ACTIVE);
   let owner = dryRun;
   let ownerPid: number | undefined;
@@ -132,12 +132,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       );
   };
 
-  const quotas = async (): Promise<ProviderQuota[]> => {
-    if (quotaCache && Date.now() - quotaCache.at < 60_000) return quotaCache.quotas;
-    const fresh = await readQuota();
-    quotaCache = { at: Date.now(), quotas: fresh };
-    return fresh;
-  };
+  const quotas = async (): Promise<ProviderQuota[]> => readQuota();
 
   const chooseModel = async (requested: string | undefined): Promise<{ model: string | undefined; reason: string }> => {
     const avail = availableModels();
@@ -348,11 +343,22 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   // keep: lançamentos em curso nesta sessão (planId/itemId); a varredura de órfãos não mexe neles.
   const launching = new Set<string>();
   const ORPHAN_LAUNCH_MS = envPositive(process.env.PI_ORCH_ORPHAN_LAUNCH_MS, 120_000);
+  const planFailures = new PlanFailureWatch();
+  const planFailureLog = join(defaultStateDir(), "plan-failures.log");
+  // keep: aviso sai só na primeira falha do episódio (ver PlanFailureWatch); o registro estruturado vai para planFailureLog.
+  const notifyPlanFailure = (failure: PlanFailure): void => {
+    writePlanFailure(planFailureLog, failure);
+    emitEvent(eventSink, EVENT_POLICY["plan-failed"], {
+      customType: "orch-event",
+      content: `Falha em ${failure.where}${failure.plan_id ? ` do plano ${failure.plan_id}` : ""}: ${failure.error}. O ciclo seguiu; a próxima varredura tenta de novo. Registro: ${planFailureLog}.`,
+      display: true,
+    });
+  };
   const visionNote = (projectPath: string): string => {
     const vn = missingVisionNotice(projectPath, readVision(projectPath));
     return vn ? ` ${vn}` : "";
   };
-  const launchReady = async (planId: string): Promise<void> => {
+  const launchReadyItems = async (planId: string): Promise<void> => {
     const plan = planStore.show(planId);
     for (const item of launchable(plan).filter((i) => itemOwnedBy(i, (p) => orch.ownsProject(p)))) {
       // keep: o teto PI_ORCH_MAX_ACTIVE também vale para o avanço automático; sem vaga o item fica pendente e a próxima varredura tenta de novo.
@@ -391,6 +397,15 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
       }
     }
   };
+  const launchReady = (planId: string): Promise<void> =>
+    guardPlanStep(
+      planFailures,
+      `launchReady:${planId}`,
+      "launchReady",
+      planId,
+      () => launchReadyItems(planId),
+      notifyPlanFailure,
+    );
   // keep: reserva órfã (processo caiu entre reserve() e orch.delegate) é adotada se a tarefa existe; sem ela, vira blocked e não é relançada, para não duplicar.
   const recoverOrphanLaunches = (): void => {
     for (const planId of planStore.list()) {
@@ -424,60 +439,91 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   };
   const advancePlans = async (): Promise<void> => {
     for (const planId of planStore.list()) {
-      if (!planOwnedBy(planStore.show(planId), (p) => orch.ownsProject(p))) continue;
-      await launchReady(planId).catch(() => undefined);
-      // keep: aviso só na transição para concluído; o plano já concluído é varrido de novo a cada ciclo e não pode reemitir.
-      if (!planStore.completedNow(planId)) continue;
-      const plan = planStore.show(planId);
-      emitEvent(eventSink, EVENT_POLICY["plan-completed"], {
-        customType: "orch-event",
-        content: `Plano ${planId} (${plan.title}) concluído: ${plan.items.map((i) => `${i.id} ${i.title}${i.pr ? ` (${i.pr})` : ""}`).join("; ")}.`,
-        display: true,
-      });
+      await guardPlanStep(
+        planFailures,
+        `advancePlans:${planId}`,
+        "advancePlans",
+        planId,
+        async () => {
+          if (!planOwnedBy(planStore.show(planId), (p) => orch.ownsProject(p))) return;
+          await launchReady(planId);
+          // keep: aviso só na transição para concluído; o plano já concluído é varrido de novo a cada ciclo e não pode reemitir.
+          if (!planStore.completedNow(planId)) return;
+          const plan = planStore.show(planId);
+          emitEvent(eventSink, EVENT_POLICY["plan-completed"], {
+            customType: "orch-event",
+            content: `Plano ${planId} (${plan.title}) concluído: ${plan.items.map((i) => `${i.id} ${i.title}${i.pr ? ` (${i.pr})` : ""}`).join("; ")}.`,
+            display: true,
+          });
+        },
+        notifyPlanFailure,
+      );
     }
   };
   const recordFix = (taskId: string, action: FixAction): void => {
     const ev = deliveryFromFix(action, taskId);
     if (ev) planStore.recordDelivery(ev);
   };
+  const reconcileItem = async (planId: string, item: PlanItem, taskId: string): Promise<void> => {
+    const task = orch.get(taskId);
+    if (!orch.ownsTask(task)) return;
+    const url = prUrlOf(task);
+    const pr = url ? prFromUrl(url) : null;
+    // keep: item sem PR avança no done; antes disso passa pela revisão de escopo. Item com PR avança no merge, que já é aprovado pelo usuário.
+    if (task.status === "done" && !url) {
+      await gateDoneWithoutPr(task, planId, item);
+      return;
+    }
+    if (!url || !pr || Date.now() - (prChecked.get(task.task_id) ?? 0) < PR_CHECK_MS) return;
+    prChecked.set(task.task_id, Date.now());
+    const remote = execFileSync("git", ["remote", "get-url", "origin"], {
+      cwd: task.project_path,
+      encoding: "utf8",
+    }).trim();
+    const state = await fetchPrState(remote, pr.number, pr.owner, pr.name, task.project_path);
+    if (prVerdict(state) !== "merged") return;
+    if (planStore.markMerged(task.task_id).length === 0) return;
+    emitEvent(eventSink, EVENT_POLICY["plan-transition"], {
+      customType: "orch-event",
+      content: `Plano ${planId}, item ${item.id}: PR #${pr.number} mergeada (tarefa ${task.task_id}). Lançando o próximo passo.`,
+      display: true,
+    });
+    await advancePlans();
+  };
   const reconcilePlans = async (): Promise<void> => {
-    recoverOrphanLaunches();
+    await guardPlanStep(
+      planFailures,
+      "recoverOrphanLaunches",
+      "recoverOrphanLaunches",
+      null,
+      () => recoverOrphanLaunches(),
+      notifyPlanFailure,
+    );
     for (const planId of planStore.list()) {
-      const plan = planStore.show(planId);
-      for (const item of trackedItems(plan)) {
-        if (!item.task_id) continue;
-        try {
-          const task = orch.get(item.task_id);
-          if (!orch.ownsTask(task)) continue;
-          const url = prUrlOf(task);
-          const pr = url ? prFromUrl(url) : null;
-          // keep: item sem PR avança no done; antes disso passa pela revisão de escopo. Item com PR avança no merge, que já é aprovado pelo usuário.
-          if (task.status === "done" && !url) {
-            await gateDoneWithoutPr(task, planId, item);
-            continue;
+      await guardPlanStep(
+        planFailures,
+        `reconcilePlans:${planId}`,
+        "reconcilePlans",
+        planId,
+        async () => {
+          for (const item of trackedItems(planStore.show(planId))) {
+            const taskId = item.task_id;
+            if (!taskId) continue;
+            await guardPlanStep(
+              planFailures,
+              `reconcilePlans:${planId}/${item.id}`,
+              "reconcilePlans",
+              planId,
+              () => reconcileItem(planId, item, taskId),
+              notifyPlanFailure,
+            );
           }
-          if (!url || !pr || Date.now() - (prChecked.get(task.task_id) ?? 0) < PR_CHECK_MS) continue;
-          prChecked.set(task.task_id, Date.now());
-          const remote = execFileSync("git", ["remote", "get-url", "origin"], {
-            cwd: task.project_path,
-            encoding: "utf8",
-          }).trim();
-          const state = await fetchPrState(remote, pr.number, pr.owner, pr.name, task.project_path);
-          if (prVerdict(state) !== "merged") continue;
-          if (planStore.markMerged(task.task_id).length === 0) continue;
-          emitEvent(eventSink, EVENT_POLICY["plan-transition"], {
-            customType: "orch-event",
-            content: `Plano ${planId}, item ${item.id}: PR #${pr.number} mergeada (tarefa ${task.task_id}). Lançando o próximo passo.`,
-            display: true,
-          });
-          await advancePlans();
-        } catch {
-          continue;
-        }
-      }
+        },
+        notifyPlanFailure,
+      );
     }
     // keep: item pendente por falta de vaga é lançado quando uma tarefa termina, sem turno de LLM.
-    await advancePlans().catch(() => undefined);
+    await advancePlans();
   };
   const gateDoneWithoutPr = async (task: TaskRecord, planId: string, item: PlanItem): Promise<void> => {
     const step = scopeStep(item.scope, task.verification);
@@ -528,7 +574,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     const v = parseScopeVerdict(raw);
     const touched = planStore.recordScope(taskId, v.verdict, v.reason);
     if (touched.length === 0) throw new Error(`nenhum item aguarda revisão de escopo para a tarefa ${taskId}`);
-    await reconcilePlans().catch(() => undefined);
+    await reconcilePlans();
     return `Parecer de escopo registrado para ${taskId}: ${v.verdict}. ${v.reason}`;
   };
   const requestReview = async (
@@ -752,7 +798,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
         prChecked.set(t.task_id, Date.now());
         await checkPr(t, url, pr).catch(() => undefined);
       }
-      await reconcilePlans().catch(() => undefined);
+      await reconcilePlans();
     } catch {
       if (idleWatch.fail()) {
         emitEvent(eventSink, EVENT_POLICY["herdr-check-failed"], {
