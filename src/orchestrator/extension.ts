@@ -54,6 +54,7 @@ import {
 import { missingVisionNotice, parseScopeVerdict, scopeReviewText, scopeStep } from "./scope.ts";
 import { readVision, VISION_FILE } from "../shared/intake.ts";
 import { oracleContract, settleOracleVerdict } from "./oracle-ask.ts";
+import { consultToken, oracleCallGate, OracleCaptures } from "./oracle-guard.ts";
 import { EVENT_POLICY, UI_ENTRY, emitEvent, statusKind, wakesLlm, type EventSink } from "../policy/event-policy.ts";
 import { orchestratorUsage } from "../shared/usage.ts";
 import { NoticeBatcher } from "./notices.ts";
@@ -536,9 +537,12 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
     });
     await advancePlans();
   };
+  // keep: a captura vem dos hooks do subagent (tool_call/tool_result) e nunca do texto que o orquestrador repassa.
+  const oracleCaptures = new OracleCaptures();
   const recordAskVerdict = (taskId: string, askId: string, raw: string): string => {
     const task = orch.get(taskId);
-    return settleOracleVerdict({ taskId, taskDir: task.task_dir, askId, raw });
+    const capture = oracleCaptures.get(consultToken(taskId, askId));
+    return settleOracleVerdict({ taskId, taskDir: task.task_dir, askId, raw, capture });
   };
   // keep: o parecer chega por orch_scope_verdict; reconcilePlans reavalia o item na hora, sem esperar a varredura.
   const recordScopeVerdict = async (taskId: string, raw: string): Promise<string> => {
@@ -887,6 +891,19 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("cache_warming_decision", () => cacheWarmingOverride());
+  // keep: o gate roda antes do subagent; agente do Oracle sem bash e sem escrita não chega a ser lançado.
+  pi.on("tool_call", (event, ctx) => {
+    if (event.toolName !== "subagent") return undefined;
+    const reason = oracleCallGate({ agent: event.input.agent, cwd: ctx.cwd });
+    if (reason) return { block: true, reason };
+    oracleCaptures.noteCall(event.toolCallId, event.input);
+    return undefined;
+  });
+  pi.on("tool_result", (event) => {
+    if (event.toolName !== "subagent") return;
+    const output = event.content.map((c) => (c.type === "text" ? c.text : "")).join("\n");
+    oracleCaptures.noteResult(event.toolCallId, output, event.isError);
+  });
 
   pi.on("before_agent_start", (event) => {
     if (event.systemPrompt.includes(ORCHESTRATOR_ROLE)) return;

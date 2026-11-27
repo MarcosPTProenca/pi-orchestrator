@@ -43,29 +43,51 @@ export function askRefusal(kind: string, previous: number): string | null {
 
 const ORACLE_FILE = "oracle.json";
 
-function readOracleVerdicts(dir: string): Record<string, string> {
+// keep: origem do parecer para auditoria: subagent, modelo, tool call e hash da saída real.
+export interface OracleOrigin {
+  agent: string;
+  model: string | null;
+  tool_call_id: string;
+  output_sha256: string;
+}
+
+interface OracleFile {
+  verdicts: Record<string, string>;
+  origins: Record<string, OracleOrigin>;
+}
+
+function readOracleFile(dir: string): OracleFile {
   const file = join(dir, ORACLE_FILE);
-  if (!existsSync(file)) return {};
+  if (!existsSync(file)) return { verdicts: {}, origins: {} };
   try {
-    const parsed = JSON.parse(readFileSync(file, "utf8")) as { verdicts?: unknown };
-    return parsed.verdicts && typeof parsed.verdicts === "object" ? (parsed.verdicts as Record<string, string>) : {};
+    const parsed = JSON.parse(readFileSync(file, "utf8")) as Partial<OracleFile>;
+    return {
+      verdicts: parsed.verdicts && typeof parsed.verdicts === "object" ? parsed.verdicts : {},
+      origins: parsed.origins && typeof parsed.origins === "object" ? parsed.origins : {},
+    };
   } catch {
-    return {};
+    return { verdicts: {}, origins: {} };
   }
 }
 
 export function oracleVerdictFor(dir: string, askId: string): string | null {
-  const verdicts = readOracleVerdicts(dir);
+  const { verdicts } = readOracleFile(dir);
   return Object.hasOwn(verdicts, askId) ? verdicts[askId] : null;
 }
 
 // keep: uma consulta ao Oracle por pergunta; registrar de novo é recusado para não haver ciclo de consultas.
-export function recordOracleVerdict(dir: string, askId: string, verdict: string): boolean {
-  const verdicts = readOracleVerdicts(dir);
-  if (Object.hasOwn(verdicts, askId)) return false;
-  verdicts[askId] = verdict;
+export function recordOracleVerdict(
+  dir: string,
+  askId: string,
+  verdict: string,
+  origin: OracleOrigin | null = null,
+): boolean {
+  const state = readOracleFile(dir);
+  if (Object.hasOwn(state.verdicts, askId)) return false;
+  state.verdicts[askId] = verdict;
+  if (origin) state.origins[askId] = origin;
   const file = join(dir, ORACLE_FILE);
-  writeFileSync(`${file}.tmp`, JSON.stringify({ verdicts }, null, 2));
+  writeFileSync(`${file}.tmp`, JSON.stringify(state, null, 2));
   renameSync(`${file}.tmp`, file);
   return true;
 }

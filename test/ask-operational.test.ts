@@ -6,7 +6,8 @@ import { makeHarness, reopenHarness, writeReport } from "./fakes.ts";
 import { asWorker, reportDone } from "./worker-harness.ts";
 import { appendAsk } from "../src/shared/ask.ts";
 import { askMessageFor } from "../src/orchestrator/messages.ts";
-import { settleOracleVerdict } from "../src/orchestrator/oracle-ask.ts";
+import { settleOracleVerdict as settleRaw } from "../src/orchestrator/oracle-ask.ts";
+import { consultToken } from "../src/orchestrator/oracle-guard.ts";
 
 const entry = (id: string, question = "Reutilizar qual contrato?") => ({
   id,
@@ -32,7 +33,13 @@ async function startTask(owner?: string) {
 // keep: resposta com ask_id só segue com parecer answered do Oracle; este helper grava esse parecer como orch_ask_verdict faria.
 function oracleAnswered(taskId: string, taskDir: string, askId: string): void {
   const raw = JSON.stringify({ verdict: "answered", answer: "use o helper", reason: "spec cita o helper" });
-  settleOracleVerdict({ taskId, taskDir, askId, raw });
+  settleRaw({
+    taskId,
+    taskDir,
+    askId,
+    raw,
+    capture: { token: consultToken(taskId, askId), agent: "oracle", model: null, toolCallId: "c1", output: raw },
+  });
 }
 
 async function askAndNotice(
