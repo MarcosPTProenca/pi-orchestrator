@@ -120,7 +120,13 @@ test("papel não proíbe dividir quando o usuário pede um conjunto de issues", 
   assert.match(ORCHESTRATOR_ROLE, /conjunto de issues/);
   assert.match(ORCHESTRATOR_ROLE, /uma unidade de delegação por issue/);
   assert.match(ORCHESTRATOR_ROLE, /`source` com a URL da issue/);
-  assert.match(ORCHESTRATOR_ROLE, /exclua as demais dizendo o motivo com a URL/);
+  assert.match(ORCHESTRATOR_ROLE, /leia o título e o corpo de cada issue/);
+  assert.match(ORCHESTRATOR_ROLE, /issue de gate, teste ou CI sobre a interface fica de fora/);
+  assert.match(ORCHESTRATOR_ROLE, /depends_on usa os ids dos itens/);
+  assert.match(ORCHESTRATOR_ROLE, /[Ii]tens de plano aprovado são lançados pelo plano/);
+  assert.match(ORCHESTRATOR_ROLE, /não use orch_delegate nem orch_relaunch para eles/);
+  assert.match(ORCHESTRATOR_ROLE, /[Nn]ão aprove um plano que contenha item excluído/);
+  assert.match(ORCHESTRATOR_ROLE, /com o motivo e a URL/);
   assert.match(ORCHESTRATOR_ROLE, /orch_plan_create/);
 });
 

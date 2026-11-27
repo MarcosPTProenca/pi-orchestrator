@@ -36,6 +36,12 @@ const issueCreates = (run: Run) =>
   run.calls
     .filter((c) => c.name === "orch_plan_create")
     .flatMap((c) => (c.args.items as Record<string, unknown>[]) ?? []);
+// keep: avalia o plano que de fato foi aprovado (última orch_plan_create com o id da última orch_plan_approve).
+const approvedItems = (run: Run): Record<string, unknown>[] => {
+  const approved = [...run.calls].reverse().find((c) => c.name === "orch_plan_approve")?.args.id;
+  const created = run.calls.filter((c) => c.name === "orch_plan_create" && c.args.id === approved);
+  return (created.at(-1)?.args.items as Record<string, unknown>[] | undefined) ?? [];
+};
 const sourceOf = (item: Record<string, unknown>): string => {
   const s = (item.delegate as { source?: unknown } | undefined)?.source;
   return typeof s === "string" ? s : "";
@@ -64,7 +70,7 @@ export const scenarios: Scenario[] = [
         detail: run.calls.map((c) => c.name).join(","),
       }),
       (run) => {
-        const nums = issueCreates(run)
+        const nums = approvedItems(run)
           .map(sourceNumber)
           .filter((n) => n !== null);
         return {
@@ -74,7 +80,7 @@ export const scenarios: Scenario[] = [
         };
       },
       (run) => {
-        const items = issueCreates(run).filter((i) => sourceNumber(i) !== null);
+        const items = approvedItems(run).filter((i) => sourceNumber(i) !== null);
         const idx = (n: number) => items.findIndex((i) => sourceNumber(i) === n) + 1;
         const deps = (n: number) => ((items[idx(n) - 1]?.depends_on as string[] | undefined) ?? []).map(String);
         return {
