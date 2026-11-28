@@ -1,5 +1,5 @@
 import { recordReviewVerdict } from "../shared/review-verdict.ts";
-import { toolCallBlockReason, type ToolPolicy } from "../shared/worker-tools.ts";
+import { isToolRelease, toolCallBlockReason, type ToolPolicy } from "../shared/worker-tools.ts";
 import { execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -86,6 +86,17 @@ function toolGateReason(toolName: string): string | null {
     return "política de ferramentas ilegível: chamada bloqueada";
   }
   return toolCallBlockReason(toolName, policy);
+}
+
+function releasedToolsFromPolicy(): string[] {
+  try {
+    const policy = JSON.parse(process.env.PI_ORCH_TOOL_POLICY ?? "null") as Partial<ToolPolicy> | null;
+    return Array.isArray(policy?.allowed)
+      ? [...new Set(policy.allowed.filter((entry): entry is string => isToolRelease(entry)))]
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 const hasTicket = (dir: string | undefined): dir is string => !!dir && existsSync(join(dir, TICKET_FILE));
@@ -379,7 +390,10 @@ export default function workerExtension(pi: ExtensionAPI): void {
   const finish = async (messages: unknown[], invalidReason: string | null): Promise<void> => {
     const file = join(taskDir, "report.json");
     if (!existsSync(file)) {
-      const report = fallbackReportFor(taskId, messages, new Date().toISOString(), invalidReason);
+      const report = {
+        ...fallbackReportFor(taskId, messages, new Date().toISOString(), invalidReason),
+        released_tools: releasedToolsFromPolicy(),
+      };
       writeFileSync(`${file}.tmp`, JSON.stringify(report, null, 2));
       renameSync(`${file}.tmp`, file);
     }
@@ -637,7 +651,15 @@ export default function workerExtension(pi: ExtensionAPI): void {
       additionalProperties: false,
     },
     async execute(_toolCallId: string, params: Record<string, unknown>) {
-      const report = validateReport({ ...params, task_id: taskId, reported_at: new Date().toISOString() }, taskId);
+      const report = validateReport(
+        {
+          ...params,
+          task_id: taskId,
+          reported_at: new Date().toISOString(),
+          released_tools: releasedToolsFromPolicy(),
+        },
+        taskId,
+      );
       const file = join(taskDir, "report.json");
       writeFileSync(`${file}.tmp`, JSON.stringify(report, null, 2));
       renameSync(`${file}.tmp`, file);
