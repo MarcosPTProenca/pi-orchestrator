@@ -502,3 +502,14 @@ test("aquecimento observado com custo zero continua sendo 0, não null", () => {
   assert.equal(usageReport([entries]).cache_warm_cost_usd, 0);
   assert.equal(orchestratorUsage(entries).cacheWarmCost, 0);
 });
+
+test("custo não informado não aparece como zero e cache_warm sem custo fica null", () => {
+  const noCost = [{ type: "message", message: { ...asst(2, 1, 1), responseId: "no-cost" } }];
+  const warmNoCost = [
+    { type: "usage", id: "w-no-cost", kind: "cache_warm", usage: { input: 1, output: 1, totalTokens: 2 } },
+  ];
+  assert.equal(usageReport([noCost]).cost_usd, null);
+  assert.equal(orchestratorUsage(noCost).cost, null);
+  assert.equal(usageReport([warmNoCost]).cache_warm_cost_usd, null);
+  assert.equal(orchestratorUsage(warmNoCost).cacheWarmCost, null);
+});

@@ -100,7 +100,11 @@ export function buildStatus(tasks: TaskRecord[], now: number, opts: StatusOption
       deadline_at: t.deadline_at,
       tokens: t.usage?.totalTokens ?? null,
       cache_hit_ratio: t.usage ? cacheHitRatio(t.usage) : null,
-      cost_usd: t.usage ? (t.usage.cost ?? 0) : null,
+      cost_usd: t.usage
+        ? t.usage.costFromProvider === true || (t.usage.cost ?? 0) > 0
+          ? (t.usage.cost ?? 0)
+          : null
+        : null,
       cost_from_provider: t.usage ? t.usage.costFromProvider === true : null,
       cache_warm_cost_usd: t.usage ? (t.usage.cacheWarmCost ?? null) : null,
       turns: t.usage?.turns ?? null,
