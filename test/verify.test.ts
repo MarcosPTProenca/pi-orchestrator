@@ -1,10 +1,47 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { judgeDone, type VerifyEnv } from "../src/orchestrator/verify.ts";
 
 const PR = "https://github.com/o/r/pull/7";
-const ok = { prCheck: async () => ({ ok: true, line: "Verificação da PR #7: VERIFICADA." }) };
-const bad = { prCheck: async () => ({ ok: false, line: "Verificação da PR #7: NÃO VERIFICADA. checks falhando." }) };
+type EvidenceFixture = {
+  commands: { command: string; exit_code: number }[];
+  tdd: { applicable: boolean; seams: unknown[] };
+};
+function withTicket<T>(fn: (taskDir: string) => Promise<T>): Promise<T> {
+  const taskDir = mkdtempSync(join(tmpdir(), "verify-evidence-"));
+  writeFileSync(
+    join(taskDir, "ticket.json"),
+    JSON.stringify({ task_id: "t-1", attempt_id: "a-1", validation: { commands: ["npm test", "npm run lint"] } }),
+  );
+  return fn(taskDir).finally(() => rmSync(taskDir, { recursive: true, force: true }));
+}
+
+function withEvidence<T>(fn: (taskDir: string) => Promise<T>): Promise<T> {
+  return withTicket(async (taskDir) => {
+    writeFileSync(
+      join(taskDir, "execution-evidence.json"),
+      JSON.stringify({
+        schema_version: 1,
+        task_id: "t-1",
+        attempt_id: "a-1",
+        complete: true,
+        commands: [
+          { command: "npm test", exit_code: 0 },
+          { command: "npm run lint", exit_code: 0 },
+        ],
+        tdd: { applicable: false, seams: [] },
+      }),
+    );
+    return fn(taskDir);
+  });
+}
+const ok = { prCheck: () => Promise.resolve({ ok: true, line: "Verificação da PR #7: VERIFICADA." }) };
+const bad = {
+  prCheck: () => Promise.resolve({ ok: false, line: "Verificação da PR #7: NÃO VERIFICADA. checks falhando." }),
+};
 function env(over: Partial<VerifyEnv> = {}): VerifyEnv {
   return {
     prCheck: ok.prCheck,
@@ -25,26 +62,80 @@ test("direct-pr done sem URL de PR é reprovado", async () => {
   assert.match(v.reason, /sem PR/);
 });
 
-test("direct-pr com PR verificada é aprovado; com PR não verificada é reprovado", async () => {
+test("direct-pr com evidência válida e PR verificada é aprovado", async () => {
+  await withEvidence(async (taskDir) => {
+    const v = await judgeDone("direct-pr", "done", [PR], { ...env(ok), taskDir });
+    assert.equal(v.verdict, "approved");
+  });
+});
+test("direct-pr com ticket.json e sem evidência de execução é reprovado", async () => {
+  await withTicket(async (taskDir) => {
+    const v = await judgeDone("direct-pr", "done", [PR], { ...env(ok), taskDir });
+    assert.equal(v.verdict, "rejected");
+    assert.match(v.reason, /execution-evidence/);
+  });
+});
+test("direct-pr sem ticket.json preserva o gate legado de PR", async () => {
   assert.equal((await judgeDone("direct-pr", "done", [PR], env(ok))).verdict, "approved");
-  const v = await judgeDone("direct-pr", "done", [PR], env(bad));
-  assert.equal(v.verdict, "rejected");
-  assert.match(v.reason, /NÃO VERIFICADA/);
+});
+test("direct-pr aceita TDD red→green declarado no plano", async () => {
+  await withEvidence(async (taskDir) => {
+    writeFileSync(join(taskDir, "implementation-plan.json"), JSON.stringify({ test_seams: [{ name: "S1" }] }));
+    const file = join(taskDir, "execution-evidence.json");
+    const evidence = JSON.parse(readFileSync(file, "utf8")) as EvidenceFixture;
+    evidence.commands.unshift({ command: "node --test slice.test.ts", exit_code: 1 });
+    evidence.commands.splice(1, 0, { command: "node --test slice.test.ts", exit_code: 0 });
+    evidence.tdd = {
+      applicable: true,
+      seams: [
+        {
+          seam: "S1",
+          red: { command_index: 0, command: "node --test slice.test.ts", exit_code: 1 },
+          green: { command_index: 1, command: "node --test slice.test.ts", exit_code: 0 },
+        },
+      ],
+    };
+    writeFileSync(file, JSON.stringify(evidence));
+    const v = await judgeDone("direct-pr", "done", [PR], { ...env(ok), taskDir });
+    assert.equal(v.verdict, "approved");
+  });
+});
+test("direct-pr rejeita validações sem exit 0 e TDD incompleto", async () => {
+  await withEvidence(async (taskDir) => {
+    const file = join(taskDir, "execution-evidence.json");
+    const evidence = JSON.parse(readFileSync(file, "utf8")) as EvidenceFixture;
+    evidence.commands[0].exit_code = 1;
+    evidence.tdd = { applicable: true, seams: [] };
+    writeFileSync(file, JSON.stringify(evidence));
+    writeFileSync(join(taskDir, "implementation-plan.json"), JSON.stringify({ test_seams: [{ name: "S1" }] }));
+    const v = await judgeDone("direct-pr", "done", [PR], { ...env(ok), taskDir });
+    assert.equal(v.verdict, "rejected");
+    assert.match(v.reason, /npm test/);
+    assert.match(v.reason, /TDD/);
+  });
+});
+test("direct-pr com PR verificada é aprovado; com PR não verificada é reprovado", async () => {
+  await withEvidence(async (taskDir) => {
+    assert.equal((await judgeDone("direct-pr", "done", [PR], { ...env(ok), taskDir })).verdict, "approved");
+  });
+  await withEvidence(async (taskDir) => {
+    const v = await judgeDone("direct-pr", "done", [PR], { ...env(bad), taskDir });
+    assert.equal(v.verdict, "rejected");
+    assert.match(v.reason, /NÃO VERIFICADA/);
+  });
 });
 
 test("falha ao consultar a PR vira não verificada, nunca aprovada", async () => {
-  const v = await judgeDone(
-    "direct-pr",
-    "done",
-    [PR],
-    env({
-      prCheck: async () => {
-        throw new Error("gh fora");
-      },
-    }),
-  );
-  assert.equal(v.verdict, "unverified");
-  assert.notEqual(v.verdict, "approved");
+  await withEvidence(async (taskDir) => {
+    const v = await judgeDone("direct-pr", "done", [PR], {
+      ...env({
+        prCheck: () => Promise.reject(new Error("gh fora")),
+      }),
+      taskDir,
+    });
+    assert.equal(v.verdict, "unverified");
+    assert.notEqual(v.verdict, "approved");
+  });
 });
 
 test("local-only sem commit informado é reprovado; com SHA que existe é aprovado; SHA inexistente é reprovado", async () => {
