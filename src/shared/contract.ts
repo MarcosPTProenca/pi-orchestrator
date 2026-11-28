@@ -21,6 +21,7 @@ export interface Report {
   question: string | null;
   artifacts: string[];
   reported_at: string;
+  released_tools?: string[];
 }
 
 // keep: ausência de evidência, evidência parcial e conclusão verificada são coisas diferentes; 'none' não prova que nada foi feito.
@@ -133,6 +134,12 @@ export function validateReport(input: unknown, taskId: string): Report {
   if (r.artifacts !== undefined && (!Array.isArray(r.artifacts) || !r.artifacts.every((a) => typeof a === "string"))) {
     throw new Error("artifacts deve ser uma lista de strings");
   }
+  if (
+    r.released_tools !== undefined &&
+    (!Array.isArray(r.released_tools) || !r.released_tools.every((tool) => typeof tool === "string"))
+  ) {
+    throw new Error("released_tools deve ser uma lista de strings");
+  }
   return {
     task_id: taskId,
     status,
@@ -140,6 +147,7 @@ export function validateReport(input: unknown, taskId: string): Report {
     question,
     artifacts: r.artifacts ?? [],
     reported_at: typeof r.reported_at === "string" ? r.reported_at : "",
+    ...(r.released_tools === undefined ? {} : { released_tools: r.released_tools as string[] }),
   };
 }
 
