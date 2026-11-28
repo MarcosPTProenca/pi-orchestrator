@@ -6,6 +6,7 @@ export interface Usage {
   totalTokens: number;
   cost: number;
   costFromProvider: boolean;
+  costAvailable?: boolean;
 }
 
 export function newUsage(): Usage {
@@ -155,7 +156,7 @@ export function orchestratorUsage(entries: unknown[]): {
   cacheRead: number;
   cacheWrite: number;
   totalTokens: number;
-  cost: number;
+  cost: number | null;
   cacheWarmCost: number | null;
   turns: TurnSummary;
 } {
@@ -167,8 +168,8 @@ export function orchestratorUsage(entries: unknown[]): {
     cacheRead: r.total.cacheRead,
     cacheWrite: r.total.cacheWrite,
     totalTokens: r.total.totalTokens,
-    cost: r.total.cost,
-    cacheWarmCost: r.warmIds.length > 0 ? r.warm.cost : null,
+    cost: r.total.costFromProvider || r.total.cost > 0 ? r.total.cost : null,
+    cacheWarmCost: r.warm.costAvailable === true ? r.warm.cost : null,
     turns: summarizeTurns(r.turns),
   };
 }
@@ -252,7 +253,10 @@ export function addCacheWarmUsage(
     out.cacheRead += u.cacheRead ?? 0;
     out.cacheWrite += u.cacheWrite ?? 0;
     out.totalTokens += u.totalTokens ?? 0;
-    out.cost += typeof u.cost?.total === "number" ? u.cost.total : 0;
+    if (typeof u.cost?.total === "number") {
+      out.cost += u.cost.total;
+      out.costAvailable = true;
+    }
   }
   return { warm: out, warmIds: ids };
 }
@@ -295,8 +299,8 @@ export function usageReport(sessions: unknown[][]) {
       hit_ratio: cacheHitRatio(total),
       denominator: total.input + total.cacheRead + total.cacheWrite,
     },
-    cost_usd: total.cost,
+    cost_usd: total.costFromProvider || total.cost > 0 ? total.cost : null,
     cost_from_provider: total.costFromProvider,
-    cache_warm_cost_usd: warm.warmIds.length > 0 ? warm.warm.cost : null,
+    cache_warm_cost_usd: warm.warm.costAvailable === true ? warm.warm.cost : null,
   };
 }
