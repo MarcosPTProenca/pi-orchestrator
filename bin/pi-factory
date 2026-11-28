@@ -3,6 +3,11 @@
 set -euo pipefail
 # Resolve symlinks (ex.: ~/.local/bin/pi-factory) antes de localizar o repositório.
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+ORACLE_AGENT_DIR="$HERE/.pi/agents"
+case ":${PI_SUBAGENT_EXTRA_AGENT_DIRS:-}:" in
+  *":$ORACLE_AGENT_DIR:"*) ;;
+  *) export PI_SUBAGENT_EXTRA_AGENT_DIRS="${PI_SUBAGENT_EXTRA_AGENT_DIRS:+$PI_SUBAGENT_EXTRA_AGENT_DIRS:}$ORACLE_AGENT_DIR" ;;
+esac
 if [ "${HERDR_ENV:-}" != "1" ] || [ -z "${HERDR_PANE_ID:-}" ]; then
   echo "pi-factory: rode dentro de um pane do Herdr (HERDR_ENV=1 e HERDR_PANE_ID definidos)" >&2
   exit 1
