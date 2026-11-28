@@ -3,19 +3,23 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 const bin = join(import.meta.dirname, "..", "bin");
 
 const stubDir = (() => {
   const dir = mkdtempSync(join(tmpdir(), "pi-factory-stub-"));
-  writeFileSync(join(dir, "pi"), '#!/usr/bin/env bash\nprintf "%s\\n" "$@"\n');
+  writeFileSync(
+    join(dir, "pi"),
+    '#!/usr/bin/env bash\nprintf "%s\\n" "$@"\nprintf "EXTRA=%s\\n" "$PI_SUBAGENT_EXTRA_AGENT_DIRS" >&2\n',
+  );
   chmodSync(join(dir, "pi"), 0o755);
   return dir;
 })();
 
-function launch(name: string, args: string[], herdr: boolean) {
+function launch(name: string, args: string[], herdr: boolean, extraAgentDirs?: string) {
   const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${stubDir}:${process.env.PATH}`, PI_ORCH_NO_SYNC: "1" };
+  if (extraAgentDirs !== undefined) env.PI_SUBAGENT_EXTRA_AGENT_DIRS = extraAgentDirs;
   delete env.HERDR_ENV;
   delete env.HERDR_PANE_ID;
   if (herdr) {
@@ -34,6 +38,7 @@ test("pi-orch e pi-factory passam os mesmos argumentos ao pi", () => {
   assert.equal(legacy.stdout, factory.stdout);
   assert.match(factory.stdout, /src\/index\.ts/);
   assert.equal(factory.stdout.trimEnd().split("\n").at(-1), "valor com espaço");
+  assert.ok(factory.stderr.includes(`EXTRA=${resolve(bin, "..", ".pi", "agents")}`));
 });
 
 test("fora do Herdr, os dois launchers recusam com a mesma mensagem e status", () => {
@@ -43,6 +48,16 @@ test("fora do Herdr, os dois launchers recusam com a mesma mensagem e status", (
   assert.equal(legacy.status, factory.status);
   assert.equal(legacy.stderr, factory.stderr);
   assert.match(factory.stderr, /pi-factory: rode dentro de um pane do Herdr/);
+});
+
+test("launcher preserva diretórios extras e não duplica o diretório empacotado", () => {
+  const packaged = resolve(bin, "..", ".pi", "agents");
+  const existing = launch("pi-factory", [], true, `/existing${process.platform === "win32" ? ";" : ":"}${packaged}`);
+  assert.equal(existing.status, 0, existing.stderr);
+  assert.ok(existing.stderr.includes(`EXTRA=/existing:${packaged}`));
+  const duplicate = launch("pi-factory", [], true, packaged);
+  assert.equal(duplicate.status, 0, duplicate.stderr);
+  assert.equal(duplicate.stderr.trim().split("EXTRA=").at(-1), packaged);
 });
 
 test("pi-orch é só um alias que executa pi-factory", () => {

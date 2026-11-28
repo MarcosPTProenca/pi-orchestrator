@@ -59,9 +59,13 @@ test("oracleCallGate recusa bash e escrita no agente do Oracle", () => {
   );
 });
 
-test("oracleCallGate recusa consulta quando o agente não está definido no projeto", () => {
-  const reason = oracleCallGate({ agent: ORACLE_AGENT, cwd: projectWithAgent(null) });
-  assert.match(reason ?? "", /não definido/);
+test("oracleCallGate usa o agente empacotado em projeto externo sem definição local", () => {
+  assert.equal(oracleCallGate({ agent: ORACLE_AGENT, cwd: projectWithAgent(null) }), null);
+});
+
+test("oracleCallGate prefere agente local válido e recusa override inseguro", () => {
+  assert.equal(oracleCallGate({ agent: ORACLE_AGENT, cwd: projectWithAgent("read, grep") }), null);
+  assert.match(oracleCallGate({ agent: ORACLE_AGENT, cwd: projectWithAgent("read, bash") }) ?? "", /bash/);
 });
 
 test("oracleCallGate deixa passar agentes que não são do Oracle", () => {
